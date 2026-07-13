@@ -1184,31 +1184,6 @@ export default function Home() {
         )}
       </header>
 
-      <aside className="flow-rail" aria-label="Your working flow">
-        <div className="rail-line" aria-hidden="true" />
-        <button type="button" className={`rail-step ${view === "home" ? "current" : ""}`} onClick={() => setView("home")}>
-          <span>1</span>
-          <div><strong>Home</strong><small>Continue · decisions · inbox</small></div>
-        </button>
-        <button type="button" className={`rail-step ${view === "board" ? "current" : ""}`} onClick={() => setView("board")}>
-          <span>2</span>
-          <div><strong>Kanban board</strong><small>{scopedTasks.filter((task) => ["in_progress", "blocked", "review"].includes(task.status)).length} in flight</small></div>
-        </button>
-        <button type="button" className={`rail-step ${view === "notes" ? "current" : ""}`} onClick={() => setView("notes")}>
-          <span>3</span>
-          <div><strong>Notes</strong><small>{scopedNotes.length} in this scope</small></div>
-        </button>
-        <button type="button" className={`rail-step ${view === "activity" ? "current" : ""}`} onClick={() => setView("activity")}>
-          <span>4</span>
-          <div><strong>Activity</strong><small>{scopedTasks.length} work items</small></div>
-        </button>
-        <div className="root-boundary">
-          <span>Root boundary</span>
-          <strong>{data.workspace.name}</strong>
-          <small title={data.workspace.root}>{data.workspace.root}</small>
-        </div>
-      </aside>
-
       <main id="main-content" className="main-content">
         {view === "board" ? (
           <KanbanBoard

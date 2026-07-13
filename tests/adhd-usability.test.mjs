@@ -63,7 +63,10 @@ test("makes captures immediate, durable, and visibly undoable", async () => {
   assert.match(page, /Latest progress/);
   assert.match(page, /\.slice\(0, 3\)/);
   assert.doesNotMatch(page, /Local files|local-state/);
+  assert.doesNotMatch(page, /flow-rail|root-boundary|Your working flow/);
   assert.doesNotMatch(css, /\.local-state/);
+  assert.doesNotMatch(css, /\.flow-rail|\.rail-step|\.rail-line|\.root-boundary/);
+  assert.match(css, /\.main-content\s*\{[^}]*width:\s*min\(1720px, calc\(100% - 64px\)\)[^}]*margin:\s*0 auto/);
   assert.match(css, /\.pulse-grid/);
   assert.match(css, /\.home-support-grid/);
   assert.match(css, /-webkit-line-clamp:\s*4/);
@@ -165,7 +168,7 @@ test("ships a scoped Kanban, complete cards, lifecycle history, and retained ter
   assert.match(page, /task\|todo/);
 
   assert.match(css, /\.kanban-grid/);
-  assert.match(css, /\.board-view\s*\{[^}]*width:\s*calc\(100vw - 365px\)/);
+  assert.match(css, /\.board-view\s*\{[^}]*width:\s*100%/);
   assert.match(css, /@container\s*\(max-width:\s*210px\)/);
   assert.match(page, /Select a card for full details/);
   assert.match(page, /title=\{hoverSummary\}/);
