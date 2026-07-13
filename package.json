@@ -12,7 +12,12 @@
     "url": "https://github.com/batteryshark/slash-work/issues"
   },
   "homepage": "https://github.com/batteryshark/slash-work#readme",
-  "keywords": ["agents", "kanban", "local-first", "project-management"],
+  "keywords": [
+    "agents",
+    "kanban",
+    "local-first",
+    "project-management"
+  ],
   "bin": {
     "work": "./bin/work.mjs"
   },
@@ -36,7 +41,7 @@
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",
     "typescript": "5.9.3",
-    "vite": "8.0.13"
+    "vite": "8.1.4"
   },
   "type": "module"
 }
