@@ -11,6 +11,38 @@ read-only source reference, and durable history.
 
 Requires Node.js 22.13 or newer and npm.
 
+## See Work in action
+
+The screenshots below use a fictional project; no private workspace data is
+included.
+
+### Keep the whole lifecycle visible
+
+![Work board showing backlog, ready, in flight, blocked, review, and completed columns](docs/screenshots/board.jpg)
+
+<table>
+  <tr>
+    <td width="50%">
+      <strong>Resume without reconstructing context</strong><br><br>
+      <img src="docs/screenshots/home.jpg" alt="Work project home showing current work, latest progress, and quick capture">
+    </td>
+    <td width="50%">
+      <strong>Keep reference notes beside the project</strong><br><br>
+      <img src="docs/screenshots/notes.jpg" alt="Work notes view showing reference notes and an explicit agent review request">
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <strong>Inspect source without turning Work into an editor</strong><br><br>
+      <img src="docs/screenshots/files.jpg" alt="Work read-only file explorer showing Git changes and a TypeScript source preview">
+    </td>
+    <td width="50%">
+      <strong>Follow durable progress over time</strong><br><br>
+      <img src="docs/screenshots/activity.jpg" alt="Work activity view showing a chronological project progress timeline">
+    </td>
+  </tr>
+</table>
+
 ## Start Work for a root directory
 
 Install the public npm package once:
