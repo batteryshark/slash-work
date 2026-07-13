@@ -1,257 +1,440 @@
 "use client";
 
-import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-
-type ScopeLevel = "all" | "area" | "project";
+import {
+  FormEvent,
+  KeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 type Project = {
   id: string;
+  projectId: string | null;
   name: string;
-  code: string;
-  area: string;
-  state: "Active" | "Quiet" | "Needs you";
-  ideas: number;
-  active: number;
-  focus: string;
-  lastUpdate: string;
-  nextAction: string;
-  context: string;
+  path: string;
+  depth: number;
+  markers: string[];
+  aliasPaths?: string[];
 };
 
-type AttentionItem = {
-  id: string;
-  project: string;
-  label: string;
-  title: string;
-  detail: string;
-  action: string;
-};
-
-type CapturedItem = {
+type Capture = {
   id: string;
   text: string;
-  projectId: string | null;
-  projectName: string;
-  kind: "Idea" | "Question" | "Update";
+  kind: "idea" | "question" | "update";
+  scopePath: string;
+  projectPath: string | null;
   createdAt: string;
+  updatedAt: string;
 };
 
-const projects: Project[] = [
-  {
-    id: "lucent",
-    name: "Lucent",
-    code: "LC",
-    area: "Software",
-    state: "Quiet",
-    ideas: 0,
-    active: 0,
-    focus: "No active work",
-    lastUpdate: "The project is registered and ready when a direction emerges.",
-    nextAction: "Capture the first useful thread when it appears",
-    context: "Lucent has intentionally been left quiet. An empty project is allowed to stay empty without becoming an obligation.",
-  },
-  {
-    id: "agent-riskmap",
-    name: "Agent Riskmap",
-    code: "AR",
-    area: "Software",
-    state: "Active",
-    ideas: 1,
-    active: 2,
-    focus: "Public release",
-    lastUpdate: "The release sequence is license, public repository, deployment, then announcement.",
-    nextAction: "Confirm AGPLv3 compatibility before changing repository visibility",
-    context: "The release plan is ordered so public communication cannot outrun licensing and deployment readiness.",
-  },
-  {
-    id: "unmask",
-    name: "Unmask",
-    code: "UM",
-    area: "Software",
-    state: "Needs you",
-    ideas: 2,
-    active: 1,
-    focus: "Evaluation corpus",
-    lastUpdate: "The note asks for at least nine examples but specifies five source-only and five binary-only examples.",
-    nextAction: "Resolve whether the target is nine or ten examples",
-    context: "The evaluation should cover source-only and binary-only analysis without silently changing the intended sample size.",
-  },
-  {
-    id: "rekb",
-    name: "ReKB",
-    code: "KB",
-    area: "Software",
-    state: "Active",
-    ideas: 3,
-    active: 1,
-    focus: "Repository curation",
-    lastUpdate: "OKF skills and useful peLab material have been identified as candidate inputs.",
-    nextAction: "Shape the curation plan before publishing the repository",
-    context: "ReKB should become a curated knowledge asset rather than a direct dump of every prior experiment.",
-  },
-  {
-    id: "rekit",
-    name: "ReKit",
-    code: "RK",
-    area: "Software",
-    state: "Active",
-    ideas: 7,
-    active: 3,
-    focus: "Packaging architecture",
-    lastUpdate: "Static and dynamic analysis tools need different packaging models.",
-    nextAction: "Decide whether tool binaries belong inside packages or install separately",
-    context: "The packaging model must cover skills, scripts, assets, references, and platform-specific tools without turning ReKit into an opaque bundle.",
-  },
-  {
-    id: "rekit-factory",
-    name: "ReKit Factory",
-    code: "RF",
-    area: "Software",
-    state: "Needs you",
-    ideas: 5,
-    active: 2,
-    focus: "Provider controls",
-    lastUpdate: "Global and per-job model settings need to support local compatible endpoints.",
-    nextAction: "Define the smallest provider registration and model override flow",
-    context: "Factory owns execution concerns that should not leak into the portable ReKit package surface.",
-  },
-  {
-    id: "toolstack",
-    name: "Toolstack",
-    code: "TS",
-    area: "Software",
-    state: "Active",
-    ideas: 1,
-    active: 1,
-    focus: "Sandbox validation",
-    lastUpdate: "The bwrap and seatbelt changes still need a clean local build test.",
-    nextAction: "Run the local validation matrix before proposing the merge",
-    context: "The merge proposal should include evidence that Linux bwrap and macOS seatbelt behavior still match the intended isolation contract.",
-  },
-  {
-    id: "parallax",
-    name: "Parallax",
-    code: "PX",
-    area: "Software",
-    state: "Quiet",
-    ideas: 2,
-    active: 0,
-    focus: "Release readiness",
-    lastUpdate: "README cleanup and a simple sharp identity are the remaining publication threads.",
-    nextAction: "Shape the release checklist before starting visual work",
-    context: "Parallax is not active yet. Its captured publication work remains visible without competing with current execution.",
-  },
-];
-
-const attentionItems: AttentionItem[] = [
-  {
-    id: "ida-ownership",
-    project: "ReKit · ReKit Factory",
-    label: "Ownership",
-    title: "IDA lab ownership",
-    detail: "The lab is useful to agents but cannot ship inside the portable pack. Decide which project owns its configuration and lifecycle.",
-    action: "Assign to ReKit Factory",
-  },
-  {
-    id: "unmask-count",
-    project: "Unmask",
-    label: "Clarify",
-    title: "Unmask 9-vs-10 examples",
-    detail: "The captured thought says at least nine examples, then asks for five source-only and five binary-only reports.",
-    action: "Use 10 examples",
-  },
-  {
-    id: "agpl-approval",
-    project: "Portfolio",
-    label: "Approval",
-    title: "AGPLv3 migration",
-    detail: "Agent Riskmap, Unmask, and Toolstack all include the same licensing change. Treat it as one decision with project-specific applications.",
-    action: "Approve the migration plan",
-  },
-];
-
-const storageKeys = {
-  captures: "work.captures.v1",
-  project: "work.project.v1",
-  scope: "work.scope.v1",
-  resolved: "work.resolved.v1",
+type ProjectNote = {
+  id: string;
+  title: string;
+  text: string;
+  scopePath: string;
+  projectPath: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
-function inferKind(text: string): CapturedItem["kind"] {
-  const lower = text.toLowerCase();
-  if (text.includes("?") || /\b(should|could|whether|figure out|understand)\b/.test(lower)) return "Question";
-  if (/\b(done|finished|completed|decided|figured out|fixed)\b/.test(lower)) return "Update";
-  return "Idea";
+type DecisionAction =
+  | "approve"
+  | "reject"
+  | "defer"
+  | "cancel"
+  | "assign"
+  | "keep_unassigned"
+  | "reopen";
+
+type DecisionResolution = {
+  action: Exclude<DecisionAction, "reopen">;
+  choice: Record<string, unknown> | null;
+  note: string | null;
+  at: string;
+};
+
+type Decision = {
+  id: string;
+  title: string;
+  detail: string;
+  projectPath: string | null;
+  options: string[];
+  status:
+    | "open"
+    | "approved"
+    | "rejected"
+    | "deferred"
+    | "cancelled"
+    | "assigned"
+    | "kept_unassigned";
+  resolution: DecisionResolution | null;
+  history: Array<DecisionResolution | { action: "reopen"; choice: null; note: string | null; at: string }>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type ChecklistItem = { checked: boolean; text: string };
+
+type WorkTask = {
+  id: string;
+  title: string;
+  status: string;
+  projectPath: string | null;
+  type: "task" | "bug" | "feature" | "research" | "admin" | "epic" | "idea";
+  assignee: string | null;
+  agents: string[];
+  priority: "critical" | "high" | "medium" | "low" | "none";
+  tags: string[];
+  dependsOn: string[];
+  blockedBy: string[];
+  blockedReason: string | null;
+  parentId: string | null;
+  dueAt: string | null;
+  estimate: string | null;
+  source: string | null;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  sections: {
+    goal: string;
+    requirements: string;
+    acceptanceCriteria: string;
+    plan: string;
+    notes: string;
+    progressLog: string;
+    completionSummary: string;
+  };
+  requirements: ChecklistItem[];
+  acceptanceCriteria: ChecklistItem[];
+  log: Array<{ at: string; message: string }>;
+};
+
+type AppView = "home" | "board" | "notes" | "activity";
+type ThemePreference = "system" | "light" | "dark";
+
+type WorkspacePayload = {
+  version: number;
+  workspace: {
+    id: string;
+    name: string;
+    root: string;
+    dataDir: string;
+    startScopePath?: string;
+    statuses: string[];
+  };
+  projects: Project[];
+  captures: Capture[];
+  decisions: Decision[];
+  notes: ProjectNote[];
+  tasks: WorkTask[];
+};
+
+type WorkspaceSummary = {
+  id: string;
+  name: string;
+  root: string;
+};
+
+type WorkspaceDirectory = {
+  activeWorkspaceId: string;
+  workspaces: WorkspaceSummary[];
+};
+
+type DecisionDraft = {
+  action: Exclude<DecisionAction, "reopen"> | "";
+  projectPath: string;
+  deferFor: "today" | "tomorrow" | "week";
+};
+
+type CaptureReceipt = {
+  capture: Capture;
+  destination: string;
+};
+
+type DecisionReceipt = {
+  decisionId: string;
+  message: string;
+};
+
+type ServiceRestartReceipt = {
+  restarting: true;
+  serviceInstanceId: string;
+};
+
+type ServiceHealth = {
+  ok: boolean;
+  service?: { instanceId?: string; restartable?: boolean };
+};
+
+const emptyDraft: DecisionDraft = {
+  action: "",
+  projectPath: "",
+  deferFor: "week",
+};
+
+function pathParts(path: string) {
+  return path === "." ? [] : path.split("/").filter(Boolean);
+}
+
+function displaySegment(segment: string) {
+  return segment
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function pathContains(candidate: string | null, scope: string) {
+  if (!candidate) return scope === ".";
+  if (scope === ".") return true;
+  return candidate === scope || candidate.startsWith(`${scope}/`);
+}
+
+function parentPath(path: string) {
+  const parts = pathParts(path);
+  if (parts.length <= 1) return ".";
+  return parts.slice(0, -1).join("/");
+}
+
+function relativeFromScope(path: string, scope: string) {
+  if (scope === ".") return path;
+  return path === scope ? "" : path.slice(scope.length + 1);
+}
+
+function wait(milliseconds: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
 function cleanCommand(text: string) {
   return text.replace(/^\s*\/work\s*/i, "").trim();
 }
 
-function inferProject(text: string) {
-  const normalized = text.toLowerCase().replace(/[^a-z0-9]+/g, " ");
-  return projects.find((project) => {
-    const name = project.name.toLowerCase().replace(/[^a-z0-9]+/g, " ");
-    return normalized.includes(name) || normalized.includes(project.id.replace(/-/g, " "));
-  });
+function shortTime(iso: string) {
+  const date = new Date(iso);
+  const today = new Date();
+  const sameDay = date.toDateString() === today.toDateString();
+  return sameDay
+    ? date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-function timeLabel(iso: string) {
-  const date = new Date(iso);
-  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+function deferUntil(preset: DecisionDraft["deferFor"]) {
+  const date = new Date();
+  if (preset === "today") date.setHours(date.getHours() + 4);
+  if (preset === "tomorrow") date.setDate(date.getDate() + 1);
+  if (preset === "week") date.setDate(date.getDate() + 7);
+  return date.toISOString();
+}
+
+function decisionIsActive(decision: Decision) {
+  if (decision.status === "open") return true;
+  if (decision.status !== "deferred") return false;
+  const until = decision.resolution?.choice?.until;
+  return typeof until === "string" && new Date(until).getTime() <= Date.now();
+}
+
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const workspaceId = typeof window === "undefined" ? null : localStorage.getItem("work.workspace");
+  const response = await fetch(path, {
+    ...init,
+    headers: {
+      ...(init?.body ? { "content-type": "application/json" } : {}),
+      ...(workspaceId ? { "x-work-workspace": workspaceId } : {}),
+      ...init?.headers,
+    },
+  });
+
+  const body = (await response.json().catch(() => null)) as
+    | T
+    | { error?: string | { message?: string }; message?: string }
+    | null;
+
+  if (!response.ok) {
+    const rawError = body && typeof body === "object" && "error" in body ? body.error : null;
+    const message = typeof rawError === "string"
+      ? rawError
+      : rawError && typeof rawError === "object"
+        ? rawError.message
+        : body && typeof body === "object" && "message" in body
+          ? body.message
+          : null;
+    throw new Error(message || `Work could not save that (${response.status}).`);
+  }
+
+  return body as T;
 }
 
 export default function Home() {
-  const [scope, setScope] = useState<ScopeLevel>("project");
-  const [selectedProjectId, setSelectedProjectId] = useState("rekit");
-  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
-  const [contextOpen, setContextOpen] = useState(false);
-  const [expandedAttention, setExpandedAttention] = useState<string | null>(null);
-  const [resolvedAttention, setResolvedAttention] = useState<string[]>([]);
+  const [data, setData] = useState<WorkspacePayload | null>(null);
+  const [workspaceDirectory, setWorkspaceDirectory] = useState<WorkspaceDirectory | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [view, setView] = useState<AppView>("home");
+  const [pendingHomeSection, setPendingHomeSection] = useState<"inbox" | "needs-you" | null>(null);
+  const [theme, setTheme] = useState<ThemePreference>(() => {
+    if (typeof window === "undefined") return "system";
+    const saved = localStorage.getItem("work.theme");
+    return saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
+  });
+  const [scopePath, setScopePath] = useState(".");
   const [command, setCommand] = useState("");
-  const [captures, setCaptures] = useState<CapturedItem[]>([]);
-  const [capturesOpen, setCapturesOpen] = useState(false);
-  const [status, setStatus] = useState("Ready when you are.");
-  const [lastCaptureId, setLastCaptureId] = useState<string | null>(null);
-  const [hydrated, setHydrated] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [savingCapture, setSavingCapture] = useState(false);
+  const [movingCaptureId, setMovingCaptureId] = useState<string | null>(null);
+  const [captureToMove, setCaptureToMove] = useState<Capture | null>(null);
+  const [captureMoveSearch, setCaptureMoveSearch] = useState("");
+  const [captureError, setCaptureError] = useState<string | null>(null);
+  const [captureReceipt, setCaptureReceipt] = useState<CaptureReceipt | null>(null);
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const [restartArmed, setRestartArmed] = useState(false);
+  const [restartingService, setRestartingService] = useState(false);
+  const [serviceRestartError, setServiceRestartError] = useState<string | null>(null);
+  const [projectSearch, setProjectSearch] = useState("");
+  const [expandedDecision, setExpandedDecision] = useState<string | null>(null);
+  const [decisionDrafts, setDecisionDrafts] = useState<Record<string, DecisionDraft>>({});
+  const [savingDecision, setSavingDecision] = useState<string | null>(null);
+  const [decisionReceipt, setDecisionReceipt] = useState<DecisionReceipt | null>(null);
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [creatingNote, setCreatingNote] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [creatingTask, setCreatingTask] = useState(false);
+  const [taskError, setTaskError] = useState<string | null>(null);
+  const [savingTask, setSavingTask] = useState(false);
+  const [taskSearch, setTaskSearch] = useState("");
+  const [showTerminalTasks, setShowTerminalTasks] = useState(false);
+  const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const loadRequestRef = useRef(0);
 
-  const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? projects[4];
-  const activeAttention = attentionItems.filter((item) => !resolvedAttention.includes(item.id));
-
-  useEffect(() => {
+  const loadWorkspace = useCallback(async (quiet = false) => {
+    const requestNumber = ++loadRequestRef.current;
     try {
-      const storedCaptures = localStorage.getItem(storageKeys.captures);
-      const storedProject = localStorage.getItem(storageKeys.project);
-      const storedScope = localStorage.getItem(storageKeys.scope) as ScopeLevel | null;
-      const storedResolved = localStorage.getItem(storageKeys.resolved);
-
-      if (storedCaptures) setCaptures(JSON.parse(storedCaptures));
-      if (storedProject && projects.some((project) => project.id === storedProject)) setSelectedProjectId(storedProject);
-      if (storedScope && ["all", "area", "project"].includes(storedScope)) setScope(storedScope);
-      if (storedResolved) setResolvedAttention(JSON.parse(storedResolved));
-    } catch {
-      setStatus("Your workspace is ready. Previous local preferences could not be restored.");
-    } finally {
-      setHydrated(true);
+      const directory = await requestJson<WorkspaceDirectory>("/api/workspaces", {
+        headers: { accept: "application/json" },
+      });
+      const rememberedId = localStorage.getItem("work.workspace");
+      const selectedId = directory.workspaces.some((workspace) => workspace.id === rememberedId)
+        ? rememberedId
+        : directory.activeWorkspaceId;
+      if (selectedId) localStorage.setItem("work.workspace", selectedId);
+      const workspace = await requestJson<WorkspacePayload>("/api/workspace", {
+        headers: { accept: "application/json" },
+      });
+      if (requestNumber !== loadRequestRef.current) return;
+      setWorkspaceDirectory(directory);
+      setData(workspace);
+      setLastSyncedAt(new Date());
+      setLoadError(null);
+    } catch (error) {
+      if (requestNumber !== loadRequestRef.current) return;
+      if (!quiet) {
+        setLoadError(error instanceof Error ? error.message : "The local workspace is not available.");
+      }
     }
   }, []);
 
-  useEffect(() => {
-    if (!hydrated) return;
-    localStorage.setItem(storageKeys.captures, JSON.stringify(captures));
-  }, [captures, hydrated]);
+  async function switchWorkspace(workspaceId: string) {
+    if (workspaceId === data?.workspace.id) {
+      setWorkspaceMenuOpen(false);
+      return;
+    }
+    localStorage.setItem("work.workspace", workspaceId);
+    setWorkspaceMenuOpen(false);
+    setProjectMenuOpen(false);
+    setSelectedNoteId(null);
+    setSelectedTaskId(null);
+    setScopePath(".");
+    setView("home");
+    setData(null);
+    await loadWorkspace();
+  }
+
+  async function restartLocalService() {
+    if (restartingService) return;
+    setRestartingService(true);
+    setServiceRestartError(null);
+    try {
+      const accepted = await requestJson<ServiceRestartReceipt>("/api/service/restart", {
+        method: "POST",
+        headers: { "x-work-restart": "confirm" },
+        body: JSON.stringify({ confirm: true }),
+      });
+      const deadline = Date.now() + 20_000;
+      let reconnected = false;
+      await wait(400);
+      while (Date.now() < deadline) {
+        try {
+          const response = await fetch("/api/health", {
+            cache: "no-store",
+            headers: { accept: "application/json" },
+          });
+          if (response.ok) {
+            const health = await response.json() as ServiceHealth;
+            if (health.service?.instanceId && health.service.instanceId !== accepted.serviceInstanceId) {
+              reconnected = true;
+              break;
+            }
+          }
+        } catch {
+          // The brief connection failure is the expected middle of a restart.
+        }
+        await wait(500);
+      }
+      if (!reconnected) throw new Error("Work did not come back within 20 seconds.");
+      await loadWorkspace();
+      setRestartArmed(false);
+      setWorkspaceMenuOpen(false);
+    } catch (error) {
+      setServiceRestartError(error instanceof Error ? error.message : "Work could not restart.");
+    } finally {
+      setRestartingService(false);
+    }
+  }
 
   useEffect(() => {
-    if (!hydrated) return;
-    localStorage.setItem(storageKeys.project, selectedProjectId);
-    localStorage.setItem(storageKeys.scope, scope);
-  }, [hydrated, scope, selectedProjectId]);
+    void loadWorkspace();
+    const interval = window.setInterval(() => void loadWorkspace(true), 12_000);
+    const onFocus = () => void loadWorkspace(true);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [loadWorkspace]);
 
   useEffect(() => {
-    if (!hydrated) return;
-    localStorage.setItem(storageKeys.resolved, JSON.stringify(resolvedAttention));
-  }, [hydrated, resolvedAttention]);
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const applyTheme = () => {
+      const resolved = theme === "system" ? (media.matches ? "dark" : "light") : theme;
+      document.documentElement.dataset.theme = resolved;
+      document.documentElement.style.colorScheme = resolved;
+      document.querySelector('meta[name="theme-color"]')?.setAttribute("content", resolved === "dark" ? "#14151a" : "#f2efe9");
+    };
+    localStorage.setItem("work.theme", theme);
+    applyTheme();
+    media.addEventListener("change", applyTheme);
+    return () => media.removeEventListener("change", applyTheme);
+  }, [theme]);
+
+  useEffect(() => {
+    if (!data) return;
+    const key = `work.scope.${data.workspace.root}`;
+    const remembered = localStorage.getItem(key);
+    const requested = data.workspace.startScopePath && data.workspace.startScopePath !== "."
+      ? data.workspace.startScopePath
+      : remembered ?? ".";
+    const exists = requested === "." || data.projects.some((project) => pathContains(project.path, requested));
+    if (exists) setScopePath(requested);
+  }, [data?.workspace.root]);
+
+  useEffect(() => {
+    if (!data) return;
+    localStorage.setItem(`work.scope.${data.workspace.root}`, scopePath);
+  }, [data, scopePath]);
 
   useEffect(() => {
     const onGlobalKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -266,258 +449,1073 @@ export default function Home() {
     return () => window.removeEventListener("keydown", onGlobalKeyDown);
   }, []);
 
-  const scopeName = useMemo(() => {
-    if (scope === "all") return "General inbox";
-    if (scope === "area") return "Software inbox";
-    return selectedProject.name;
-  }, [scope, selectedProject.name]);
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+  }, [command]);
 
-  function navigateToProject(projectId: string) {
-    setSelectedProjectId(projectId);
-    setScope("project");
-    setContextOpen(false);
+  useEffect(() => {
+    if (view !== "home" || !pendingHomeSection) return;
+    const sectionId = pendingHomeSection;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setPendingHomeSection(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [view, pendingHomeSection]);
+
+  const selectedProject = useMemo(
+    () => data?.projects.find((project) => project.path === scopePath) ?? null,
+    [data, scopePath],
+  );
+
+  const scopeKind = scopePath === "." ? "root" : selectedProject ? "project" : "group";
+  const scopeLabel = scopePath === "."
+    ? data?.workspace.name ?? "This root"
+    : selectedProject?.name ?? displaySegment(pathParts(scopePath).at(-1) ?? scopePath);
+
+  const visibleProjects = useMemo(
+    () => (data?.projects ?? []).filter((project) => project.path !== "." && pathContains(project.path, scopePath)),
+    [data, scopePath],
+  );
+
+  const directProjects = useMemo(
+    () => visibleProjects.filter((project) => parentPath(project.path) === scopePath),
+    [visibleProjects, scopePath],
+  );
+
+  const childGroups = useMemo(() => {
+    const groups = new Map<string, { path: string; name: string; projects: number }>();
+    for (const project of visibleProjects) {
+      const remainder = relativeFromScope(project.path, scopePath);
+      const [first, ...rest] = pathParts(remainder);
+      if (!first || rest.length === 0) continue;
+      const path = scopePath === "." ? first : `${scopePath}/${first}`;
+      const current = groups.get(path);
+      groups.set(path, {
+        path,
+        name: displaySegment(first),
+        projects: (current?.projects ?? 0) + 1,
+      });
+    }
+    return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [scopePath, visibleProjects]);
+
+  const inboxFolderScopes = useMemo(() => {
+    const projects = data?.projects.filter((project) => project.path !== ".") ?? [];
+    const projectPaths = new Set(projects.map((project) => project.path));
+    const folders = new Set<string>();
+    for (const project of projects) {
+      const parts = pathParts(project.path);
+      for (let index = 1; index < parts.length; index += 1) {
+        const path = parts.slice(0, index).join("/");
+        if (!projectPaths.has(path)) folders.add(path);
+      }
+    }
+    return [...folders].sort((left, right) => left.localeCompare(right));
+  }, [data?.projects]);
+
+  const scopedCaptures = useMemo(() => {
+    return (data?.captures ?? [])
+      .filter((capture) => pathContains(capture.scopePath, scopePath) || pathContains(capture.projectPath, scopePath))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [data, scopePath]);
+
+  const scopedNotes = useMemo(() => {
+    return (data?.notes ?? [])
+      .filter((note) => scopePath === "." || pathContains(note.scopePath, scopePath) || pathContains(note.projectPath, scopePath))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }, [data, scopePath]);
+
+  useEffect(() => {
+    if (view !== "notes") return;
+    if (selectedNoteId && scopedNotes.some((note) => note.id === selectedNoteId)) return;
+    setSelectedNoteId(scopedNotes[0]?.id ?? null);
+  }, [view, selectedNoteId, scopedNotes]);
+
+  const scopedTasks = useMemo(() => {
+    return (data?.tasks ?? [])
+      .filter((task) => scopePath === "." || pathContains(task.projectPath, scopePath))
+      .sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+  }, [data, scopePath]);
+
+  const selectedTask = selectedTaskId
+    ? (data?.tasks ?? []).find((task) => task.id === selectedTaskId) ?? null
+    : null;
+
+  const activeDecisions = useMemo(() => {
+    return (data?.decisions ?? [])
+      .filter(decisionIsActive)
+      .filter((decision) => scopePath === "." || pathContains(decision.projectPath, scopePath))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [data, scopePath]);
+  const visibleDecisions = activeDecisions.slice(0, 3);
+
+  const filteredProjectMenu = useMemo(() => {
+    const query = projectSearch.trim().toLowerCase();
+    if (!query) return data?.projects.filter((project) => project.path !== ".") ?? [];
+    return (data?.projects ?? []).filter((project) =>
+      project.path !== "." && `${project.name} ${project.path} ${(project.aliasPaths ?? []).join(" ")}`.toLowerCase().includes(query),
+    );
+  }, [data, projectSearch]);
+
+  const projectInventory = useMemo(() => {
+    const logicalProjects = data?.projects.filter((project) => project.path !== ".") ?? [];
+    return {
+      logicalProjects: logicalProjects.length,
+      linkedWorktrees: logicalProjects.reduce((total, project) => total + (project.aliasPaths ?? []).length, 0),
+    };
+  }, [data?.projects]);
+
+  function navigate(nextScope: string) {
+    setScopePath(nextScope || ".");
     setProjectMenuOpen(false);
-    const project = projects.find((item) => item.id === projectId);
-    setStatus(`${project?.name ?? "Project"} is in focus.`);
+    setProjectSearch("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function runCommand() {
+  function openHomeSection(section: "inbox" | "needs-you") {
+    setView("home");
+    setPendingHomeSection(section);
+  }
+
+  function destinationForCurrentScope() {
+    if (selectedProject) return `Project inbox: ${selectedProject.name}`;
+    if (scopePath === ".") return `Root inbox: ${data?.workspace.name ?? "Root"} · Unassigned`;
+    return `Folder inbox: ${scopeLabel} · Unassigned`;
+  }
+
+  function destinationForCapture(capture: Capture) {
+    const project = data?.projects.find((item) => item.path === capture.projectPath);
+    if (project) return `Project inbox: ${project.name}`;
+    if (capture.scopePath === ".") return `Root inbox: ${data?.workspace.name ?? "Root"} · Unassigned`;
+    return `Folder inbox: ${displaySegment(pathParts(capture.scopePath).at(-1) ?? capture.scopePath)} · Unassigned`;
+  }
+
+  function findNavigationTarget(text: string) {
+    const normalized = text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    return data?.projects.find((project) => {
+      const name = project.name.toLowerCase().replace(/[^a-z0-9]+/g, " ");
+      const path = project.path.toLowerCase().replace(/[^a-z0-9]+/g, " ");
+      return normalized.includes(name) || normalized.includes(path);
+    });
+  }
+
+  function replaceTask(task: WorkTask) {
+    setData((current) => current ? {
+      ...current,
+      tasks: [task, ...(current.tasks ?? []).filter((item) => item.id !== task.id)],
+    } : current);
+  }
+
+  function replaceNote(note: ProjectNote) {
+    setData((current) => current ? {
+      ...current,
+      notes: [note, ...(current.notes ?? []).filter((item) => item.id !== note.id)],
+    } : current);
+  }
+
+  async function createProjectNote() {
+    setCreatingNote(true);
+    setNoteError(null);
+    try {
+      const note = await requestJson<ProjectNote>("/api/notes", {
+        method: "POST",
+        body: JSON.stringify({
+          title: "Untitled note",
+          text: "",
+          scopePath,
+          projectPath: selectedProject?.path ?? null,
+        }),
+      });
+      replaceNote(note);
+      setSelectedNoteId(note.id);
+      setView("notes");
+      return note;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The note could not be created.";
+      setNoteError(message);
+      throw error;
+    } finally {
+      setCreatingNote(false);
+    }
+  }
+
+  async function updateProjectNote(noteId: string, patch: { title: string; text: string }) {
+    setNoteError(null);
+    try {
+      const note = await requestJson<ProjectNote>(`/api/notes/${encodeURIComponent(noteId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      replaceNote(note);
+      return note;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The note could not be saved.";
+      setNoteError(message);
+      throw error;
+    }
+  }
+
+  async function deleteProjectNote(noteId: string) {
+    setNoteError(null);
+    try {
+      await requestJson<{ ok: boolean }>(`/api/notes/${encodeURIComponent(noteId)}`, { method: "DELETE" });
+      setData((current) => current ? {
+        ...current,
+        notes: (current.notes ?? []).filter((item) => item.id !== noteId),
+      } : current);
+      setSelectedNoteId((current) => current === noteId ? null : current);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The note could not be deleted.";
+      setNoteError(message);
+      throw error;
+    }
+  }
+
+  async function createWorkTask(input: Record<string, unknown>, open = true) {
+    setSavingTask(true);
+    setTaskError(null);
+    try {
+      const task = await requestJson<WorkTask>("/api/tasks", {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+      replaceTask(task);
+      setCreatingTask(false);
+      if (open) {
+        setView("board");
+        setSelectedTaskId(task.id);
+      }
+      return task;
+    } catch (error) {
+      setTaskError(error instanceof Error ? error.message : "The work item could not be created.");
+      throw error;
+    } finally {
+      setSavingTask(false);
+    }
+  }
+
+  async function moveWorkTask(taskId: string, status: string, note?: string) {
+    setSavingTask(true);
+    setTaskError(null);
+    try {
+      const task = await requestJson<WorkTask>(`/api/tasks/${encodeURIComponent(taskId)}/move`, {
+        method: "POST",
+        body: JSON.stringify({ status, note }),
+      });
+      replaceTask(task);
+      return task;
+    } catch (error) {
+      setTaskError(error instanceof Error ? error.message : "The card could not be moved.");
+      throw error;
+    } finally {
+      setSavingTask(false);
+    }
+  }
+
+  async function patchWorkTask(taskId: string, patch: Record<string, unknown>) {
+    setSavingTask(true);
+    setTaskError(null);
+    try {
+      const task = await requestJson<WorkTask>(`/api/tasks/${encodeURIComponent(taskId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      replaceTask(task);
+      return task;
+    } catch (error) {
+      setTaskError(error instanceof Error ? error.message : "The work item could not be updated.");
+      throw error;
+    } finally {
+      setSavingTask(false);
+    }
+  }
+
+  async function toggleWorkChecklist(taskId: string, section: "requirements" | "acceptance", index: number, checked: boolean) {
+    setTaskError(null);
+    try {
+      const task = await requestJson<WorkTask>(`/api/tasks/${encodeURIComponent(taskId)}/checklist`, {
+        method: "POST",
+        body: JSON.stringify({ section, index, checked }),
+      });
+      replaceTask(task);
+    } catch (error) {
+      setTaskError(error instanceof Error ? error.message : "The checklist could not be updated.");
+    }
+  }
+
+  async function logWorkProgress(taskId: string, message: string) {
+    setTaskError(null);
+    try {
+      const task = await requestJson<WorkTask>(`/api/tasks/${encodeURIComponent(taskId)}/log`, {
+        method: "POST",
+        body: JSON.stringify({ message }),
+      });
+      replaceTask(task);
+    } catch (error) {
+      setTaskError(error instanceof Error ? error.message : "The progress entry could not be saved.");
+      throw error;
+    }
+  }
+
+  async function promoteCapture(capture: Capture) {
+    const firstLine = capture.text.split("\n").find((line) => line.trim())?.trim() ?? capture.text;
+    const title = firstLine.length > 500 ? `${firstLine.slice(0, 497)}…` : firstLine;
+    await createWorkTask({
+      title,
+      projectPath: capture.projectPath,
+      status: "backlog",
+      type: capture.kind === "question" ? "research" : "idea",
+      source: capture.id,
+      notes: capture.text.includes("\n")
+        ? `Promoted from capture ${capture.id}.\n\n${capture.text}`
+        : `Promoted from capture ${capture.id}.`,
+    });
+  }
+
+  async function runCommand() {
     const text = cleanCommand(command);
     if (!text) {
-      setStatus("Write anything you want remembered. No formatting needed.");
+      setCaptureError("Write anything you want remembered. No formatting needed.");
       inputRef.current?.focus();
       return;
     }
 
     const lower = text.toLowerCase();
-    const mentionedProject = inferProject(text);
-
-    if (/\b(show|focus|open|take me to)\b/.test(lower)) {
-      if (/\b(everything|all work|portfolio)\b/.test(lower)) {
-        setScope("all");
-        setStatus("Showing all work. New thoughts will go to the general inbox.");
+    const isMultiline = text.includes("\n");
+    const taskCommand = isMultiline ? null : text.match(/^(?:task|todo)\s*:?\s+(.+)$/i);
+    if (taskCommand) {
+      try {
+        await createWorkTask({
+          title: taskCommand[1].trim(),
+          projectPath: selectedProject?.path ?? null,
+          status: "backlog",
+          type: "task",
+        });
         setCommand("");
-        return;
+        window.requestAnimationFrame(() => inputRef.current?.focus());
+      } catch {
+        setCaptureError("Task not created — check the board message and try again.");
       }
-      if (/\bsoftware\b/.test(lower) && !mentionedProject) {
-        setScope("area");
-        setStatus("Showing Software. New thoughts will go to the Software inbox.");
-        setCommand("");
-        return;
-      }
-      if (mentionedProject) {
-        navigateToProject(mentionedProject.id);
-        setCommand("");
-        return;
-      }
-    }
-
-    if (/\b(what was i doing|continue|resume|pick up where)\b/.test(lower)) {
-      setScope("project");
-      setContextOpen(true);
-      setStatus(`${selectedProject.focus} is ready. Your next action is highlighted.`);
-      setCommand("");
       return;
     }
+    const navigationTarget = findNavigationTarget(text);
+    if (!isMultiline && /\b(show|focus|open|take me to)\b/.test(lower)) {
+      if (/\b(board|kanban)\b/.test(lower)) {
+        setView("board");
+        setCommand("");
+        return;
+      }
+      if (/\b(notes?|notebook)\b/.test(lower)) {
+        setView("notes");
+        setCommand("");
+        return;
+      }
+      if (/\b(activity|history|log)\b/.test(lower)) {
+        setView("activity");
+        setCommand("");
+        return;
+      }
+      if (/\b(everything|all work|this root|root)\b/.test(lower)) {
+        navigate(".");
+        setCommand("");
+        return;
+      }
+      if (navigationTarget) {
+        navigate(navigationTarget.path);
+        setCommand("");
+        return;
+      }
+      if (/\binbox\b/.test(lower)) {
+        openHomeSection("inbox");
+        setCommand("");
+        return;
+      }
+      if (/\b(needs you|decisions?)\b/.test(lower)) {
+        openHomeSection("needs-you");
+        setCommand("");
+        return;
+      }
+    }
 
-    const targetProject = mentionedProject ?? (scope === "project" ? selectedProject : null);
-    const captured: CapturedItem = {
-      id: `capture-${Date.now()}`,
-      text,
-      projectId: targetProject?.id ?? null,
-      projectName: targetProject?.name ?? scopeName,
-      kind: inferKind(text),
-      createdAt: new Date().toISOString(),
-    };
-
-    setCaptures((items) => [captured, ...items]);
-    setLastCaptureId(captured.id);
-    setCommand("");
-    setStatus(`Saved in ${captured.projectName}. Nothing was started.`);
+    setSavingCapture(true);
+    setCaptureError(null);
+    try {
+      const response = await requestJson<Capture | { capture: Capture }>("/api/captures", {
+        method: "POST",
+        body: JSON.stringify({
+          text,
+          scopePath,
+          projectPath: selectedProject?.path ?? null,
+        }),
+      });
+      const capture = "capture" in response ? response.capture : response;
+      setData((current) => current ? { ...current, captures: [capture, ...current.captures.filter((item) => item.id !== capture.id)] } : current);
+      setCaptureReceipt({ capture, destination: destinationForCapture(capture) });
+      setCommand("");
+      window.requestAnimationFrame(() => inputRef.current?.focus());
+    } catch (error) {
+      setCaptureError(error instanceof Error ? `Not saved — ${error.message}` : "Not saved — try again.");
+      window.requestAnimationFrame(() => inputRef.current?.focus());
+    } finally {
+      setSavingCapture(false);
+    }
   }
 
-  function handleCommand(event: FormEvent<HTMLFormElement>) {
+  async function deleteCapture(captureId: string) {
+    try {
+      await requestJson<{ ok: boolean }>(`/api/captures/${encodeURIComponent(captureId)}`, { method: "DELETE" });
+      setData((current) => current ? { ...current, captures: current.captures.filter((item) => item.id !== captureId) } : current);
+      if (captureReceipt?.capture.id === captureId) setCaptureReceipt(null);
+    } catch (error) {
+      setCaptureError(error instanceof Error ? error.message : "That capture could not be undone.");
+    }
+  }
+
+  async function moveCapture(capture: Capture, destination: string) {
+    setMovingCaptureId(capture.id);
+    setCaptureError(null);
+    try {
+      const isProject = destination.startsWith("project:");
+      const path = destination.slice(destination.indexOf(":") + 1) || ".";
+      const updated = await requestJson<Capture>(`/api/captures/${encodeURIComponent(capture.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(isProject ? { projectPath: path } : { projectPath: null, scopePath: path }),
+      });
+      setData((current) => current ? { ...current, captures: current.captures.map((item) => item.id === updated.id ? updated : item) } : current);
+      if (captureReceipt?.capture.id === updated.id) setCaptureReceipt({ capture: updated, destination: destinationForCapture(updated) });
+      setCaptureToMove(null);
+      setCaptureMoveSearch("");
+    } catch (error) {
+      setCaptureError(error instanceof Error ? `Thought not moved — ${error.message}` : "Thought not moved — try again.");
+    } finally {
+      setMovingCaptureId(null);
+    }
+  }
+
+  function handleCommandSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    runCommand();
+    if (!savingCapture) void runCommand();
   }
 
-  function undoLastCapture() {
-    if (!lastCaptureId) return;
-    setCaptures((items) => items.filter((item) => item.id !== lastCaptureId));
-    setLastCaptureId(null);
-    setStatus("Capture undone. Nothing else changed.");
-  }
-
-  function resolveAttention(item: AttentionItem) {
-    setResolvedAttention((items) => [...items, item.id]);
-    setExpandedAttention(null);
-    setStatus(`${item.title} recorded: ${item.action}.`);
-  }
-
-  function handleInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === "Enter") {
+  function handleCommandKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault();
-      runCommand();
+      if (!savingCapture) void runCommand();
       return;
     }
     if (event.key === "Escape") {
       setCommand("");
+      setCaptureError(null);
       event.currentTarget.blur();
-      setStatus("Capture cleared. Nothing was saved.");
     }
   }
 
+  function draftFor(decisionId: string) {
+    return decisionDrafts[decisionId] ?? emptyDraft;
+  }
+
+  function updateDraft(decisionId: string, patch: Partial<DecisionDraft>) {
+    setDecisionDrafts((current) => ({
+      ...current,
+      [decisionId]: { ...(current[decisionId] ?? emptyDraft), ...patch },
+    }));
+  }
+
+  async function confirmDecision(decision: Decision) {
+    const draft = draftFor(decision.id);
+    if (!draft.action || (draft.action === "assign" && !draft.projectPath)) return;
+
+    let choice: Record<string, unknown> | null = null;
+    if (draft.action === "assign") choice = { projectPath: draft.projectPath };
+    if (draft.action === "defer") choice = { until: deferUntil(draft.deferFor) };
+
+    setSavingDecision(decision.id);
+    try {
+      const response = await requestJson<Decision | { decision: Decision }>(
+        `/api/decisions/${encodeURIComponent(decision.id)}/actions`,
+        {
+          method: "POST",
+          body: JSON.stringify({ action: draft.action, choice }),
+        },
+      );
+      const updated = "decision" in response ? response.decision : response;
+      setData((current) => current ? {
+        ...current,
+        decisions: current.decisions.map((item) => item.id === updated.id ? updated : item),
+      } : current);
+      const assignedProject = draft.action === "assign"
+        ? data?.projects.find((project) => project.path === draft.projectPath)?.name
+        : null;
+      const labels: Record<Exclude<DecisionAction, "reopen">, string> = {
+        approve: "Approved as proposed",
+        reject: "Rejected",
+        defer: `Deferred until ${new Date(choice?.until as string).toLocaleDateString([], { month: "short", day: "numeric" })}`,
+        cancel: "Cancelled and retained in history",
+        assign: `Assigned to ${assignedProject ?? draft.projectPath}`,
+        keep_unassigned: "Kept unassigned",
+      };
+      setDecisionReceipt({ decisionId: decision.id, message: labels[draft.action] });
+      setExpandedDecision(null);
+      setDecisionDrafts((current) => ({ ...current, [decision.id]: emptyDraft }));
+    } catch (error) {
+      setDecisionReceipt({
+        decisionId: decision.id,
+        message: error instanceof Error ? `Not recorded — ${error.message}` : "Not recorded — try again.",
+      });
+    } finally {
+      setSavingDecision(null);
+    }
+  }
+
+  async function reopenDecision(decisionId: string) {
+    try {
+      const response = await requestJson<Decision | { decision: Decision }>(
+        `/api/decisions/${encodeURIComponent(decisionId)}/actions`,
+        { method: "POST", body: JSON.stringify({ action: "reopen" }) },
+      );
+      const updated = "decision" in response ? response.decision : response;
+      setData((current) => current ? {
+        ...current,
+        decisions: current.decisions.map((item) => item.id === updated.id ? updated : item),
+      } : current);
+      setDecisionReceipt(null);
+      setExpandedDecision(decisionId);
+    } catch (error) {
+      setDecisionReceipt({
+        decisionId,
+        message: error instanceof Error ? `Undo failed — ${error.message}` : "Undo failed — try again.",
+      });
+    }
+  }
+
+  if (loadError && !data) {
+    return (
+      <main className="connection-page">
+        <span className="brand-mark" aria-hidden="true">/</span>
+        <p className="eyebrow">Local workspace</p>
+        <h1>Work is ready; this root is not running yet.</h1>
+        <p>Start Work from the directory you want to manage. It will stay inside that root and discover projects below it.</p>
+        <code>npm run work -- /path/to/your/root</code>
+        <button type="button" onClick={() => void loadWorkspace()}>Try again</button>
+        <small>{loadError}</small>
+      </main>
+    );
+  }
+
+  if (!data) {
+    return (
+      <main className="loading-page" aria-live="polite">
+        <span className="brand-mark" aria-hidden="true">/</span>
+        <strong>Opening this root…</strong>
+        <span>Reading local project markers and shared work files.</span>
+      </main>
+    );
+  }
+
+  const destination = destinationForCurrentScope();
+  const rootProject = data.projects.find((project) => project.path === ".");
+
   return (
     <div className="app-shell">
-      <a className="skip-link" href="#main-content">Skip to your next action</a>
+      <a className="skip-link" href="#main-content">Skip to this scope</a>
 
       <header className="topbar">
-        <button className="brand" type="button" onClick={() => setScope("all")} aria-label="Go to all work">
-          <span className="brand-mark" aria-hidden="true">/</span>
-          <span>work</span>
-        </button>
+        <div className="brand-group">
+          <button className="brand" type="button" onClick={() => navigate(".")} aria-label={`Go to all in ${data.workspace.name}`}>
+            <span className="brand-mark" aria-hidden="true">/</span>
+            <span>work</span>
+          </button>
+          <button
+            className="root-switch"
+            type="button"
+            onClick={() => {
+              setWorkspaceMenuOpen((open) => !open);
+              setProjectMenuOpen(false);
+            }}
+            aria-expanded={workspaceMenuOpen}
+            aria-haspopup="menu"
+            title={`${data.workspace.name} · Switch workspace root`}
+          >
+            <span>{data.workspace.name}</span>
+            <span aria-hidden="true">⌄</span>
+          </button>
+        </div>
 
-        <nav className="breadcrumbs" aria-label="Current scope">
-          <button type="button" onClick={() => setScope("all")} aria-current={scope === "all" ? "page" : undefined}>All work</button>
-          <span aria-hidden="true">›</span>
-          <button type="button" onClick={() => setScope("area")} aria-current={scope === "area" ? "page" : undefined}>Software</button>
-          {scope === "project" && (
-            <>
-              <span aria-hidden="true">›</span>
-              <button type="button" aria-current="page" onClick={() => setProjectMenuOpen((open) => !open)}>{selectedProject.name}</button>
-            </>
-          )}
+        <nav className="breadcrumbs" aria-label="Current directory scope">
+          <button type="button" onClick={() => navigate(".")} aria-current={scopePath === "." ? "page" : undefined}>
+            {data.workspace.name}
+          </button>
+          {pathParts(scopePath).map((part, index, parts) => {
+            const path = parts.slice(0, index + 1).join("/");
+            return (
+              <span className="breadcrumb-part" key={path}>
+                <span aria-hidden="true">›</span>
+                <button type="button" onClick={() => navigate(path)} aria-current={path === scopePath ? "page" : undefined}>
+                  {data.projects.find((project) => project.path === path)?.name ?? displaySegment(part)}
+                </button>
+              </span>
+            );
+          })}
         </nav>
 
+        <nav className="view-tabs" aria-label="Workspace views">
+          <button type="button" className={view === "home" ? "selected" : ""} onClick={() => setView("home")}>Home</button>
+          <button type="button" className={view === "board" ? "selected" : ""} onClick={() => setView("board")}>Board</button>
+          <button type="button" className={view === "notes" ? "selected" : ""} onClick={() => setView("notes")}>Notes</button>
+          <button type="button" className={view === "activity" ? "selected" : ""} onClick={() => setView("activity")}>Activity</button>
+        </nav>
+
+        <label className="theme-picker">
+          <span className="sr-only">Color theme</span>
+          <span aria-hidden="true">◐</span>
+          <select value={theme} onChange={(event) => setTheme(event.target.value as ThemePreference)} aria-label="Color theme">
+            <option value="system">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
+
         <div className="header-actions">
-          <button className="project-switch" type="button" onClick={() => setProjectMenuOpen((open) => !open)} aria-expanded={projectMenuOpen}>
-            <span>{projects.length} projects</span>
+          <span className="local-state"><i aria-hidden="true" /> Local files</span>
+          <button className="project-switch" type="button" onClick={() => {
+            setProjectMenuOpen((open) => !open);
+            setWorkspaceMenuOpen(false);
+          }} aria-expanded={projectMenuOpen}>
+            <span>
+              {projectInventory.logicalProjects} projects
+              {projectInventory.linkedWorktrees > 0 && ` · ${projectInventory.linkedWorktrees} worktrees`}
+            </span>
             <span aria-hidden="true">⌄</span>
           </button>
         </div>
 
         {projectMenuOpen && (
-          <div className="project-menu" aria-label="Choose a project">
-            <p className="eyebrow">Jump to a project</p>
+          <div className="project-menu" aria-label="Choose a project in this root">
+            <div className="project-menu-heading">
+              <div><p className="eyebrow">Only this root</p><strong>{data.workspace.name}</strong><small>{data.workspace.root}</small></div>
+              <button type="button" onClick={() => setProjectMenuOpen(false)} aria-label="Close project picker">×</button>
+            </div>
+            <p className="project-menu-note">Logical projects are listed once. Linked Git worktrees are grouped with their repository.</p>
+            <input
+              className="project-search"
+              type="search"
+              value={projectSearch}
+              onChange={(event) => setProjectSearch(event.target.value)}
+              placeholder="Find a project…"
+              aria-label="Find a project in this root"
+              autoFocus
+            />
             <div className="project-menu-grid">
-              {projects.map((project) => (
-                <button type="button" key={project.id} onClick={() => navigateToProject(project.id)} className={project.id === selectedProject.id ? "selected" : ""}>
-                  <span className="project-code" aria-hidden="true">{project.code}</span>
-                  <span><strong>{project.name}</strong><small>{project.focus}</small></span>
+              {filteredProjectMenu.map((project) => {
+                const aliasPaths = project.aliasPaths ?? [];
+                const worktreeCount = aliasPaths.length;
+                const worktreeLabel = `${worktreeCount} linked worktree${worktreeCount === 1 ? "" : "s"} grouped`;
+                return (
+                <button
+                  type="button"
+                  key={project.id}
+                  onClick={() => navigate(project.path)}
+                  className={project.path === scopePath ? "selected" : ""}
+                  aria-label={worktreeCount > 0 ? `${project.name}, logical project, ${worktreeLabel}` : project.name}
+                  title={worktreeCount > 0 ? `${worktreeLabel}: ${aliasPaths.join(", ")}` : project.path}
+                >
+                  <span className="project-code" aria-hidden="true">{project.name.slice(0, 2).toUpperCase()}</span>
+                  <span>
+                    <strong>{project.name}</strong>
+                    <small>{project.path}</small>
+                    {worktreeCount > 0 && <em className="project-worktree-note">{worktreeLabel}</em>}
+                  </span>
+                </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {workspaceMenuOpen && workspaceDirectory && (
+          <div className="workspace-menu" role="menu" aria-label="Choose a workspace root">
+            <div className="project-menu-heading">
+              <div>
+                <p className="eyebrow">Workspace roots</p>
+                <strong>Where do you want to work?</strong>
+                <small>Only roots registered on this computer appear here.</small>
+              </div>
+              <button type="button" onClick={() => setWorkspaceMenuOpen(false)} aria-label="Close workspace picker">×</button>
+            </div>
+            <div className="workspace-menu-list">
+              {workspaceDirectory.workspaces.map((workspace) => (
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={workspace.id === data.workspace.id}
+                  className={workspace.id === data.workspace.id ? "selected" : ""}
+                  key={workspace.id}
+                  onClick={() => void switchWorkspace(workspace.id)}
+                >
+                  <span className="workspace-icon" aria-hidden="true">{workspace.name.slice(0, 1).toUpperCase()}</span>
+                  <span><strong>{workspace.name}</strong><small>{workspace.root}</small></span>
+                  {workspace.id === data.workspace.id && <span className="current-root">Current</span>}
                 </button>
               ))}
             </div>
+            <p className="workspace-menu-help"><code>work register /path/to/root</code> adds another approved space.</p>
+            <section className="service-control" aria-label="Local Work service">
+              <div>
+                <strong>Local service</strong>
+                <small>Reload the Work API and interface without changing project files.</small>
+              </div>
+              {!restartArmed ? (
+                <button type="button" onClick={() => { setRestartArmed(true); setServiceRestartError(null); }}>Restart Work</button>
+              ) : (
+                <div className="service-restart-confirm">
+                  <span>Restart now?</span>
+                  <button type="button" onClick={() => setRestartArmed(false)} disabled={restartingService}>Cancel</button>
+                  <button type="button" className="danger-action" onClick={() => void restartLocalService()} disabled={restartingService}>
+                    {restartingService ? "Restarting…" : "Confirm restart"}
+                  </button>
+                </div>
+              )}
+              {serviceRestartError && <small className="service-restart-error" role="alert">{serviceRestartError}</small>}
+            </section>
           </div>
         )}
       </header>
 
       <aside className="flow-rail" aria-label="Your working flow">
         <div className="rail-line" aria-hidden="true" />
-        <div className="rail-step current">
+        <button type="button" className={`rail-step ${view === "home" ? "current" : ""}`} onClick={() => setView("home")}>
           <span>1</span>
-          <div><strong>One next thing</strong><small>{scope === "project" ? selectedProject.focus : "Choose a project"}</small></div>
-        </div>
-        <div className="rail-step">
+          <div><strong>Home</strong><small>Continue · decisions · inbox</small></div>
+        </button>
+        <button type="button" className={`rail-step ${view === "board" ? "current" : ""}`} onClick={() => setView("board")}>
           <span>2</span>
-          <div><strong>Needs you</strong><small>{activeAttention.length} {activeAttention.length === 1 ? "decision" : "decisions"}</small></div>
-        </div>
-        <div className="rail-step">
+          <div><strong>Kanban board</strong><small>{scopedTasks.filter((task) => ["in_progress", "blocked", "review"].includes(task.status)).length} in flight</small></div>
+        </button>
+        <button type="button" className={`rail-step ${view === "notes" ? "current" : ""}`} onClick={() => setView("notes")}>
           <span>3</span>
-          <div><strong>Capture anytime</strong><small>Use /work below</small></div>
+          <div><strong>Notes</strong><small>{scopedNotes.length} in this scope</small></div>
+        </button>
+        <button type="button" className={`rail-step ${view === "activity" ? "current" : ""}`} onClick={() => setView("activity")}>
+          <span>4</span>
+          <div><strong>Activity</strong><small>{scopedTasks.length} work items</small></div>
+        </button>
+        <div className="root-boundary">
+          <span>Root boundary</span>
+          <strong>{data.workspace.name}</strong>
+          <small title={data.workspace.root}>{data.workspace.root}</small>
         </div>
       </aside>
 
       <main id="main-content" className="main-content">
-        {scope === "project" ? (
-          <ProjectFocus project={selectedProject} contextOpen={contextOpen} onToggleContext={() => setContextOpen((open) => !open)} />
+        {view === "board" ? (
+          <KanbanBoard
+            scopeLabel={scopeLabel}
+            tasks={scopedTasks}
+            statuses={data.workspace.statuses ?? ["backlog", "ready", "in_progress", "blocked", "review", "done"]}
+            projects={data.projects}
+            search={taskSearch}
+            onSearch={setTaskSearch}
+            showTerminal={showTerminalTasks}
+            onToggleTerminal={() => setShowTerminalTasks((shown) => !shown)}
+            draggingTaskId={draggingTaskId}
+            onDragStart={setDraggingTaskId}
+            onDragEnd={() => setDraggingTaskId(null)}
+            onMove={(taskId, status) => void moveWorkTask(taskId, status).catch(() => {})}
+            onOpenTask={setSelectedTaskId}
+            onCreate={() => setCreatingTask(true)}
+            error={taskError}
+          />
+        ) : view === "notes" ? (
+          <NotesView
+            scopeLabel={scopeLabel}
+            scopeKind={scopeKind}
+            notes={scopedNotes}
+            projects={data.projects}
+            selectedNoteId={selectedNoteId}
+            creating={creatingNote}
+            error={noteError}
+            onSelect={setSelectedNoteId}
+            onCreate={createProjectNote}
+            onUpdate={updateProjectNote}
+            onDelete={deleteProjectNote}
+          />
+        ) : view === "activity" ? (
+          <ActivityView
+            scopeLabel={scopeLabel}
+            tasks={scopedTasks}
+            projects={data.projects}
+            onOpenTask={setSelectedTaskId}
+          />
         ) : (
-          <PortfolioView scope={scope} projects={projects} onOpenProject={navigateToProject} />
-        )}
+          <>
+        <section id="continue" className="continue-section" aria-label={`${scopeLabel} current scope`}>
+          {scopeKind === "project" && selectedProject ? (
+            <ProjectFocus
+              project={selectedProject}
+              captures={scopedCaptures.filter((capture) => capture.projectPath === selectedProject.path)}
+              tasks={scopedTasks.filter((task) => task.projectPath === selectedProject.path)}
+              onOpenBoard={() => setView("board")}
+              onOpenTask={(taskId) => { setView("board"); setSelectedTaskId(taskId); }}
+            />
+          ) : (
+            <ScopeOverview
+              rootName={data.workspace.name}
+              scopeLabel={scopeLabel}
+              scopeKind={scopeKind}
+              scopePath={scopePath}
+              projectCount={visibleProjects.length + (scopePath === "." && rootProject ? 1 : 0)}
+              captureCount={scopedCaptures.length}
+              decisionCount={activeDecisions.length}
+              taskCount={scopedTasks.length}
+              inFlightCount={scopedTasks.filter((task) => ["in_progress", "blocked", "review"].includes(task.status)).length}
+              doneCount={scopedTasks.filter((task) => task.status === "done").length}
+              rootPath={data.workspace.root}
+            />
+          )}
 
-        <section className="attention-section" aria-labelledby="needs-you-heading">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Only real interruptions</p>
-              <h2 id="needs-you-heading">Needs you</h2>
+          {(scopeKind !== "project" || childGroups.length > 0 || directProjects.length > 0) && (
+            <div className="scope-grid-section">
+              <div className="section-heading compact">
+                <div><p className="eyebrow">Zoom in without leaving this root</p><h2 id="scope-heading">Projects and folders</h2></div>
+                <span className="count-badge">{visibleProjects.length}</span>
+              </div>
+              {childGroups.length === 0 && directProjects.length === 0 ? (
+                <div className="empty-panel"><strong>No marked projects found here.</strong><span>Add an empty `.project` file or `.project/` folder inside each project directory, then refresh.</span></div>
+              ) : (
+                <div className="project-grid">
+                  {childGroups.map((group) => (
+                    <button type="button" className="project-card group-card" key={group.path} onClick={() => navigate(group.path)}>
+                      <span className="project-card-code" aria-hidden="true">⌁</span>
+                      <span className="project-card-copy"><small>Folder scope</small><strong>{group.name}</strong><span>{group.path}</span></span>
+                      <span className="project-card-meta">{group.projects} projects<span aria-hidden="true">→</span></span>
+                    </button>
+                  ))}
+                  {directProjects.map((project) => (
+                    <button type="button" className="project-card" key={project.id} onClick={() => navigate(project.path)}>
+                      <span className="project-card-code" aria-hidden="true">{project.name.slice(0, 2).toUpperCase()}</span>
+                      <span className="project-card-copy"><small>Project</small><strong>{project.name}</strong><span>{project.path}</span></span>
+                      <span className="project-card-meta">Open<span aria-hidden="true">→</span></span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-            <span className="count-badge" aria-label={`${activeAttention.length} unresolved items`}>{activeAttention.length}</span>
+          )}
+        </section>
+
+        <div className="home-support-grid">
+        <section id="needs-you" className="attention-section" aria-labelledby="needs-you-heading">
+          <div className="section-heading">
+            <div><p className="eyebrow">Choices, not dismissals</p><h2 id="needs-you-heading">Needs you</h2></div>
+            <span className="count-badge" aria-label={`${activeDecisions.length} active decisions`}>{activeDecisions.length}</span>
           </div>
 
-          {activeAttention.length === 0 ? (
-            <div className="empty-attention"><strong>Nothing needs a decision.</strong><span>Ordinary work stays out of this list.</span></div>
+          {decisionReceipt && (
+            <div className="decision-receipt" role="status">
+              <span><strong>Recorded.</strong> {decisionReceipt.message}</span>
+              <button type="button" onClick={() => void reopenDecision(decisionReceipt.decisionId)}>Undo</button>
+            </div>
+          )}
+
+          {activeDecisions.length === 0 ? (
+            <div className="empty-panel"><strong>Nothing needs a decision in this scope.</strong><span>Ordinary work stays out of this list.</span></div>
           ) : (
             <div className="attention-list">
-              {activeAttention.map((item) => {
-                const open = expandedAttention === item.id;
+              {visibleDecisions.map((decision) => {
+                const open = expandedDecision === decision.id;
+                const draft = draftFor(decision.id);
+                const hasProposal = decision.options.some((option) => /approve|yes|accept/i.test(option));
+                const canConfirm = Boolean(draft.action && (draft.action !== "assign" || draft.projectPath));
                 return (
-                  <article className={`attention-item ${open ? "open" : ""}`} key={item.id}>
-                    <button type="button" className="attention-summary" onClick={() => setExpandedAttention(open ? null : item.id)} aria-expanded={open}>
-                      <span className="attention-check" aria-hidden="true" />
+                  <article className={`attention-item ${open ? "open" : ""}`} key={decision.id}>
+                    <button type="button" className="attention-summary" onClick={() => setExpandedDecision(open ? null : decision.id)} aria-expanded={open}>
+                      <span className="attention-check" aria-hidden="true">?</span>
                       <span className="attention-copy">
-                        <small>{item.project} · {item.label}</small>
-                        <strong>{item.title}</strong>
+                        <small>{decision.projectPath ? data.projects.find((project) => project.path === decision.projectPath)?.name ?? decision.projectPath : `${data.workspace.name} · Unassigned`}</small>
+                        <strong>{decision.title}</strong>
                       </span>
-                      <span className="review-label">{open ? "Close" : "Review"}</span>
+                      <span className="review-label">{open ? "Close" : "Choose"}</span>
                     </button>
+
                     {open && (
-                      <div className="attention-detail">
-                        <p>{item.detail}</p>
-                        <button type="button" onClick={() => resolveAttention(item)}>{item.action}<span aria-hidden="true">→</span></button>
+                      <div className="decision-panel">
+                        {decision.detail && <p className="decision-detail">{decision.detail}</p>}
+                        <fieldset>
+                          <legend>What should happen?</legend>
+                          {hasProposal && (
+                            <DecisionChoice decisionId={decision.id} action="approve" label="Approve the proposal" detail="Record a clear approval." draft={draft} onChange={updateDraft} />
+                          )}
+                          {hasProposal && (
+                            <DecisionChoice decisionId={decision.id} action="reject" label="Reject the proposal" detail="Keep the reason in history instead of deleting it." draft={draft} onChange={updateDraft} />
+                          )}
+                          <DecisionChoice decisionId={decision.id} action="assign" label="Assign to a project" detail="Choose one project from this root." draft={draft} onChange={updateDraft} />
+                          {draft.action === "assign" && (
+                            <label className="inline-field">
+                              <span>Project</span>
+                              <select value={draft.projectPath} onChange={(event) => updateDraft(decision.id, { projectPath: event.target.value })}>
+                                <option value="">Choose a project…</option>
+                                {data.projects.filter((project) => project.path !== ".").map((project) => (
+                                  <option value={project.path} key={project.id}>{project.name} — {project.path}</option>
+                                ))}
+                              </select>
+                            </label>
+                          )}
+                          <DecisionChoice decisionId={decision.id} action="keep_unassigned" label="Keep unassigned" detail="Make no ownership claim yet." draft={draft} onChange={updateDraft} />
+                          <DecisionChoice decisionId={decision.id} action="defer" label="Decide later" detail="Return it to Needs you at a real time." draft={draft} onChange={updateDraft} />
+                          {draft.action === "defer" && (
+                            <label className="inline-field">
+                              <span>Bring it back</span>
+                              <select value={draft.deferFor} onChange={(event) => updateDraft(decision.id, { deferFor: event.target.value as DecisionDraft["deferFor"] })}>
+                                <option value="today">Later today</option>
+                                <option value="tomorrow">Tomorrow</option>
+                                <option value="week">Next week</option>
+                              </select>
+                            </label>
+                          )}
+                          <DecisionChoice decisionId={decision.id} action="cancel" label="Cancel this item" detail="Retain a cancelled record; do not erase history." draft={draft} onChange={updateDraft} />
+                        </fieldset>
+                        <div className="decision-actions">
+                          <button type="button" className="secondary-action" onClick={() => setExpandedDecision(null)}>Close without changes</button>
+                          <button type="button" className="primary-action" disabled={!canConfirm || savingDecision === decision.id} onClick={() => void confirmDecision(decision)}>
+                            {savingDecision === decision.id ? "Recording…" : "Confirm decision"}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </article>
                 );
               })}
+              {activeDecisions.length > visibleDecisions.length && (
+                <p className="more-decisions">{activeDecisions.length - visibleDecisions.length} more waiting safely in this scope. Finish or defer one to bring the next forward.</p>
+              )}
             </div>
           )}
         </section>
 
-        {capturesOpen && (
-          <section className="captured-section" aria-labelledby="captured-heading">
-            <div className="section-heading compact">
-              <div><p className="eyebrow">Remembered for you</p><h2 id="captured-heading">Recent captures</h2></div>
-              <button type="button" onClick={() => setCapturesOpen(false)}>Hide</button>
-            </div>
-            {captures.length === 0 ? (
-              <p className="capture-empty">Your captured thoughts will appear here. Nothing needs organizing first.</p>
-            ) : (
-              <ul className="capture-list">
-                {captures.slice(0, 6).map((item) => (
-                  <li key={item.id}>
-                    <span className="capture-kind">{item.kind}</span>
-                    <div><strong>{item.text}</strong><small>{item.projectName} · {timeLabel(item.createdAt)}</small></div>
+        <section id="inbox" className="captured-section" aria-labelledby="inbox-heading">
+          <div className="section-heading">
+            <div><p className="eyebrow">Visible immediately</p><h2 id="inbox-heading">Inbox</h2><small className="inbox-destination">{destinationForCurrentScope()}</small></div>
+            <span className="count-badge" aria-label={`${scopedCaptures.length} captures in this scope`}>{scopedCaptures.length}</span>
+          </div>
+          {scopedCaptures.length === 0 ? (
+            <div className="empty-panel"><strong>Nothing captured in this scope yet.</strong><span>Use the bar below. It saves the exact thought before asking you to organize it.</span></div>
+          ) : (
+            <ul className="capture-list">
+              {scopedCaptures.map((capture) => {
+                const destinationLabel = destinationForCapture(capture);
+                return (
+                  <li key={capture.id} className={captureReceipt?.capture.id === capture.id ? "new-capture" : ""}>
+                    <span className={`capture-kind kind-${capture.kind}`}>{capture.kind}</span>
+                    <div><strong>{capture.text}</strong><small>{destinationLabel} · {shortTime(capture.createdAt)}</small></div>
+                    <div className="capture-row-actions">
+                      <button type="button" className="capture-icon-action" title="Move to another inbox" onClick={() => { setCaptureToMove(capture); setCaptureMoveSearch(""); }} aria-label={`Move thought to another inbox: ${capture.text}`}><span aria-hidden="true">↗</span></button>
+                      <button type="button" className="capture-icon-action promote-capture" title="Make this a task" onClick={() => void promoteCapture(capture).catch(() => {})} aria-label={`Make task from thought: ${capture.text}`}><span aria-hidden="true">＋</span></button>
+                      <button type="button" className="capture-icon-action remove-capture" title="Remove this thought" onClick={() => void deleteCapture(capture.id)} aria-label={`Remove capture: ${capture.text}`}><span aria-hidden="true">×</span></button>
+                    </div>
                   </li>
-                ))}
-              </ul>
-            )}
-          </section>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+        </div>
+          </>
         )}
       </main>
 
+      {captureToMove && (
+        <div className="capture-move-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCaptureToMove(null); }}>
+          <section className="capture-move-panel" role="dialog" aria-modal="true" aria-labelledby="capture-move-heading">
+            <div className="capture-move-heading"><div><p className="eyebrow">Reassign thought</p><h2 id="capture-move-heading">Move to an inbox</h2></div><button type="button" onClick={() => setCaptureToMove(null)} aria-label="Close destination picker">×</button></div>
+            <p className="capture-move-preview">“{captureToMove.text}”</p>
+            <label className="field-wide"><span className="sr-only">Find a destination</span><input type="search" value={captureMoveSearch} onChange={(event) => setCaptureMoveSearch(event.target.value)} placeholder="Find a project or folder…" autoFocus /></label>
+            <div className="capture-destination-list">
+              {[
+                { value: "scope:.", title: "Root inbox", detail: `${data.workspace.name} · Unassigned` },
+                ...inboxFolderScopes.map((path) => ({ value: `scope:${path}`, title: displaySegment(pathParts(path).at(-1) ?? path), detail: `Folder inbox · ${path}` })),
+                ...data.projects.filter((project) => project.path !== ".").map((project) => ({ value: `project:${project.path}`, title: project.name, detail: `Project inbox · ${project.path}` })),
+              ].filter((item) => `${item.title} ${item.detail}`.toLowerCase().includes(captureMoveSearch.trim().toLowerCase())).map((item) => (
+                <button type="button" key={item.value} disabled={movingCaptureId === captureToMove.id} onClick={() => void moveCapture(captureToMove, item.value)}><span><strong>{item.title}</strong><small>{item.detail}</small></span><span aria-hidden="true">→</span></button>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {creatingTask && (
+        <CreateTaskPanel
+          projects={data.projects}
+          statuses={data.workspace.statuses}
+          defaultProjectPath={selectedProject?.path ?? null}
+          saving={savingTask}
+          error={taskError}
+          onClose={() => { setCreatingTask(false); setTaskError(null); }}
+          onCreate={(input) => void createWorkTask(input).catch(() => {})}
+        />
+      )}
+
+      {selectedTask && (
+        <TaskDetailPanel
+          task={selectedTask}
+          tasks={data.tasks ?? []}
+          projects={data.projects}
+          statuses={data.workspace.statuses}
+          saving={savingTask}
+          error={taskError}
+          onClose={() => { setSelectedTaskId(null); setTaskError(null); }}
+          onMove={(status, note) => void moveWorkTask(selectedTask.id, status, note).catch(() => {})}
+          onPatch={(patch) => void patchWorkTask(selectedTask.id, patch).catch(() => {})}
+          onToggle={(section, index, checked) => void toggleWorkChecklist(selectedTask.id, section, index, checked)}
+          onLog={(message) => logWorkProgress(selectedTask.id, message)}
+        />
+      )}
+
       <div className="capture-dock">
-        <form onSubmit={handleCommand} aria-label="Universal work command">
+        {captureReceipt && (
+          <div className="capture-receipt" role="status" aria-live="polite">
+            <span className="receipt-check" aria-hidden="true">✓</span>
+            <div><strong>Saved: “{captureReceipt.capture.text}”</strong><small>{captureReceipt.destination} · Available to agents in this root</small></div>
+            <div className="receipt-actions">
+              <button type="button" onClick={() => void promoteCapture(captureReceipt.capture).catch(() => {})}>Make task</button>
+              <button type="button" onClick={() => void deleteCapture(captureReceipt.capture.id)}>Undo</button>
+              <button type="button" onClick={() => openHomeSection("inbox")}>Open inbox</button>
+              <button type="button" onClick={() => setCaptureReceipt(null)} aria-label="Dismiss saved receipt">×</button>
+            </div>
+          </div>
+        )}
+        <form onSubmit={handleCommandSubmit} aria-label="Universal work command">
           <div className="capture-context">
             <span className="capture-symbol" aria-hidden="true">/</span>
-            <div><strong>Capture anything</strong><small>Going to {scopeName}</small></div>
+            <div><strong>Capture anything</strong><small>Going to {destination}</small></div>
           </div>
           <label className="sr-only" htmlFor="work-command">Tell Work anything you want remembered</label>
-          <input
+          <textarea
             ref={inputRef}
             id="work-command"
             value={command}
             onChange={(event) => setCommand(event.target.value)}
-            onKeyDown={handleInputKeyDown}
+            onKeyDown={handleCommandKeyDown}
             placeholder="Tell /work anything…"
             autoComplete="off"
+            rows={1}
           />
-          <button className="remember-button" type="submit">Remember it <span aria-hidden="true">↵</span></button>
+          <button className="remember-button" type="submit" disabled={savingCapture}>
+            {savingCapture ? "Saving…" : "Save thought"}<span aria-hidden="true">↵</span>
+          </button>
         </form>
         <div className="capture-meta">
-          <span aria-live="polite">{status}</span>
+          <span className={captureError ? "capture-error" : ""} aria-live="polite">
+            {captureError ?? `Exact destination: ${destination}. Project names in the thought never reroute it.`}
+          </span>
           <div>
-            {lastCaptureId && <button type="button" onClick={undoLastCapture}>Undo</button>}
-            <button type="button" onClick={() => setCapturesOpen((open) => !open)}>{captures.length} captured</button>
+            <button type="button" onClick={() => openHomeSection("inbox")}>{scopedCaptures.length} in {selectedProject ? `${selectedProject.name} inbox` : scopePath === "." ? "root inbox" : `${scopeLabel} inbox`}</button>
             <span className="shortcut-hint"><kbd>/</kbd> focus</span>
+            <span className="multiline-hint"><kbd>Shift</kbd> + <kbd>Enter</kbd> new line</span>
+            <span>{lastSyncedAt ? `Synced ${shortTime(lastSyncedAt.toISOString())}` : "Connecting…"}</span>
           </div>
         </div>
       </div>
@@ -525,67 +1523,755 @@ export default function Home() {
   );
 }
 
-function ProjectFocus({ project, contextOpen, onToggleContext }: { project: Project; contextOpen: boolean; onToggleContext: () => void }) {
+function DecisionChoice({
+  decisionId,
+  action,
+  label,
+  detail,
+  draft,
+  onChange,
+}: {
+  decisionId: string;
+  action: Exclude<DecisionAction, "reopen">;
+  label: string;
+  detail: string;
+  draft: DecisionDraft;
+  onChange: (decisionId: string, patch: Partial<DecisionDraft>) => void;
+}) {
   return (
-    <section className="focus-section" aria-labelledby="focus-heading">
-      <article className="focus-card">
-        <div className="focus-topline">
-          <p className="continue-label"><span aria-hidden="true" /> Continue</p>
-          <span className={`state-pill state-${project.state.toLowerCase().replace(/\s+/g, "-")}`}>{project.name} · {project.focus}</span>
-        </div>
-        <h1 id="focus-heading">{project.name} {project.focus.toLowerCase()}</h1>
+    <label className={`decision-choice ${draft.action === action ? "selected" : ""}`}>
+      <input type="radio" name={`decision-${decisionId}`} value={action} checked={draft.action === action} onChange={() => onChange(decisionId, { action })} />
+      <span><strong>{label}</strong><small>{detail}</small></span>
+    </label>
+  );
+}
 
-        <div className="focus-facts">
-          <div className="fact-card">
-            <span>Last meaningful update</span>
-            <p>{project.lastUpdate}</p>
-          </div>
-          <div className="fact-card next">
-            <span>Next action</span>
-            <p>{project.nextAction}</p>
-          </div>
-        </div>
+function ScopeOverview({
+  rootName,
+  scopeLabel,
+  scopeKind,
+  scopePath,
+  projectCount,
+  captureCount,
+  decisionCount,
+  taskCount,
+  inFlightCount,
+  doneCount,
+  rootPath,
+}: {
+  rootName: string;
+  scopeLabel: string;
+  scopeKind: "root" | "group" | "project";
+  scopePath: string;
+  projectCount: number;
+  captureCount: number;
+  decisionCount: number;
+  taskCount: number;
+  inFlightCount: number;
+  doneCount: number;
+  rootPath: string;
+}) {
+  return (
+    <div className="portfolio-intro">
+      <p className="continue-label"><span aria-hidden="true" /> {scopeKind === "root" ? "One root" : "Folder scope"}</p>
+      <h1>{scopeKind === "root" ? `All in ${rootName}` : scopeLabel}</h1>
+      <p>See the shape of this directory without pulling in unrelated work. Everything here stays under one filesystem boundary.</p>
+      <p className="scope-path" title={scopeKind === "root" ? rootPath : `${rootPath}/${scopePath}`}>{scopeKind === "root" ? rootPath : scopePath}</p>
+      <div className="portfolio-stats" aria-label="Scope summary">
+        <span><strong>{projectCount}</strong> projects</span>
+        <span><strong>{taskCount}</strong> work items</span>
+        <span><strong>{inFlightCount}</strong> in flight</span>
+        <span><strong>{doneCount}</strong> completed</span>
+        <span><strong>{captureCount}</strong> captured</span>
+        <span><strong>{decisionCount}</strong> need you</span>
+      </div>
+    </div>
+  );
+}
 
-        {contextOpen && (
-          <div className="context-panel">
-            <div><span>Why this matters</span><p>{project.context}</p></div>
-            <div><span>Current shape</span><p>{project.active} active thread{project.active === 1 ? "" : "s"} · {project.ideas} captured idea{project.ideas === 1 ? "" : "s"}</p></div>
-          </div>
-        )}
+function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask }: {
+  project: Project;
+  captures: Capture[];
+  tasks: WorkTask[];
+  onOpenBoard: () => void;
+  onOpenTask: (taskId: string) => void;
+}) {
+  const updates = captures.filter((capture) => capture.kind === "update");
+  const inFlight = tasks.filter((task) => ["in_progress", "blocked", "review"].includes(task.status));
+  const queued = tasks.filter((task) => ["ready", "backlog"].includes(task.status));
+  const completed = tasks.filter((task) => task.status === "done");
+  const currentTasks = (inFlight.length > 0 ? inFlight : queued).slice(0, 3);
+  const lastUpdate = tasks.flatMap((task) => task.log.map((entry) => ({ ...entry, task }))).sort((a, b) => b.at.localeCompare(a.at))[0];
+  const latestCapture = updates[0] ?? captures[0];
+  const progressText = lastUpdate?.message ?? latestCapture?.text ?? "No meaningful progress has been recorded for this project yet.";
+  const progressSource = lastUpdate
+    ? `${lastUpdate.task.id} · ${shortTime(lastUpdate.at)}`
+    : latestCapture
+      ? `${latestCapture.kind} · ${shortTime(latestCapture.updatedAt)}`
+      : "Waiting for the first update";
 
-        <div className="focus-footer">
-          <p>{contextOpen ? "Context is open. Your next action stays visible." : "No setup needed — context is ready."}</p>
-          <button className="primary-action" type="button" onClick={onToggleContext}>{contextOpen ? "Hide context" : "Continue work"}<span aria-hidden="true">→</span></button>
+  return (
+    <article className="project-pulse">
+      <header className="pulse-header">
+        <div>
+          <p className="continue-label"><span aria-hidden="true" /> Project pulse</p>
+          <h1>{project.name}</h1>
+          <span className="pulse-path">{project.path}</span>
         </div>
-      </article>
+        <button type="button" className="primary-action" onClick={onOpenBoard}>Open board<span aria-hidden="true">→</span></button>
+      </header>
+
+      <div className="pulse-stats" aria-label="Project summary">
+        <span><strong>{tasks.length}</strong> work items</span>
+        <span><strong>{inFlight.length}</strong> active</span>
+        <span><strong>{completed.length}</strong> completed</span>
+        <span><strong>{captures.length}</strong> inbox</span>
+      </div>
+
+      <div className="pulse-grid">
+        <section className="pulse-work" aria-labelledby="current-work-heading">
+          <div className="pulse-section-heading">
+            <div><p className="eyebrow">What deserves attention</p><h2 id="current-work-heading">{inFlight.length > 0 ? "Current work" : "Up next"}</h2></div>
+            <button type="button" onClick={onOpenBoard}>View all</button>
+          </div>
+          {currentTasks.length === 0 ? (
+            <p className="pulse-empty">Nothing is queued. Capture the next useful thread when it appears.</p>
+          ) : (
+            <div className="pulse-task-list">
+              {currentTasks.map((task) => {
+                const progress = checklistProgress(task);
+                return (
+                  <button type="button" key={task.id} onClick={() => onOpenTask(task.id)}>
+                    <span className={`pulse-state pulse-state-${task.status}`}>{statusLabel(task.status)}</span>
+                    <span className="pulse-task-copy"><small>{task.id} · {task.priority}</small><strong>{task.title}</strong></span>
+                    <span className="pulse-task-meta">{progress.total > 0 ? `${progress.complete}/${progress.total}` : shortTime(task.updatedAt)}<span aria-hidden="true">→</span></span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <aside className="pulse-progress">
+          <p className="eyebrow">Latest progress</p>
+          <p title={progressText}>{progressText}</p>
+          <small>{progressSource}</small>
+        </aside>
+      </div>
+    </article>
+  );
+}
+
+function NotesView({
+  scopeLabel,
+  scopeKind,
+  notes,
+  projects,
+  selectedNoteId,
+  creating,
+  error,
+  onSelect,
+  onCreate,
+  onUpdate,
+  onDelete,
+}: {
+  scopeLabel: string;
+  scopeKind: "root" | "group" | "project";
+  notes: ProjectNote[];
+  projects: Project[];
+  selectedNoteId: string | null;
+  creating: boolean;
+  error: string | null;
+  onSelect: (noteId: string) => void;
+  onCreate: () => Promise<ProjectNote>;
+  onUpdate: (noteId: string, patch: { title: string; text: string }) => Promise<ProjectNote>;
+  onDelete: (noteId: string) => Promise<void>;
+}) {
+  const selectedNote = notes.find((note) => note.id === selectedNoteId) ?? null;
+  const [search, setSearch] = useState("");
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftText, setDraftText] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "editing" | "saving" | "saved" | "error">("idle");
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const revisionRef = useRef(0);
+  const saveTimerRef = useRef<number | null>(null);
+
+  const filteredNotes = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return notes;
+    return notes.filter((note) => `${note.title} ${note.text}`.toLowerCase().includes(query));
+  }, [notes, search]);
+
+  useEffect(() => {
+    revisionRef.current += 1;
+    if (saveTimerRef.current != null) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = null;
+    setDraftTitle(selectedNote?.title ?? "");
+    setDraftText(selectedNote?.text ?? "");
+    setDirty(false);
+    setSaveState(selectedNote ? "saved" : "idle");
+    setDeleteArmed(false);
+  }, [selectedNote?.id]);
+
+  async function persistDraft() {
+    if (!selectedNote || !dirty) return true;
+    if (saveTimerRef.current != null) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = null;
+    const revision = revisionRef.current;
+    setSaveState("saving");
+    try {
+      const updated = await onUpdate(selectedNote.id, {
+        title: draftTitle.trim() || "Untitled note",
+        text: draftText,
+      });
+      if (revisionRef.current === revision) {
+        setDraftTitle(updated.title);
+        setDraftText(updated.text);
+        setDirty(false);
+        setSaveState("saved");
+      }
+      return true;
+    } catch {
+      if (revisionRef.current === revision) setSaveState("error");
+      return false;
+    }
+  }
+
+  useEffect(() => {
+    if (!selectedNote || !dirty) return;
+    if (saveTimerRef.current != null) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null;
+      void persistDraft();
+    }, 700);
+    return () => {
+      if (saveTimerRef.current != null) window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    };
+  }, [draftTitle, draftText, dirty, selectedNote?.id]);
+
+  function changeTitle(value: string) {
+    revisionRef.current += 1;
+    setDraftTitle(value);
+    setDirty(true);
+    setSaveState("editing");
+  }
+
+  function changeText(value: string) {
+    revisionRef.current += 1;
+    setDraftText(value);
+    setDirty(true);
+    setSaveState("editing");
+  }
+
+  async function selectNote(noteId: string) {
+    if (noteId === selectedNote?.id) return;
+    if (!(await persistDraft())) return;
+    onSelect(noteId);
+  }
+
+  async function createNote() {
+    if (!(await persistDraft())) return;
+    try {
+      await onCreate();
+    } catch {
+      setSaveState("error");
+    }
+  }
+
+  async function removeNote() {
+    if (!selectedNote || deleting) return;
+    revisionRef.current += 1;
+    if (saveTimerRef.current != null) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = null;
+    setDirty(false);
+    setDeleting(true);
+    try {
+      await onDelete(selectedNote.id);
+      setDeleteArmed(false);
+    } catch {
+      setSaveState("error");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function noteLocation(note: ProjectNote) {
+    if (!note.projectPath) return note.scopePath === "." ? "Workspace note" : `${displaySegment(pathParts(note.scopePath).at(-1) ?? note.scopePath)} note`;
+    return projects.find((project) => project.path === note.projectPath)?.name ?? note.projectPath;
+  }
+
+  const saveLabel = saveState === "saving"
+    ? "Saving…"
+    : saveState === "editing"
+      ? "Unsaved changes"
+      : saveState === "error"
+        ? "Not saved"
+        : selectedNote
+          ? `Saved ${shortTime(selectedNote.updatedAt)}`
+          : "";
+
+  return (
+    <section className="notes-view" aria-labelledby="notes-heading">
+      <header className="notes-toolbar">
+        <div>
+          <p className="eyebrow">{scopeKind === "project" ? "Project notebook" : scopeKind === "root" ? "Workspace notebook" : "Folder notebook"}</p>
+          <h1 id="notes-heading">{scopeLabel} notes</h1>
+          <p>Plain-text working notes kept beside the project, ready for you or an agent to revisit later.</p>
+        </div>
+        <button type="button" className="primary-action" disabled={creating} onClick={() => void createNote()}>
+          {creating ? "Creating…" : "New note"}<span aria-hidden="true">＋</span>
+        </button>
+      </header>
+
+      {error && <p className="note-error" role="alert">{error}</p>}
+
+      <div className="notes-workspace">
+        <aside className="notes-list-panel" aria-label="Notes in this scope">
+          <div className="notes-list-heading">
+            <div><strong>Notes</strong><small>{notes.length} in this scope</small></div>
+            <span className="count-badge" aria-hidden="true">{notes.length}</span>
+          </div>
+          <label className="notes-search">
+            <span className="sr-only">Find a note</span>
+            <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find a note…" />
+          </label>
+          {filteredNotes.length === 0 ? (
+            <div className="notes-list-empty">
+              <strong>{notes.length === 0 ? "No notes yet." : "No notes match."}</strong>
+              <span>{notes.length === 0 ? "Create one whenever a thought needs more room than the inbox." : "Try a different search."}</span>
+            </div>
+          ) : (
+            <div className="notes-list" role="listbox" aria-label="Select a note">
+              {filteredNotes.map((note) => {
+                const preview = note.text.split("\n").find((line) => line.trim())?.trim() || "Empty note";
+                return (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={note.id === selectedNote?.id}
+                    className={note.id === selectedNote?.id ? "selected" : ""}
+                    key={note.id}
+                    onClick={() => void selectNote(note.id)}
+                  >
+                    <strong>{note.title}</strong>
+                    <span>{preview}</span>
+                    <small>{noteLocation(note)} · {shortTime(note.updatedAt)}</small>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </aside>
+
+        <article className="note-editor" aria-label={selectedNote ? `Edit note: ${selectedNote.title}` : "Note editor"}>
+          {selectedNote ? (
+            <>
+              <div className="note-editor-heading">
+                <label>
+                  <span className="sr-only">Note title</span>
+                  <input
+                    type="text"
+                    value={draftTitle}
+                    maxLength={300}
+                    onChange={(event) => changeTitle(event.target.value)}
+                    onBlur={() => void persistDraft()}
+                    placeholder="Untitled note"
+                    aria-label="Note title"
+                  />
+                </label>
+                <span>{noteLocation(selectedNote)}</span>
+              </div>
+              <label className="note-body-field">
+                <span className="sr-only">Note text</span>
+                <textarea
+                  value={draftText}
+                  onChange={(event) => changeText(event.target.value)}
+                  onBlur={() => void persistDraft()}
+                  placeholder="Write whatever you need to remember…"
+                  aria-label="Note text"
+                  spellCheck="true"
+                />
+              </label>
+              <footer className="note-editor-footer">
+                <span className={`note-save-state state-${saveState}`} role="status" aria-live="polite">{saveLabel}</span>
+                <div className="note-editor-actions">
+                  {deleteArmed ? (
+                    <div className="note-delete-confirm">
+                      <span>Delete this note?</span>
+                      <button type="button" onClick={() => setDeleteArmed(false)} disabled={deleting}>Cancel</button>
+                      <button type="button" className="danger-action" onClick={() => void removeNote()} disabled={deleting}>{deleting ? "Deleting…" : "Delete"}</button>
+                    </div>
+                  ) : (
+                    <button type="button" className="note-delete" onClick={() => setDeleteArmed(true)}>Delete note</button>
+                  )}
+                  <button type="button" className="secondary-action note-save-button" disabled={!dirty || saveState === "saving"} onClick={() => void persistDraft()}>Save now</button>
+                </div>
+              </footer>
+            </>
+          ) : (
+            <div className="note-editor-empty">
+              <span aria-hidden="true">≡</span>
+              <strong>{notes.length === 0 ? "Start a note" : "Select a note"}</strong>
+              <p>{notes.length === 0 ? "Notes are for thoughts that need room to grow. They stay as plain text and live with this scope." : "Choose one from the list to read or continue writing."}</p>
+              {notes.length === 0 && <button type="button" className="primary-action" disabled={creating} onClick={() => void createNote()}>New note</button>}
+            </div>
+          )}
+        </article>
+      </div>
     </section>
   );
 }
 
-function PortfolioView({ scope, projects, onOpenProject }: { scope: Exclude<ScopeLevel, "project">; projects: Project[]; onOpenProject: (id: string) => void }) {
-  const activeCount = projects.filter((project) => project.active > 0).length;
-  const ideaCount = projects.reduce((sum, project) => sum + project.ideas, 0);
+function statusLabel(status: string) {
+  const labels: Record<string, string> = {
+    backlog: "Backlog",
+    ready: "Ready",
+    in_progress: "In flight",
+    blocked: "Blocked",
+    review: "Review",
+    done: "Completed",
+    cancelled: "Cancelled",
+    archived: "Archived",
+  };
+  return labels[status] ?? displaySegment(status);
+}
+
+function checklistProgress(task: WorkTask) {
+  const items = [...task.requirements, ...task.acceptanceCriteria];
+  const complete = items.filter((item) => item.checked).length;
+  return { complete, total: items.length };
+}
+
+function KanbanBoard({
+  scopeLabel,
+  tasks,
+  statuses,
+  projects,
+  search,
+  onSearch,
+  showTerminal,
+  onToggleTerminal,
+  draggingTaskId,
+  onDragStart,
+  onDragEnd,
+  onMove,
+  onOpenTask,
+  onCreate,
+  error,
+}: {
+  scopeLabel: string;
+  tasks: WorkTask[];
+  statuses: string[];
+  projects: Project[];
+  search: string;
+  onSearch: (value: string) => void;
+  showTerminal: boolean;
+  onToggleTerminal: () => void;
+  draggingTaskId: string | null;
+  onDragStart: (id: string) => void;
+  onDragEnd: () => void;
+  onMove: (id: string, status: string) => void;
+  onOpenTask: (id: string) => void;
+  onCreate: () => void;
+  error: string | null;
+}) {
+  const boardStatuses = showTerminal ? [...statuses, "cancelled", "archived"] : statuses;
+  const query = search.trim().toLowerCase();
+  const filtered = tasks.filter((task) => !query || [task.id, task.title, task.projectPath ?? "", task.assignee ?? "", task.type, task.priority, ...task.tags, ...task.agents].join(" ").toLowerCase().includes(query));
+  const activeCount = tasks.filter((task) => ["in_progress", "blocked", "review"].includes(task.status)).length;
+  const doneCount = tasks.filter((task) => task.status === "done").length;
+
   return (
-    <section className="portfolio-section" aria-labelledby="portfolio-heading">
-      <div className="portfolio-intro">
-        <p className="continue-label"><span aria-hidden="true" /> Zoomed out</p>
-        <h1 id="portfolio-heading">{scope === "all" ? "All work" : "Software"}</h1>
-        <p>See the shape of everything without turning every thread into an equal emergency.</p>
-        <div className="portfolio-stats" aria-label="Portfolio summary">
-          <span><strong>{projects.length}</strong> projects</span>
-          <span><strong>{activeCount}</strong> active</span>
-          <span><strong>{ideaCount}</strong> captured ideas</span>
+    <section className="board-view" aria-labelledby="board-heading">
+      <div className="board-toolbar">
+        <div>
+          <p className="eyebrow">Present state · full lifecycle</p>
+          <h1 id="board-heading">{scopeLabel} board</h1>
+          <p>{tasks.length} work items · {activeCount} in flight · {doneCount} completed <span className="board-detail-hint">Select a card for full details.</span></p>
+        </div>
+        <div className="board-actions">
+          <button type="button" className="secondary-action" onClick={onToggleTerminal}>{showTerminal ? "Hide cancelled & archived" : "Show cancelled & archived"}</button>
+          <button type="button" className="primary-action" onClick={onCreate}>New work item</button>
         </div>
       </div>
-      <div className="project-grid">
-        {projects.map((project) => (
-          <button type="button" className="project-card" key={project.id} onClick={() => onOpenProject(project.id)}>
-            <span className="project-card-code" aria-hidden="true">{project.code}</span>
-            <span className="project-card-copy"><small>{project.state}</small><strong>{project.name}</strong><span>{project.focus}</span></span>
-            <span className="project-card-meta">{project.active > 0 ? `${project.active} active` : "Quiet"}<span aria-hidden="true">→</span></span>
-          </button>
-        ))}
-      </div>
+      <label className="board-search">
+        <span className="sr-only">Search work items</span>
+        <input type="search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search title, ID, project, owner, agent, or tag…" />
+      </label>
+      {error && <div className="task-error" role="alert">{error}</div>}
+      {tasks.length === 0 ? (
+        <div className="board-empty">
+          <strong>No work items in this scope yet.</strong>
+          <span>Create a full card here, promote an Inbox thought, or type `/work task: …`.</span>
+          <button type="button" className="primary-action" onClick={onCreate}>Create the first card</button>
+        </div>
+      ) : (
+        <div className="kanban-scroll" aria-label="Kanban board">
+          <div className="kanban-grid" style={{ gridTemplateColumns: `repeat(${boardStatuses.length}, minmax(${showTerminal ? 168 : 150}px, 1fr))` }}>
+            {boardStatuses.map((status) => {
+              const columnTasks = filtered.filter((task) => task.status === status);
+              return (
+                <section
+                  className={`kanban-column status-${status} ${draggingTaskId ? "drag-active" : ""}`}
+                  key={status}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    if (draggingTaskId) onMove(draggingTaskId, status);
+                    onDragEnd();
+                  }}
+                  aria-labelledby={`column-${status}`}
+                >
+                  <header><h2 id={`column-${status}`}>{statusLabel(status)}</h2><span>{columnTasks.length}</span></header>
+                  <div className="kanban-card-list">
+                    {columnTasks.map((task) => {
+                      const progress = checklistProgress(task);
+                      const project = projects.find((item) => item.path === task.projectPath);
+                      const projectName = project?.name ?? task.projectPath ?? "Unassigned";
+                      const owners = [task.assignee, ...task.agents].filter(Boolean).join(" · ");
+                      const hoverSummary = [
+                        `${task.id} · ${statusLabel(task.status)} · ${task.priority}`,
+                        task.title,
+                        `Project: ${projectName}`,
+                        owners ? `Owner/agents: ${owners}` : null,
+                        task.dependsOn.length > 0 || task.blockedBy.length > 0
+                          ? `${task.dependsOn.length} dependencies · ${task.blockedBy.length} blockers`
+                          : null,
+                        task.blockedReason ? `Blocked: ${task.blockedReason}` : null,
+                        "Select for full details.",
+                      ].filter(Boolean).join("\n");
+                      return (
+                        <button
+                          type="button"
+                          className={`kanban-card priority-${task.priority}`}
+                          key={task.id}
+                          title={hoverSummary}
+                          aria-label={`Open ${task.id}: ${task.title}`}
+                          draggable
+                          onDragStart={() => onDragStart(task.id)}
+                          onDragEnd={onDragEnd}
+                          onClick={() => onOpenTask(task.id)}
+                        >
+                          <span className="card-topline"><strong>{task.id}</strong><span>{task.type}</span><span>{task.priority}</span></span>
+                          <span className="card-title">{task.title}</span>
+                          <span className="card-project">{projectName}</span>
+                          {owners && <span className="card-owners">{owners}</span>}
+                          {task.tags.length > 0 && <span className="card-tags">{task.tags.slice(0, 4).map((tag) => <i key={tag}>{tag}</i>)}</span>}
+                          {(task.dependsOn.length > 0 || task.blockedBy.length > 0) && <span className="card-links">{task.dependsOn.length} dependencies · {task.blockedBy.length} blockers</span>}
+                          {progress.total > 0 && <span className="card-progress"><span><i style={{ width: `${(progress.complete / progress.total) * 100}%` }} /></span>{progress.complete}/{progress.total}</span>}
+                          {task.blockedReason && <span className="card-blocked">Blocked: {task.blockedReason}</span>}
+                          <span className="card-updated">Updated {shortTime(task.updatedAt)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </section>
+  );
+}
+
+function ActivityView({ scopeLabel, tasks, projects, onOpenTask }: { scopeLabel: string; tasks: WorkTask[]; projects: Project[]; onOpenTask: (id: string) => void }) {
+  const events = tasks
+    .flatMap((task) => task.log.map((entry) => ({ ...entry, task })))
+    .sort((a, b) => b.at.localeCompare(a.at));
+  return (
+    <section className="activity-view" aria-labelledby="activity-heading">
+      <div className="board-toolbar">
+        <div><p className="eyebrow">What was added, changed, and completed</p><h1 id="activity-heading">{scopeLabel} activity</h1><p>{events.length} durable progress entries from Markdown work items.</p></div>
+      </div>
+      {events.length === 0 ? (
+        <div className="empty-panel"><strong>No task activity yet.</strong><span>Creating, moving, editing, and checking work items appends here automatically.</span></div>
+      ) : (
+        <ol className="activity-list">
+          {events.map((event, index) => {
+            const project = projects.find((item) => item.path === event.task.projectPath);
+            return (
+              <li key={`${event.task.id}-${event.at}-${index}`}>
+                <time dateTime={event.at}>{new Date(event.at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>
+                <button type="button" onClick={() => onOpenTask(event.task.id)}><strong>{event.task.id} · {event.task.title}</strong><span>{event.message}</span><small>{project?.name ?? "Unassigned"} · {statusLabel(event.task.status)}</small></button>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </section>
+  );
+}
+
+function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error, onClose, onCreate }: {
+  projects: Project[];
+  statuses: string[];
+  defaultProjectPath: string | null;
+  saving: boolean;
+  error: string | null;
+  onClose: () => void;
+  onCreate: (input: Record<string, unknown>) => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [projectPath, setProjectPath] = useState(defaultProjectPath ?? "");
+  const [status, setStatus] = useState(statuses[0] ?? "backlog");
+  const [type, setType] = useState("task");
+  const [priority, setPriority] = useState("none");
+  const [assignee, setAssignee] = useState("");
+  const [agents, setAgents] = useState("");
+  const [tags, setTags] = useState("");
+  const [parentId, setParentId] = useState("");
+  const [dueAt, setDueAt] = useState("");
+  const [goal, setGoal] = useState("");
+  const [requirements, setRequirements] = useState("");
+  const [acceptance, setAcceptance] = useState("");
+  const [plan, setPlan] = useState("");
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!title.trim()) return;
+    onCreate({
+      title: title.trim(),
+      projectPath: projectPath || null,
+      status,
+      type,
+      priority,
+      assignee: assignee.trim() || null,
+      agents: agents.split(",").map((item) => item.trim()).filter(Boolean),
+      tags: tags.split(",").map((item) => item.trim()).filter(Boolean),
+      parentId: parentId.trim() || null,
+      dueAt: dueAt || null,
+      goal,
+      requirements: requirements.split("\n").map((item) => item.trim()).filter(Boolean),
+      acceptanceCriteria: acceptance.split("\n").map((item) => item.trim()).filter(Boolean),
+      plan,
+    });
+  }
+
+  return (
+    <aside className="task-panel create-task-panel" aria-labelledby="create-task-heading">
+      <div className="task-panel-header"><div><p className="eyebrow">New work item</p><h2 id="create-task-heading">Create a complete card</h2></div><button type="button" onClick={onClose} aria-label="Close new work item">×</button></div>
+      <form onSubmit={submit} className="task-form">
+        <label className="field-wide"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="What outcome or task needs tracking?" autoFocus /></label>
+        <div className="field-grid">
+          <label><span>Project</span><select value={projectPath} onChange={(event) => setProjectPath(event.target.value)}><option value="">Unassigned</option>{projects.filter((project) => project.path !== ".").map((project) => <option key={project.id} value={project.path}>{project.name} — {project.path}</option>)}</select></label>
+          <label><span>Status</span><select value={status} onChange={(event) => setStatus(event.target.value)}>{statuses.map((item) => <option key={item} value={item}>{statusLabel(item)}</option>)}</select></label>
+          <label><span>Type</span><select value={type} onChange={(event) => setType(event.target.value)}>{["task", "bug", "feature", "research", "admin", "epic", "idea"].map((item) => <option key={item}>{item}</option>)}</select></label>
+          <label><span>Priority</span><select value={priority} onChange={(event) => setPriority(event.target.value)}>{["none", "low", "medium", "high", "critical"].map((item) => <option key={item}>{item}</option>)}</select></label>
+          <label><span>Human owner</span><input value={assignee} onChange={(event) => setAssignee(event.target.value)} placeholder="Optional" /></label>
+          <label><span>Agents or teams</span><input value={agents} onChange={(event) => setAgents(event.target.value)} placeholder="codex, rev-team" /></label>
+          <label><span>Parent task ID</span><input value={parentId} onChange={(event) => setParentId(event.target.value)} placeholder="W-0001" /></label>
+          <label><span>Due date</span><input type="date" value={dueAt} onChange={(event) => setDueAt(event.target.value)} /></label>
+        </div>
+        <label className="field-wide"><span>Tags</span><input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="release, reverse-engineering" /></label>
+        <label className="field-wide"><span>Goal</span><textarea value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="What does done accomplish?" /></label>
+        <label className="field-wide"><span>Requirements · one per line</span><textarea value={requirements} onChange={(event) => setRequirements(event.target.value)} placeholder={"Must preserve Markdown\nMust remain root-scoped"} /></label>
+        <label className="field-wide"><span>Acceptance criteria · one per line</span><textarea value={acceptance} onChange={(event) => setAcceptance(event.target.value)} placeholder={"Board reflects status\nRestart restores the card"} /></label>
+        <label className="field-wide"><span>Plan</span><textarea value={plan} onChange={(event) => setPlan(event.target.value)} placeholder="Known implementation shape or research steps" /></label>
+        {error && <div className="task-error" role="alert">{error}</div>}
+        <div className="task-panel-actions"><button type="button" className="secondary-action" onClick={onClose}>Cancel</button><button type="submit" className="primary-action" disabled={!title.trim() || saving}>{saving ? "Creating…" : "Create work item"}</button></div>
+      </form>
+    </aside>
+  );
+}
+
+function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClose, onMove, onPatch, onToggle, onLog }: {
+  task: WorkTask;
+  tasks: WorkTask[];
+  projects: Project[];
+  statuses: string[];
+  saving: boolean;
+  error: string | null;
+  onClose: () => void;
+  onMove: (status: string, note?: string) => void;
+  onPatch: (patch: Record<string, unknown>) => void;
+  onToggle: (section: "requirements" | "acceptance", index: number, checked: boolean) => void;
+  onLog: (message: string) => Promise<void>;
+}) {
+  const [title, setTitle] = useState(task.title);
+  const [projectPath, setProjectPath] = useState(task.projectPath ?? "");
+  const [type, setType] = useState(task.type);
+  const [priority, setPriority] = useState(task.priority);
+  const [assignee, setAssignee] = useState(task.assignee ?? "");
+  const [agents, setAgents] = useState(task.agents.join(", "));
+  const [tags, setTags] = useState(task.tags.join(", "));
+  const [dependsOn, setDependsOn] = useState(task.dependsOn.join(", "));
+  const [blockedBy, setBlockedBy] = useState(task.blockedBy.join(", "));
+  const [blockedReason, setBlockedReason] = useState(task.blockedReason ?? "");
+  const [estimate, setEstimate] = useState(task.estimate ?? "");
+  const [parentId, setParentId] = useState(task.parentId ?? "");
+  const [dueAt, setDueAt] = useState(task.dueAt?.slice(0, 10) ?? "");
+  const [goal, setGoal] = useState(task.sections.goal);
+  const [plan, setPlan] = useState(task.sections.plan);
+  const [notes, setNotes] = useState(task.sections.notes);
+  const [completionSummary, setCompletionSummary] = useState(task.sections.completionSummary);
+  const [newRequirement, setNewRequirement] = useState("");
+  const [newAcceptance, setNewAcceptance] = useState("");
+  const [logMessage, setLogMessage] = useState("");
+
+  useEffect(() => {
+    setTitle(task.title); setProjectPath(task.projectPath ?? ""); setType(task.type); setPriority(task.priority);
+    setAssignee(task.assignee ?? ""); setAgents(task.agents.join(", ")); setTags(task.tags.join(", "));
+    setDependsOn(task.dependsOn.join(", ")); setBlockedBy(task.blockedBy.join(", ")); setBlockedReason(task.blockedReason ?? "");
+    setEstimate(task.estimate ?? ""); setParentId(task.parentId ?? ""); setDueAt(task.dueAt?.slice(0, 10) ?? ""); setGoal(task.sections.goal); setPlan(task.sections.plan); setNotes(task.sections.notes);
+    setCompletionSummary(task.sections.completionSummary);
+  }, [task.id, task.updatedAt]);
+
+  function commaIds(value: string) { return value.split(",").map((item) => item.trim()).filter(Boolean); }
+  function saveDetails(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onPatch({ title, projectPath: projectPath || null, type, priority, assignee: assignee.trim() || null, agents: commaIds(agents), tags: commaIds(tags), dependsOn: commaIds(dependsOn), blockedBy: commaIds(blockedBy), blockedReason: blockedReason.trim() || null, estimate: estimate.trim() || null, parentId: parentId.trim() || null, dueAt: dueAt || null, goal, plan, notes, completionSummary });
+  }
+
+  const childTasks = tasks.filter((item) => item.parentId === task.id);
+  const progress = checklistProgress(task);
+
+  return (
+    <aside className="task-panel" aria-labelledby="task-detail-heading">
+      <div className="task-panel-header"><div><p className="eyebrow">{task.id} · {task.type} · {task.priority}</p><h2 id="task-detail-heading">{task.title}</h2></div><button type="button" onClick={onClose} aria-label="Close work item">×</button></div>
+      <div className="task-state-strip"><label><span>Status</span><select value={task.status} onChange={(event) => onMove(event.target.value)} disabled={saving}>{[...statuses, "cancelled", "archived"].map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}</select></label><span>{progress.complete}/{progress.total} checks complete</span><span>Updated {shortTime(task.updatedAt)}</span></div>
+      {error && <div className="task-error" role="alert">{error}</div>}
+      <form className="task-form" onSubmit={saveDetails}>
+        <label className="field-wide"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+        <div className="field-grid">
+          <label><span>Project</span><select value={projectPath} onChange={(event) => setProjectPath(event.target.value)}><option value="">Unassigned</option>{projects.filter((project) => project.path !== ".").map((project) => <option key={project.id} value={project.path}>{project.name} — {project.path}</option>)}</select></label>
+          <label><span>Type</span><select value={type} onChange={(event) => setType(event.target.value as WorkTask["type"])}>{["task", "bug", "feature", "research", "admin", "epic", "idea"].map((item) => <option key={item}>{item}</option>)}</select></label>
+          <label><span>Priority</span><select value={priority} onChange={(event) => setPriority(event.target.value as WorkTask["priority"])}>{["none", "low", "medium", "high", "critical"].map((item) => <option key={item}>{item}</option>)}</select></label>
+          <label><span>Estimate</span><input value={estimate} onChange={(event) => setEstimate(event.target.value)} placeholder="2h, 3 points, unknown" /></label>
+          <label><span>Human owner</span><input value={assignee} onChange={(event) => setAssignee(event.target.value)} /></label>
+          <label><span>Agents or teams</span><input value={agents} onChange={(event) => setAgents(event.target.value)} placeholder="Comma-separated" /></label>
+          <label><span>Parent task ID</span><input value={parentId} onChange={(event) => setParentId(event.target.value)} placeholder="W-0001" /></label>
+          <label><span>Due date</span><input type="date" value={dueAt} onChange={(event) => setDueAt(event.target.value)} /></label>
+        </div>
+        <label className="field-wide"><span>Tags</span><input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="Comma-separated" /></label>
+        <label className="field-wide"><span>Depends on task IDs</span><input value={dependsOn} onChange={(event) => setDependsOn(event.target.value)} placeholder="W-0001, W-0002" /></label>
+        <label className="field-wide"><span>Blocked by task IDs</span><input value={blockedBy} onChange={(event) => setBlockedBy(event.target.value)} placeholder="W-0001" /></label>
+        <label className="field-wide"><span>Blocker explanation</span><textarea value={blockedReason} onChange={(event) => setBlockedReason(event.target.value)} /></label>
+        <label className="field-wide"><span>Goal</span><textarea value={goal} onChange={(event) => setGoal(event.target.value)} /></label>
+        <label className="field-wide"><span>Plan</span><textarea value={plan} onChange={(event) => setPlan(event.target.value)} /></label>
+        <label className="field-wide"><span>Notes</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
+        <label className="field-wide"><span>Completion summary</span><textarea value={completionSummary} onChange={(event) => setCompletionSummary(event.target.value)} placeholder="What shipped, changed, or was learned?" /></label>
+        <button type="submit" className="primary-action" disabled={saving}>{saving ? "Saving…" : "Save card details"}</button>
+      </form>
+
+      <TaskChecklist title="Requirements" items={task.requirements} onToggle={(index, checked) => onToggle("requirements", index, checked)} />
+      <form className="add-check" onSubmit={(event) => { event.preventDefault(); if (!newRequirement.trim()) return; onPatch({ requirements: [...task.requirements, { checked: false, text: newRequirement.trim() }] }); setNewRequirement(""); }}><input value={newRequirement} onChange={(event) => setNewRequirement(event.target.value)} placeholder="Add requirement…" /><button type="submit">Add</button></form>
+      <TaskChecklist title="Acceptance criteria" items={task.acceptanceCriteria} onToggle={(index, checked) => onToggle("acceptance", index, checked)} />
+      <form className="add-check" onSubmit={(event) => { event.preventDefault(); if (!newAcceptance.trim()) return; onPatch({ acceptanceCriteria: [...task.acceptanceCriteria, { checked: false, text: newAcceptance.trim() }] }); setNewAcceptance(""); }}><input value={newAcceptance} onChange={(event) => setNewAcceptance(event.target.value)} placeholder="Add acceptance criterion…" /><button type="submit">Add</button></form>
+
+      {childTasks.length > 0 && <section className="task-subsection"><h3>Child work</h3><ul>{childTasks.map((child) => <li key={child.id}><strong>{child.id}</strong> {child.title} <span>{statusLabel(child.status)}</span></li>)}</ul></section>}
+      <section className="task-subsection"><h3>Lifecycle</h3><ul><li>Created: {new Date(task.createdAt).toLocaleString()}</li>{task.startedAt && <li>Started: {new Date(task.startedAt).toLocaleString()}</li>}{task.completedAt && <li>Completed: {new Date(task.completedAt).toLocaleString()}</li>}{task.cancelledAt && <li>Cancelled: {new Date(task.cancelledAt).toLocaleString()}</li>}{task.dueAt && <li>Due: {new Date(task.dueAt).toLocaleDateString()}</li>}{task.source && <li>Source: {task.source}</li>}</ul></section>
+      <section className="task-subsection"><h3>Progress log</h3>{task.log.length === 0 ? <p>No entries yet.</p> : <ol className="task-log">{[...task.log].reverse().map((entry, index) => <li key={`${entry.at}-${index}`}><time dateTime={entry.at}>{new Date(entry.at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time><span>{entry.message}</span></li>)}</ol>}</section>
+      <form className="add-log" onSubmit={(event) => { event.preventDefault(); if (!logMessage.trim()) return; void onLog(logMessage.trim()).then(() => setLogMessage("")); }}><label><span>Add progress</span><textarea value={logMessage} onChange={(event) => setLogMessage(event.target.value)} placeholder="What was done, learned, changed, or blocked?" /></label><button type="submit" className="primary-action" disabled={!logMessage.trim()}>Append to log</button></form>
+    </aside>
+  );
+}
+
+function TaskChecklist({ title, items, onToggle }: { title: string; items: ChecklistItem[]; onToggle: (index: number, checked: boolean) => void }) {
+  return (
+    <section className="task-subsection"><h3>{title}</h3>{items.length === 0 ? <p>None recorded.</p> : <ul className="task-checklist">{items.map((item, index) => <li key={`${item.text}-${index}`}><label><input type="checkbox" checked={item.checked} onChange={(event) => onToggle(index, event.target.checked)} /><span>{item.text}</span></label></li>)}</ul>}</section>
   );
 }

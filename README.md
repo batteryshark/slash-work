@@ -1,34 +1,174 @@
 # Work
 
-Work is a calm, zoomable shared memory for many projects. The first vertical
-slice focuses on three things: resume one meaningful thread, surface only real
-human decisions, and capture any thought without a form.
+![Work: capture anything and continue without reconstructing context](public/og.png)
 
-## Local development
+Work stores project tasks, captures, notes, and decisions as local files for
+people and agent teams managing many repositories. The home screen prioritizes
+capture and resumption; the Board and Activity views expose the full history.
+
+Requires Node.js 22.13 or newer and npm.
+
+## Start Work for a root directory
+
+Clone and install the repository once:
 
 ```bash
+git clone https://github.com/batteryshark/work-root-manager.git
+cd work-root-manager
 npm install
-npm run dev
+npm link
 ```
 
-The app opens at `http://localhost:3000`.
-
-## Validation
+Then enter any directory that contains projects and run one command:
 
 ```bash
-npm run build
-node --test tests/*.test.mjs
+cd /path/to/my-projects
+work
 ```
 
-The product acceptance criteria live in
+You can also launch a specific root from the Work source checkout without
+linking the command:
+
+```bash
+npm run work -- /path/to/my-projects
+```
+
+Work opens the local address in your browser and also prints it in the terminal.
+Pass `--no-open` when you do not want that. Work listens on the loopback
+interface only; it is not published to the internet and does not require a
+hosted account.
+
+On first launch, the selected directory becomes the workspace root. On later
+launches inside one of its descendants, Work finds the nearest ancestor
+containing `.work/workspace.json`, resumes it, and opens at that descendant's
+folder scope. Use `work --init` when you intentionally want the current
+directory to become a separate nested workspace.
+
+Every launched root is also registered in `~/.work/roots.json`. After that you
+can start `work` without a path and switch among approved roots from the root
+button in the web header—including from a narrow phone-sized browser. Register
+other spaces without launching them first:
+
+```bash
+work register ~/Home
+work register ~/Hacking
+work register ~/Career
+work roots
+```
+
+Use `work unregister <id-or-path>` to remove an entry from the picker. The
+browser cannot browse the server's filesystem or submit a new arbitrary path;
+it can select only these pre-registered roots.
+
+The workspace-root menu also has a two-step **Restart Work** control for
+reloading this local service after code or configuration changes. It restarts
+only the current loopback Work process, reconnects automatically, and does not
+run project code or alter project files.
+
+The selected workspace root is a hard visibility boundary. Work can discover
+projects below it, but it does not scan its parent or siblings. Switching the
+picker changes the boundary for that browser; records from different roots are
+never combined.
+
+Projects are explicit. The preferred marker is a project-owned `.work/`
+directory containing `project.json`. Initialize it by creating the directory;
+Work writes the marker the next time it discovers the project. Existing empty
+`.project` files and `.project/` directories remain supported and are upgraded
+without deleting the legacy marker. Git repositories, package manifests, build
+files, and scratch directories are ignored unless you mark them:
+
+```bash
+mkdir -p path/to/project/.work
+```
+
+Linked Git worktrees of a marked project are treated as aliases, not additional
+projects. Work reads and writes the primary worktree's `.work/` store even when
+the CLI or UI is launched from a linked worktree.
+
+## What is saved
+
+Work keeps human-readable Markdown beside the thing it describes. The selected
+root's `.work/` contains `workspace.json` plus unassigned captures, notes,
+tasks, and decisions. Every project has its own `.work/project.json`,
+`.work/tasks/`, `.work/captures/`, `.work/notes/`, and `.work/decisions/`.
+Notes use a plain-text body with a small metadata header so both people and
+agents can read them without a special editor. Assigning or reassigning a
+record moves its file to the owning project; moving the whole project folder
+therefore moves its work and history too. Everything survives browser
+refreshes, server restarts, and a different browser on the same computer.
+Browser storage may remember harmless interface preferences, but it is not the
+source of truth for work.
+
+This means the workspace can be backed up, searched, inspected, and versioned
+with ordinary file tools. Deleting browser data does not delete the work log.
+Do not commit `.work/` if the workspace contains private operational notes.
+
+## Everyday use
+
+- Press `/`, type a messy thought, and press Enter. Use `Shift+Enter` for new
+  lines when the thought is a list or needs more room. It is saved immediately;
+  choosing a project is optional.
+- Type `/work task: describe the outcome` to create a backlog card without
+  opening a form, or promote any Inbox thought with **Make task**.
+- Open **Notes** for longer plain-text thoughts. Create or select an individual
+  note, write without formatting, and let Work save it beside the current
+  project. Deleting a note requires a second confirmation.
+- Open **Board** to see Backlog, Ready, In flight, Blocked, Review, and
+  Completed. Drag cards between columns or use the accessible status control.
+- Open a card for project, type, priority, human owner, agent teams, tags,
+  dependencies, blockers, requirements, acceptance criteria, plan, notes,
+  completion summary, timestamps, and its append-only progress log.
+- Open **Activity** to understand what was added, changed, blocked, completed,
+  cancelled, or archived across the current directory scope.
+- Start at **All in this root** to see the root, a folder to see a group, or a
+  project to see only that project.
+- Use **Needs you** for an actual choice. A decision exposes its real
+  alternatives—such as selecting a project or keeping something
+  unassigned—plus **Decide later** and **Cancel** where safe. Opening a card
+  does not silently approve it.
+- Stop the local process with `Ctrl-C`. Run the same command later to resume
+  from the files already in `.work/`.
+
+Agents and terminal users use the same records:
+
+```bash
+work task "Implement the board" --project software/rekit --priority high
+work move W-0001 in_progress --note "UI team started"
+work log W-0001 "Requirements and dependency gate pass"
+work list
+work show W-0001
+```
+
+See [`docs/LOCAL-WORKSPACE.md`](docs/LOCAL-WORKSPACE.md) for discovery,
+containment, storage, and recovery details.
+
+## Development and validation
+
+Launch Work from the checkout to run the API and Vite interface together:
+
+```bash
+npm run work -- /path/to/a/test-root --no-open
+```
+
+Run the complete build and test suite before submitting a change:
+
+```bash
+npm test
+```
+
+The product acceptance gates and five-minute human scenario live in
 [`docs/ADHD-USABILITY-STANDARD.md`](docs/ADHD-USABILITY-STANDARD.md).
 
-## Current behavior
+## Repository layout
 
-- `/` focuses the universal `/work` input.
-- Natural-language navigation handles requests such as “show all work” and
-  “focus ReKit.”
-- Other input is preserved as an idea, question, or update.
-- Current scope, captures, and resolved decisions persist in browser storage.
-- Breadcrumbs zoom from all work to Software to a project.
-- Decisions expand in place and never open a modal.
+- `app/` contains the React interface and styles.
+- `bin/` contains the `work` CLI and local process launcher.
+- `lib/` owns workspace discovery and the filesystem record store.
+- `server/` exposes the loopback-only JSON API.
+- `tests/` covers the interface contract, storage, containment, worktrees, and
+  lifecycle behavior.
+- `docs/` defines the local workspace and ADHD usability contracts.
+
+## License
+
+Work is available under the [MIT License](LICENSE).
