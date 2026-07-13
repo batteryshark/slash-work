@@ -5,7 +5,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/batteryshark/slash-work.git"
+    "url": "git+https://github.com/batteryshark/slash-work.git"
   },
   "bugs": {
     "url": "https://github.com/batteryshark/slash-work/issues"
@@ -18,7 +18,7 @@
     "project-management"
   ],
   "bin": {
-    "work": "./bin/work.mjs"
+    "work": "bin/work.mjs"
   },
   "files": [
     "app",
