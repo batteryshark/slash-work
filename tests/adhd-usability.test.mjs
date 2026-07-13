@@ -19,7 +19,7 @@ test("builds a local root-scoped interface instead of a hosted demo", async () =
   assert.doesNotMatch(page, /inferProject|hard-coded|ReKit Factory/i);
 
   const packageJson = JSON.parse(packageSource);
-  assert.equal(packageJson.bin.work, "./bin/work.mjs");
+  assert.equal(packageJson.bin.work, "bin/work.mjs");
   assert.equal(packageJson.scripts.dev, "vite");
   assert.equal(packageJson.dependencies.next, undefined);
   await assert.rejects(access(new URL(".openai/hosting.json", root)));

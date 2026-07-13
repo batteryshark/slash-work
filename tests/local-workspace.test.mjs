@@ -115,7 +115,7 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   const packageJson = JSON.parse(
     await readFile(new URL("../package.json", import.meta.url), "utf8"),
   );
-  assert.equal(packageJson.bin.work, "./bin/work.mjs");
+  assert.equal(packageJson.bin.work, "bin/work.mjs");
   assert.equal(packageJson.scripts.work, "node ./bin/work.mjs");
 
   const help = await execFile(process.execPath, [launcherPath.pathname, "--help"], {
