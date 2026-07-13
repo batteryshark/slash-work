@@ -178,8 +178,6 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .theme-picker select { min-height: 36px; padding: 0 24px 0 4px; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 12px; font-weight: 700; cursor: pointer; }
 
 .header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
-.local-state { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; white-space: nowrap; }
-.local-state i { width: 8px; height: 8px; border-radius: 50%; background: #5c9a78; box-shadow: 0 0 0 4px #deeee5; }
 .project-switch {
   display: inline-flex;
   align-items: center;
@@ -724,7 +722,6 @@ html[data-theme="dark"] .topbar { background: rgba(20, 21, 26, 0.94); border-bot
 html[data-theme="dark"] .flow-rail { background: rgba(20, 21, 26, 0.74); border-right-color: rgba(56, 59, 69, 0.8); }
 html[data-theme="dark"] .view-tabs { background: rgba(29, 31, 38, 0.78); }
 html[data-theme="dark"] .view-tabs button.selected { background: var(--accent); color: #15131f; }
-html[data-theme="dark"] .local-state i { background: #72b494; box-shadow: 0 0 0 4px #20382e; }
 html[data-theme="dark"] .project-search,
 html[data-theme="dark"] .capture-dock textarea,
 html[data-theme="dark"] .task-form input,
@@ -779,12 +776,12 @@ html[data-theme="dark"] .task-log li { border-bottom-color: var(--line); }
 
 @media (min-width: 1121px) and (max-width: 1360px) {
   .topbar { grid-template-columns: 250px minmax(0, 1fr) auto auto auto; gap: 16px; padding-inline: 22px; }
-  .brand > span:last-child, .local-state { display: none; }
+  .brand > span:last-child { display: none; }
 }
 
 @media (max-width: 1120px) {
   .topbar { grid-template-columns: auto minmax(0, 1fr) auto auto auto; padding-inline: 22px; }
-  .brand > span:last-child, .local-state { display: none; }
+  .brand > span:last-child { display: none; }
   .root-switch > span:first-child { max-width: 90px; }
   .flow-rail { position: static; width: auto; min-height: 98px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 20px 24px; border-right: 0; border-bottom: 1px solid var(--line); }
   .rail-line, .root-boundary { display: none; }

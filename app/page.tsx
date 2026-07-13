@@ -1080,7 +1080,6 @@ export default function Home() {
         </label>
 
         <div className="header-actions">
-          <span className="local-state"><i aria-hidden="true" /> Local files</span>
           <button className="project-switch" type="button" onClick={() => {
             setProjectMenuOpen((open) => !open);
             setWorkspaceMenuOpen(false);

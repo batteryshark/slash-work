@@ -62,6 +62,8 @@ test("makes captures immediate, durable, and visibly undoable", async () => {
   assert.match(page, /Current work/);
   assert.match(page, /Latest progress/);
   assert.match(page, /\.slice\(0, 3\)/);
+  assert.doesNotMatch(page, /Local files|local-state/);
+  assert.doesNotMatch(css, /\.local-state/);
   assert.match(css, /\.pulse-grid/);
   assert.match(css, /\.home-support-grid/);
   assert.match(css, /-webkit-line-clamp:\s*4/);
