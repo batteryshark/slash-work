@@ -94,7 +94,10 @@ root's `.work/` contains `workspace.json` plus unassigned captures, notes,
 tasks, and decisions. Every project has its own `.work/project.json`,
 `.work/tasks/`, `.work/captures/`, `.work/notes/`, and `.work/decisions/`.
 Notes use a plain-text body with a small metadata header so both people and
-agents can read them without a special editor. Assigning or reassigning a
+agents can read them without a special editor. Every note records an explicit
+`agentIntent`: `reference_only` means context, never an instruction, while
+`review_requested` asks an agent to review it promptly without authorizing
+execution. Assigning or reassigning a
 record moves its file to the owning project; moving the whole project folder
 therefore moves its work and history too. Everything survives browser
 refreshes, server restarts, and a different browser on the same computer.
@@ -114,7 +117,9 @@ Do not commit `.work/` if the workspace contains private operational notes.
   opening a form, or promote any Inbox thought with **Make task**.
 - Open **Notes** for longer plain-text thoughts. Create or select an individual
   note, write without formatting, and let Work save it beside the current
-  project. Deleting a note requires a second confirmation.
+  project. Notes are reference-only by default. **Ask agent to review** marks a
+  note for prompt review; use a task card when you want execution. Deleting a
+  note requires a second confirmation.
 - Open **Board** to see Backlog, Ready, In flight, Blocked, Review, and
   Completed. Drag cards between columns or use the accessible status control.
 - Open a card for project, type, priority, human owner, agent teams, tags,

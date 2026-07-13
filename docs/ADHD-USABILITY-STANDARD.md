@@ -73,6 +73,9 @@ thought go?” without remembering prior navigation.
   folder moves cannot silently separate the project from its working memory.
 - Longer plain-text notes autosave independently of the quick-capture inbox and
   remain selectable and editable after a restart.
+- Notes default to passive reference material. Requesting agent review is a
+  separate explicit action, persists in the note metadata, and does not imply
+  authorization to execute work.
 - The last harmless interface scope may persist on the device.
 - Capture offers an immediate Undo action.
 - Escape clears an unfinished command without saving it.
@@ -181,8 +184,9 @@ the tester needs hidden syntax after launch.
    the recorded outcome. For another item, choose **Decide later** and confirm
    it remains available rather than being called resolved.
 7. Open **Notes**, create a project note with multiple paragraphs, switch to a
-   second note, and return to the first. Confirm the text autosaved and that
-   deleting it requires a separate confirmation.
+   second note, and return to the first. Confirm the text autosaved, the note is
+   labelled as passive reference, **Ask agent to review** is an explicit action,
+   and deleting the note requires a separate confirmation.
 8. Stop the server with `Ctrl-C`, launch the same root again, and explain what
    changed. Both thoughts, the note, and the recorded decision must remain.
 9. Launch against a different empty root. None of the first root's projects or

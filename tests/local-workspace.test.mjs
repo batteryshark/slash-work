@@ -617,22 +617,54 @@ test("keeps editable plain-text notes alongside their project", async () => {
     assert.equal(created.response.status, 201);
     assert.equal(created.payload.title, "Strategy fragments");
     assert.equal(created.payload.projectPath, "software/rekit");
+    assert.equal(created.payload.agentIntent, "reference_only");
     noteId = created.payload.id;
 
     const pathname = join(root, "software", "rekit", ".work", "notes", `${noteId}.md`);
     const stored = await readFile(pathname, "utf8");
     assert.match(stored, /type: "note"/);
     assert.match(stored, /title: "Strategy fragments"/);
+    assert.match(stored, /agentIntent: "reference_only"/);
     assert.ok(stored.includes("Questions to revisit:\nKeep this as ordinary text."));
     assert.deepEqual(await readdir(join(root, ".work", "notes")), []);
 
+    const legacyNoteId = "note_legacy1234";
+    await writeFile(join(root, "software", "rekit", ".work", "notes", `${legacyNoteId}.md`), `---
+id: "${legacyNoteId}"
+type: "note"
+title: "Older note"
+scopePath: "software/rekit"
+projectPath: "software/rekit"
+createdAt: "2026-01-01T00:00:00.000Z"
+updatedAt: "2026-01-01T00:00:00.000Z"
+---
+
+Existing notes must remain passive by default.
+`);
+    const listed = await apiRequest(first.origin, "/api/notes");
+    assert.equal(listed.payload.notes.find((note) => note.id === legacyNoteId)?.agentIntent, "reference_only");
+    assert.match(await readFile(join(root, "software", "rekit", ".work", "notes", `${legacyNoteId}.md`), "utf8"), /agentIntent: "reference_only"/);
+    const removedLegacy = await apiRequest(first.origin, `/api/notes/${legacyNoteId}`, { method: "DELETE" });
+    assert.equal(removedLegacy.response.status, 204);
+
     const updated = await apiRequest(first.origin, `/api/notes/${encodeURIComponent(noteId)}`, {
       method: "PATCH",
-      body: { title: "Strategy notes", text: "A revised thought.\n\nA second paragraph." },
+      body: {
+        title: "Strategy notes",
+        text: "A revised thought.\n\nA second paragraph.",
+        agentIntent: "review_requested",
+      },
     });
     assert.equal(updated.response.status, 200);
     assert.equal(updated.payload.title, "Strategy notes");
     assert.equal(updated.payload.text, "A revised thought.\n\nA second paragraph.");
+    assert.equal(updated.payload.agentIntent, "review_requested");
+
+    const invalidIntent = await apiRequest(first.origin, `/api/notes/${encodeURIComponent(noteId)}`, {
+      method: "PATCH",
+      body: { agentIntent: "execute_now" },
+    });
+    assert.equal(invalidIntent.response.status, 400);
 
     const traversal = await apiRequest(first.origin, "/api/notes", {
       method: "POST",
@@ -650,6 +682,7 @@ test("keeps editable plain-text notes alongside their project", async () => {
     assert.equal(note.title, "Strategy notes");
     assert.equal(note.text, "A revised thought.\n\nA second paragraph.");
     assert.equal(note.projectPath, "software/rekit");
+    assert.equal(note.agentIntent, "review_requested");
 
     const removed = await apiRequest(restarted.origin, `/api/notes/${encodeURIComponent(noteId)}`, { method: "DELETE" });
     assert.equal(removed.response.status, 204);

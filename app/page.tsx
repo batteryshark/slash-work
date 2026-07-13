@@ -36,6 +36,7 @@ type ProjectNote = {
   text: string;
   scopePath: string;
   projectPath: string | null;
+  agentIntent: "reference_only" | "review_requested";
   createdAt: string;
   updatedAt: string;
 };
@@ -628,6 +629,7 @@ export default function Home() {
           text: "",
           scopePath,
           projectPath: selectedProject?.path ?? null,
+          agentIntent: "reference_only",
         }),
       });
       replaceNote(note);
@@ -643,7 +645,7 @@ export default function Home() {
     }
   }
 
-  async function updateProjectNote(noteId: string, patch: { title: string; text: string }) {
+  async function updateProjectNote(noteId: string, patch: { title?: string; text?: string; agentIntent?: ProjectNote["agentIntent"] }) {
     setNoteError(null);
     try {
       const note = await requestJson<ProjectNote>(`/api/notes/${encodeURIComponent(noteId)}`, {
@@ -1658,7 +1660,7 @@ function NotesView({
   error: string | null;
   onSelect: (noteId: string) => void;
   onCreate: () => Promise<ProjectNote>;
-  onUpdate: (noteId: string, patch: { title: string; text: string }) => Promise<ProjectNote>;
+  onUpdate: (noteId: string, patch: { title?: string; text?: string; agentIntent?: ProjectNote["agentIntent"] }) => Promise<ProjectNote>;
   onDelete: (noteId: string) => Promise<void>;
 }) {
   const selectedNote = notes.find((note) => note.id === selectedNoteId) ?? null;
@@ -1669,6 +1671,7 @@ function NotesView({
   const [saveState, setSaveState] = useState<"idle" | "editing" | "saving" | "saved" | "error">("idle");
   const [deleteArmed, setDeleteArmed] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [updatingAgentIntent, setUpdatingAgentIntent] = useState(false);
   const revisionRef = useRef(0);
   const saveTimerRef = useRef<number | null>(null);
 
@@ -1773,6 +1776,21 @@ function NotesView({
     }
   }
 
+  async function toggleAgentReview() {
+    if (!selectedNote || updatingAgentIntent) return;
+    if (!(await persistDraft())) return;
+    setUpdatingAgentIntent(true);
+    try {
+      await onUpdate(selectedNote.id, {
+        agentIntent: selectedNote.agentIntent === "review_requested" ? "reference_only" : "review_requested",
+      });
+    } catch {
+      setSaveState("error");
+    } finally {
+      setUpdatingAgentIntent(false);
+    }
+  }
+
   function noteLocation(note: ProjectNote) {
     if (!note.projectPath) return note.scopePath === "." ? "Workspace note" : `${displaySegment(pathParts(note.scopePath).at(-1) ?? note.scopePath)} note`;
     return projects.find((project) => project.path === note.projectPath)?.name ?? note.projectPath;
@@ -1794,7 +1812,7 @@ function NotesView({
         <div>
           <p className="eyebrow">{scopeKind === "project" ? "Project notebook" : scopeKind === "root" ? "Workspace notebook" : "Folder notebook"}</p>
           <h1 id="notes-heading">{scopeLabel} notes</h1>
-          <p>Plain-text working notes kept beside the project, ready for you or an agent to revisit later.</p>
+          <p>Plain-text working notes kept beside the project. They are personal reference unless you explicitly request an agent review.</p>
         </div>
         <button type="button" className="primary-action" disabled={creating} onClick={() => void createNote()}>
           {creating ? "Creating…" : "New note"}<span aria-hidden="true">＋</span>
@@ -1831,8 +1849,11 @@ function NotesView({
                     key={note.id}
                     onClick={() => void selectNote(note.id)}
                   >
-                    <strong>{note.title}</strong>
-                    <span>{preview}</span>
+                    <span className="note-list-title">
+                      <strong>{note.title}</strong>
+                      {note.agentIntent === "review_requested" && <em>Agent review</em>}
+                    </span>
+                    <span className="note-list-preview">{preview}</span>
                     <small>{noteLocation(note)} · {shortTime(note.updatedAt)}</small>
                   </button>
                 );
@@ -1858,6 +1879,21 @@ function NotesView({
                   />
                 </label>
                 <span>{noteLocation(selectedNote)}</span>
+              </div>
+              <div className={`note-agent-intent ${selectedNote.agentIntent === "review_requested" ? "review-requested" : "reference-only"}`}>
+                <div>
+                  <strong>{selectedNote.agentIntent === "review_requested" ? "Agent review requested" : "Reference note"}</strong>
+                  <span>{selectedNote.agentIntent === "review_requested"
+                    ? "An agent should review this promptly. This is still not authorization to execute work."
+                    : "Agents may use this as context, but should not treat it as a request or task."}</span>
+                </div>
+                <button type="button" disabled={updatingAgentIntent} onClick={() => void toggleAgentReview()}>
+                  {updatingAgentIntent
+                    ? "Updating…"
+                    : selectedNote.agentIntent === "review_requested"
+                      ? "Clear review request"
+                      : "Ask agent to review"}
+                </button>
               </div>
               <label className="note-body-field">
                 <span className="sr-only">Note text</span>

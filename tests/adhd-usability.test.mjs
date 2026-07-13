@@ -103,6 +103,10 @@ test("provides durable selectable plain-text notes without turning capture into 
   assert.match(page, /Plain-text working notes/);
   assert.match(page, /Delete this note\?/);
   assert.match(page, /Save now/);
+  assert.match(page, /Ask agent to review/);
+  assert.match(page, /Clear review request/);
+  assert.match(page, /should not treat it as a request or task/);
+  assert.match(page, /not authorization to execute work/);
   assert.match(page, /setTimeout\(\(\) =>/);
   assert.match(page, /\/api\/notes/);
   assert.match(css, /\.notes-workspace[^}]*grid-template-columns:\s*300px minmax\(0, 1fr\)/);
@@ -111,8 +115,11 @@ test("provides durable selectable plain-text notes without turning capture into 
   assert.match(store, /export async function createNote/);
   assert.match(store, /export async function updateNote/);
   assert.match(store, /export async function deleteNote/);
+  assert.match(store, /agentIntent.*reference_only/);
+  assert.match(store, /review_requested/);
   assert.match(server, /url\.pathname === "\/api\/notes"/);
   assert.match(standard, /plain-text notes autosave/i);
+  assert.match(standard, /passive reference material/i);
 });
 
 test("does not replace an active note draft with an autosave response", async () => {
