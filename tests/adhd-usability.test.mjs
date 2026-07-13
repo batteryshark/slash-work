@@ -110,6 +110,16 @@ test("provides durable selectable plain-text notes without turning capture into 
   assert.match(standard, /plain-text notes autosave/i);
 });
 
+test("does not replace an active note draft with an autosave response", async () => {
+  const page = await readFile(new URL("app/page.tsx", root), "utf8");
+  const notesView = page.slice(page.indexOf("function NotesView"), page.indexOf("function statusLabel"));
+
+  assert.match(notesView, /await onUpdate\(selectedNote\.id/);
+  assert.match(notesView, /revisionRef\.current === revision/);
+  assert.doesNotMatch(notesView, /setDraftTitle\(updated\.title\)/);
+  assert.doesNotMatch(notesView, /setDraftText\(updated\.text\)/);
+});
+
 test("requires an explicit recorded choice for every human decision", async () => {
   const page = await readFile(new URL("app/page.tsx", root), "utf8");
 

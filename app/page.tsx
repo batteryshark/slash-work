@@ -1722,13 +1722,14 @@ function NotesView({
     const revision = revisionRef.current;
     setSaveState("saving");
     try {
-      const updated = await onUpdate(selectedNote.id, {
+      await onUpdate(selectedNote.id, {
         title: draftTitle.trim() || "Untitled note",
         text: draftText,
       });
       if (revisionRef.current === revision) {
-        setDraftTitle(updated.title);
-        setDraftText(updated.text);
+        // The response confirms persistence and refreshes note metadata in the
+        // parent. Replacing the controlled inputs here can clobber a keystroke
+        // that lands between the browser's key and input events.
         setDirty(false);
         setSaveState("saved");
       }
