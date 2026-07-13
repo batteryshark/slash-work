@@ -289,6 +289,73 @@ test("launches on loopback, discovers only explicit projects, and contains the r
   }
 });
 
+test("browses project files without exposing writes, secrets, binaries, or paths outside the scope", async () => {
+  const { root, outside } = await makeWorkspaceFixture();
+  const project = join(root, "software", "rekit");
+  await mkdir(join(project, "src"), { recursive: true });
+  await writeFile(join(project, "src", "app.ts"), "export const state = 'initial';\n");
+  await writeFile(join(project, "obsolete.txt"), "remove me\n");
+  await execFile("git", ["init", "-b", "main"], { cwd: project });
+  await execFile("git", ["config", "user.name", "Work Tests"], { cwd: project });
+  await execFile("git", ["config", "user.email", "work-tests@example.invalid"], { cwd: project });
+  await execFile("git", ["add", ".project", "package.json", "src/app.ts", "obsolete.txt"], { cwd: project });
+  await execFile("git", ["commit", "-m", "Initial project"], { cwd: project });
+
+  await writeFile(join(project, "src", "app.ts"), "export const state = 'being built';\n");
+  await writeFile(join(project, "src", "worker.py"), "print('working')\n");
+  await writeFile(join(project, ".env"), "SECRET=do-not-preview\n");
+  await writeFile(join(project, "image.bin"), Buffer.from([0, 1, 2, 3]));
+  await unlink(join(project, "obsolete.txt"));
+  await symlink(outside, join(project, "outside-source"));
+
+  const api = await startLocalApi({ root, port: 0 });
+  try {
+    const rootListing = await apiRequest(api.origin, "/api/files/directory?scopePath=software%2Frekit&path=.");
+    assert.equal(rootListing.response.status, 200);
+    assert.equal(rootListing.payload.git.available, true);
+    assert.ok(rootListing.payload.entries.some((entry) => entry.name === "src" && entry.kind === "directory" && entry.gitStatus));
+    assert.equal(rootListing.payload.entries.some((entry) => entry.name === ".git" || entry.name === ".work" || entry.name === ".project"), false);
+    assert.equal(rootListing.payload.entries.find((entry) => entry.name === ".env")?.previewable, false);
+    assert.equal(rootListing.payload.entries.find((entry) => entry.name === "image.bin")?.previewable, false);
+    assert.equal(rootListing.payload.entries.find((entry) => entry.path === "obsolete.txt")?.gitStatus, "deleted");
+    assert.equal(rootListing.payload.entries.find((entry) => entry.path === "obsolete.txt")?.previewable, false);
+    assert.equal(rootListing.payload.entries.find((entry) => entry.name === "outside-source")?.kind, "symlink");
+
+    const sourceListing = await apiRequest(api.origin, "/api/files/directory?scopePath=software%2Frekit&path=src");
+    assert.equal(sourceListing.payload.entries.find((entry) => entry.name === "app.ts")?.gitStatus, "modified");
+    assert.equal(sourceListing.payload.entries.find((entry) => entry.name === "worker.py")?.gitStatus, "untracked");
+
+    const preview = await apiRequest(api.origin, "/api/files/content?scopePath=software%2Frekit&path=src%2Fapp.ts");
+    assert.equal(preview.response.status, 200);
+    assert.equal(preview.payload.language.id, "typescript");
+    assert.equal(preview.payload.gitStatus, "modified");
+    assert.equal(preview.payload.readOnly, true);
+    assert.match(preview.payload.content, /being built/);
+
+    const sensitive = await apiRequest(api.origin, "/api/files/content?scopePath=software%2Frekit&path=.env");
+    assert.equal(sensitive.response.status, 403);
+    assert.doesNotMatch(JSON.stringify(sensitive.payload), /do-not-preview/);
+
+    const binary = await apiRequest(api.origin, "/api/files/content?scopePath=software%2Frekit&path=image.bin");
+    assert.equal(binary.response.status, 415);
+
+    const symlinkPreview = await apiRequest(api.origin, "/api/files/content?scopePath=software%2Frekit&path=outside-source%2Fprivate-project%2Fsecret.md");
+    assert.equal(symlinkPreview.response.status, 403);
+
+    const traversal = await apiRequest(api.origin, "/api/files/content?scopePath=software%2Frekit&path=..%2F..%2Fresearch%2Funmask%2F.project");
+    assert.equal(traversal.response.status, 403);
+
+    const writeAttempt = await apiRequest(api.origin, "/api/files/content?scopePath=software%2Frekit&path=src%2Fapp.ts", {
+      method: "PATCH",
+      body: { content: "changed through the browser" },
+    });
+    assert.equal(writeAttempt.response.status, 404);
+    assert.match(await readFile(join(project, "src", "app.ts"), "utf8"), /being built/);
+  } finally {
+    await closeLocalApi(api.server);
+  }
+});
+
 test("restarts only after explicit local confirmation", async () => {
   const root = await temporaryDirectory("work-restart-");
   let restartCalls = 0;
@@ -382,6 +449,7 @@ test("treats linked Git worktrees as aliases of one canonical project store", as
   await execFile("git", ["add", ".work"], { cwd: primary });
   await execFile("git", ["commit", "-m", "Track project work"], { cwd: primary });
   await execFile("git", ["worktree", "add", "-b", "feature", linked], { cwd: primary });
+  await writeFile(join(linked, "feature-only.ts"), "export const worktree = true;\n");
   await writeFile(join(root, ".work", "captures", "capture_alias1234.md"), `---
 id: "capture_alias1234"
 type: "capture"
@@ -405,6 +473,12 @@ Migrate this older alias assignment safely.
     assert.equal(snapshot.payload.captures.find((capture) => capture.id === "capture_alias1234")?.projectPath, "rekit-factory");
     assert.equal((await readdir(join(primary, ".work", "captures"))).includes("capture_alias1234.md"), true);
     assert.equal((await readdir(join(root, ".work", "captures"))).includes("capture_alias1234.md"), false);
+
+    const primaryFiles = await apiRequest(api.origin, "/api/files/directory?scopePath=rekit-factory&path=.");
+    const linkedFiles = await apiRequest(api.origin, "/api/files/directory?scopePath=rekit-factory-feature&path=.");
+    assert.equal(primaryFiles.payload.entries.some((entry) => entry.name === "feature-only.ts"), false);
+    assert.equal(linkedFiles.payload.scopePath, "rekit-factory-feature");
+    assert.equal(linkedFiles.payload.entries.find((entry) => entry.name === "feature-only.ts")?.gitStatus, "untracked");
 
     const logged = await apiRequest(api.origin, "/api/tasks/W-0001/log", {
       method: "POST",

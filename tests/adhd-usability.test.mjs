@@ -95,7 +95,7 @@ test("provides durable selectable plain-text notes without turning capture into 
     readFile(new URL("docs/ADHD-USABILITY-STANDARD.md", root), "utf8"),
   ]);
 
-  assert.match(page, /type AppView = "home" \| "board" \| "notes" \| "activity"/);
+  assert.match(page, /type AppView = "home" \| "board" \| "notes" \| "files" \| "activity"/);
   assert.match(page, /function NotesView/);
   assert.match(page, /role="listbox"/);
   assert.match(page, /aria-label="Note title"/);
@@ -120,6 +120,40 @@ test("provides durable selectable plain-text notes without turning capture into 
   assert.match(server, /url\.pathname === "\/api\/notes"/);
   assert.match(standard, /plain-text notes autosave/i);
   assert.match(standard, /passive reference material/i);
+});
+
+test("provides a scope-bound read-only file reference instead of an embedded editor", async () => {
+  const [page, css, browser, server, contract] = await Promise.all([
+    readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+    readFile(new URL("lib/file-browser.mjs", root), "utf8"),
+    readFile(new URL("server/local-api.mjs", root), "utf8"),
+    readFile(new URL("docs/LOCAL-WORKSPACE.md", root), "utf8"),
+  ]);
+
+  assert.match(page, /function FilesView/);
+  assert.match(page, /Read-only project reference/);
+  assert.match(page, /Changed only/);
+  assert.match(page, /Checkout or linked worktree/);
+  assert.match(page, /primary checkout/);
+  assert.match(page, /linked worktree/);
+  assert.match(page, /Read only/);
+  assert.match(page, /Work will not edit or save source files/);
+  assert.match(page, /role="tree"/);
+  assert.match(page, /file\.language\.short|entry\.language\?\.short/);
+  assert.match(css, /\.files-workspace[^}]*grid-template-columns:\s*330px minmax\(0, 1fr\)/);
+  assert.match(css, /\.file-code-line/);
+  assert.match(css, /data-language/);
+  assert.match(server, /\/api\/files\/directory/);
+  assert.match(server, /\/api\/files\/content/);
+  assert.match(browser, /Symbolic links are not followed/);
+  assert.match(browser, /validateScopePath/);
+  assert.match(browser, /sensitiveReason/);
+  assert.match(browser, /MAX_PREVIEW_FILE_BYTES/);
+  assert.match(browser, /readOnly:\s*true/);
+  assert.match(browser, /import \{ lstat, readFile, readdir, realpath, stat \} from "node:fs\/promises"/);
+  assert.match(contract, /Read-only file reference/i);
+  assert.match(contract, /no file-write route/i);
 });
 
 test("does not replace an active note draft with an autosave response", async () => {

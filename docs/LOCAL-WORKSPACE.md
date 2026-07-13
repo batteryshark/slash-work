@@ -68,6 +68,34 @@ at once. Discovery follows these rules:
 Discovery is inventory, not authorization. Finding a repository does not let
 Work run its code, invoke an agent, change Git state, or publish anything.
 
+## Read-only file reference
+
+The **Files** view is a bounded observability surface, not an editor. It lists
+one directory at a time under the currently selected workspace scope and reads
+text only after the user selects a file. The API exposes `GET` routes for
+directory listings and text previews; it has no file-write route.
+
+The viewer never follows symbolic links and rejects absolute paths, `..`
+segments, and any canonical path outside the selected scope. It omits internal,
+generated, dependency, and cache directories such as `.git`, `.work`,
+`node_modules`, `dist`, and `target`. Conventional environment, credential, and
+key files remain visible as non-previewable entries so their existence is not
+misrepresented, but their contents are never returned. Binary and oversized
+files are also refused.
+
+When the selected scope is safely inside a Git repository that is itself inside
+the workspace root, Work may run read-only `git status` commands to label
+modified, added, renamed, deleted, conflicted, and untracked paths. It never
+stages, restores, commits, or otherwise changes Git state. Language badges are
+derived from filenames and extensions; preview content is always rendered as
+text rather than executable markup.
+
+Linked worktrees remain one logical project in project navigation, task
+ownership, notes, and history. Inside **Files** only, an explicit **Checkout**
+selector can switch the read-only tree between the primary checkout and each
+linked worktree because their source contents and Git changes may legitimately
+differ.
+
 ## Durable, inspectable files
 
 There is one storage-folder shape: `.work/`. At the selected root it contains

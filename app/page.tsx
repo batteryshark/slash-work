@@ -41,6 +41,38 @@ type ProjectNote = {
   updatedAt: string;
 };
 
+type GitFileStatus = "conflict" | "deleted" | "added" | "untracked" | "modified" | "renamed";
+
+type FileEntry = {
+  name: string;
+  path: string;
+  kind: "directory" | "file" | "symlink" | "other";
+  language: { id: string; label: string; short: string } | null;
+  gitStatus: GitFileStatus | null;
+  previewable: boolean;
+  blockedReason: string | null;
+};
+
+type FileDirectory = {
+  scopePath: string;
+  path: string;
+  entries: FileEntry[];
+  git: { available: boolean; counts: Partial<Record<GitFileStatus, number>> };
+};
+
+type FilePreview = {
+  scopePath: string;
+  path: string;
+  name: string;
+  content: string;
+  language: { id: string; label: string; short: string };
+  gitStatus: GitFileStatus | null;
+  size: number;
+  modifiedAt: string;
+  truncated: boolean;
+  readOnly: true;
+};
+
 type DecisionAction =
   | "approve"
   | "reject"
@@ -115,7 +147,7 @@ type WorkTask = {
   log: Array<{ at: string; message: string }>;
 };
 
-type AppView = "home" | "board" | "notes" | "activity";
+type AppView = "home" | "board" | "notes" | "files" | "activity";
 type ThemePreference = "system" | "light" | "dark";
 
 type WorkspacePayload = {
@@ -1068,6 +1100,7 @@ export default function Home() {
           <button type="button" className={view === "home" ? "selected" : ""} onClick={() => setView("home")}>Home</button>
           <button type="button" className={view === "board" ? "selected" : ""} onClick={() => setView("board")}>Board</button>
           <button type="button" className={view === "notes" ? "selected" : ""} onClick={() => setView("notes")}>Notes</button>
+          <button type="button" className={view === "files" ? "selected" : ""} onClick={() => setView("files")}>Files</button>
           <button type="button" className={view === "activity" ? "selected" : ""} onClick={() => setView("activity")}>Activity</button>
         </nav>
 
@@ -1219,6 +1252,8 @@ export default function Home() {
             onUpdate={updateProjectNote}
             onDelete={deleteProjectNote}
           />
+        ) : view === "files" ? (
+          <FilesView key={scopePath} scopeLabel={scopeLabel} scopePath={scopePath} project={selectedProject} />
         ) : view === "activity" ? (
           <ActivityView
             scopeLabel={scopeLabel}
@@ -1635,6 +1670,236 @@ function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask }: {
         </aside>
       </div>
     </article>
+  );
+}
+
+const FILE_STATUS_COPY: Record<GitFileStatus, { short: string; label: string }> = {
+  conflict: { short: "!", label: "Conflict" },
+  deleted: { short: "D", label: "Deleted" },
+  added: { short: "A", label: "Added" },
+  untracked: { short: "?", label: "Untracked" },
+  modified: { short: "M", label: "Modified" },
+  renamed: { short: "R", label: "Renamed" },
+};
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function FilesView({ scopeLabel, scopePath, project }: { scopeLabel: string; scopePath: string; project: Project | null }) {
+  const fileScopes = project
+    ? [
+        { path: project.path, label: `${project.path} — primary checkout` },
+        ...(project.aliasPaths ?? []).map((path) => ({ path, label: `${path} — linked worktree` })),
+      ]
+    : [{ path: scopePath, label: scopePath === "." ? "Workspace root" : scopePath }];
+  const [fileScopePath, setFileScopePath] = useState(fileScopes[0].path);
+  const [directories, setDirectories] = useState<Record<string, FileEntry[]>>({});
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [loadingDirectories, setLoadingDirectories] = useState<Set<string>>(new Set());
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [preview, setPreview] = useState<FilePreview | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [changedOnly, setChangedOnly] = useState(false);
+  const [git, setGit] = useState<FileDirectory["git"]>({ available: false, counts: {} });
+
+  const loadDirectory = useCallback(async (path: string) => {
+    setLoadingDirectories((current) => new Set(current).add(path));
+    setError(null);
+    try {
+      const query = new URLSearchParams({ scopePath: fileScopePath, path });
+      const directory = await requestJson<FileDirectory>(`/api/files/directory?${query.toString()}`);
+      setDirectories((current) => ({ ...current, [directory.path]: directory.entries }));
+      setGit(directory.git);
+      return directory;
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "The file tree could not be loaded.");
+      return null;
+    } finally {
+      setLoadingDirectories((current) => {
+        const next = new Set(current);
+        next.delete(path);
+        return next;
+      });
+    }
+  }, [fileScopePath]);
+
+  const refreshFiles = useCallback(async () => {
+    setDirectories({});
+    setExpanded(new Set());
+    setSelectedPath(null);
+    setPreview(null);
+    setPreviewError(null);
+    setChangedOnly(false);
+    await loadDirectory(".");
+  }, [loadDirectory]);
+
+  useEffect(() => {
+    void refreshFiles();
+  }, [refreshFiles]);
+
+  async function toggleDirectory(entry: FileEntry) {
+    const isOpen = expanded.has(entry.path);
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (isOpen) next.delete(entry.path);
+      else next.add(entry.path);
+      return next;
+    });
+    if (!isOpen && !directories[entry.path]) await loadDirectory(entry.path);
+  }
+
+  async function selectFile(entry: FileEntry) {
+    setSelectedPath(entry.path);
+    setPreview(null);
+    setPreviewError(null);
+    if (!entry.previewable) {
+      setPreviewError(entry.blockedReason ?? "This item is not available in the text preview.");
+      return;
+    }
+    setLoadingPreview(true);
+    try {
+      const query = new URLSearchParams({ scopePath: fileScopePath, path: entry.path });
+      setPreview(await requestJson<FilePreview>(`/api/files/content?${query.toString()}`));
+    } catch (previewLoadError) {
+      setPreviewError(previewLoadError instanceof Error ? previewLoadError.message : "The file could not be previewed.");
+    } finally {
+      setLoadingPreview(false);
+    }
+  }
+
+  const selectedEntry = Object.values(directories).flat().find((entry) => entry.path === selectedPath) ?? null;
+  const totalChanges = Object.values(git.counts).reduce((total, count) => total + (count ?? 0), 0);
+
+  function renderDirectory(path: string, depth = 0): React.ReactNode {
+    const entries = directories[path] ?? [];
+    const visibleEntries = changedOnly ? entries.filter((entry) => entry.gitStatus) : entries;
+    if (visibleEntries.length === 0 && path === ".") {
+      return <div className="file-tree-empty">{changedOnly ? "No changed files in this scope." : "This scope has no visible files."}</div>;
+    }
+    return visibleEntries.map((entry) => {
+      const isDirectory = entry.kind === "directory";
+      const isOpen = isDirectory && expanded.has(entry.path);
+      const status = entry.gitStatus ? FILE_STATUS_COPY[entry.gitStatus] : null;
+      return (
+        <div className="file-tree-branch" key={entry.path} role="none">
+          <button
+            type="button"
+            role="treeitem"
+            aria-level={depth + 1}
+            aria-expanded={isDirectory ? isOpen : undefined}
+            aria-selected={!isDirectory && selectedPath === entry.path}
+            className={`${selectedPath === entry.path ? "selected" : ""} kind-${entry.kind}`}
+            style={{ paddingLeft: `${12 + depth * 16}px` }}
+            onClick={() => isDirectory ? void toggleDirectory(entry) : void selectFile(entry)}
+            title={entry.blockedReason ?? entry.path}
+          >
+            <span className="file-tree-toggle" aria-hidden="true">{isDirectory ? (isOpen ? "▾" : "▸") : ""}</span>
+            {isDirectory ? (
+              <span className="file-kind folder" aria-hidden="true">DIR</span>
+            ) : (
+              <span className="file-kind" data-language={entry.language?.id ?? "text"} aria-hidden="true">{entry.language?.short ?? "—"}</span>
+            )}
+            <span className="file-tree-name">{entry.name}</span>
+            {status && <span className={`file-git-status status-${entry.gitStatus}`} title={status.label}>{status.short}</span>}
+          </button>
+          {isDirectory && isOpen && (
+            <div role="group">
+              {loadingDirectories.has(entry.path)
+                ? <div className="file-tree-loading" style={{ paddingLeft: `${44 + depth * 16}px` }}>Loading…</div>
+                : renderDirectory(entry.path, depth + 1)}
+            </div>
+          )}
+        </div>
+      );
+    });
+  }
+
+  return (
+    <section className="files-view" aria-labelledby="files-heading">
+      <header className="files-toolbar">
+        <div>
+          <p className="eyebrow">Read-only project reference</p>
+          <h1 id="files-heading">{scopeLabel} files</h1>
+          <p>{git.available
+            ? `${totalChanges} changed file${totalChanges === 1 ? "" : "s"} in this Git scope. Browse and inspect without changing the working tree.`
+            : "Browse and inspect this scope without changing its files. Git markers appear when the selected scope is inside a repository."}</p>
+        </div>
+        <div className="files-toolbar-actions">
+          {fileScopes.length > 1 && (
+            <label className="file-scope-picker">
+              <span>Checkout</span>
+              <select value={fileScopePath} onChange={(event) => setFileScopePath(event.target.value)} aria-label="Checkout or linked worktree">
+                {fileScopes.map((scope) => <option value={scope.path} key={scope.path}>{scope.label}</option>)}
+              </select>
+            </label>
+          )}
+          <button type="button" className={changedOnly ? "selected" : ""} disabled={!git.available} onClick={() => setChangedOnly((shown) => !shown)}>
+            {changedOnly ? "Show all files" : "Changed only"}
+          </button>
+          <button type="button" onClick={() => void refreshFiles()}>Refresh</button>
+        </div>
+      </header>
+
+      {error && <p className="file-error" role="alert">{error}</p>}
+
+      <div className="files-workspace">
+        <aside className="file-tree-panel" aria-label={`Files in ${scopeLabel}`}>
+          <div className="file-tree-heading">
+            <div><strong>Explorer</strong><small>{fileScopePath === "." ? "Workspace root" : fileScopePath}</small></div>
+            {git.available && <span title={`${totalChanges} changed files`}>{totalChanges}</span>}
+          </div>
+          <div className="file-tree" role="tree" aria-label="Read-only file tree">
+            {loadingDirectories.has(".") && !directories["."]
+              ? <div className="file-tree-empty">Loading files…</div>
+              : renderDirectory(".")}
+          </div>
+          <div className="file-tree-legend" aria-label="Git change legend">
+            <span><i className="status-added">A</i> Added</span>
+            <span><i className="status-modified">M</i> Modified</span>
+            <span><i className="status-untracked">?</i> Untracked</span>
+            <span><i className="status-deleted">D</i> Deleted</span>
+          </div>
+        </aside>
+
+        <article className="file-preview" aria-label={selectedPath ? `Preview ${selectedPath}` : "File preview"}>
+          {loadingPreview ? (
+            <div className="file-preview-empty"><span aria-hidden="true">…</span><strong>Loading preview</strong></div>
+          ) : preview ? (
+            <>
+              <header className="file-preview-heading">
+                <div>
+                  <span className="file-kind" data-language={preview.language.id} aria-hidden="true">{preview.language.short}</span>
+                  <span><strong>{preview.name}</strong><small>{preview.path}</small></span>
+                </div>
+                <div className="file-preview-meta">
+                  {preview.gitStatus && <span className={`file-git-pill status-${preview.gitStatus}`}>{FILE_STATUS_COPY[preview.gitStatus].label}</span>}
+                  <span>{preview.language.label}</span>
+                  <span>{formatFileSize(preview.size)}</span>
+                  <strong>Read only</strong>
+                </div>
+              </header>
+              {preview.truncated && <p className="file-preview-notice">Preview limited to the first 256 KB.</p>}
+              <div className="file-code" role="region" aria-label={`${preview.name} source`} tabIndex={0}>
+                {preview.content.split("\n").map((line, index) => (
+                  <span className="file-code-line" key={`${index}-${line.length}`}>
+                    <i aria-hidden="true">{index + 1}</i><code>{line || " "}</code>
+                  </span>
+                ))}
+              </div>
+            </>
+          ) : previewError ? (
+            <div className="file-preview-empty unavailable"><span aria-hidden="true">×</span><strong>Preview unavailable</strong><p>{previewError}</p><small>{selectedEntry?.path}</small></div>
+          ) : (
+            <div className="file-preview-empty"><span aria-hidden="true">⌘</span><strong>Select a file</strong><p>Choose a text file to inspect it here. Work will not edit or save source files.</p></div>
+          )}
+        </article>
+      </div>
+    </section>
   );
 }
 

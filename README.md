@@ -6,7 +6,8 @@
 
 Work stores project tasks, captures, notes, and decisions as local files for
 people and agent teams managing many repositories. The home screen prioritizes
-capture and resumption; the Board and Activity views expose the full history.
+capture and resumption; Board, Files, and Activity expose current work, a
+read-only source reference, and durable history.
 
 Requires Node.js 22.13 or newer and npm.
 
@@ -120,6 +121,12 @@ Do not commit `.work/` if the workspace contains private operational notes.
   project. Notes are reference-only by default. **Ask agent to review** marks a
   note for prompt review; use a task card when you want execution. Deleting a
   note requires a second confirmation.
+- Open **Files** for a read-only, scope-bound tree and text preview. Language
+  badges and Git markers make modified, added, and untracked files easy to
+  spot. A project with linked worktrees gets an explicit checkout selector so
+  each working tree can be inspected without becoming a separate project.
+  Generated folders, Work metadata, secrets, binaries, symlinks, and oversized
+  files are not exposed as source previews.
 - Open **Board** to see Backlog, Ready, In flight, Blocked, Review, and
   Completed. Drag cards between columns or use the accessible status control.
 - Open a card for project, type, priority, human owner, agent teams, tags,

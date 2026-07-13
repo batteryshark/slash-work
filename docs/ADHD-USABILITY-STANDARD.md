@@ -91,6 +91,8 @@ capture does not force the user to rebuild context or lose work.
   and capture.
 - Project context, captured history, the note editor, decision details, and
   portfolio grids are disclosed only on request.
+- The read-only file tree and source preview appear only in **Files**. The tree
+  is contextual to that view rather than occupying permanent workspace width.
 - No full activity feed, telemetry wall, or equal-weight backlog is present.
 
 **Pass condition:** secondary information remains available without competing
@@ -153,7 +155,7 @@ scenario below, which remains a tagged-release check.
 | Attention | Covered | Decision-only items, explicit alternatives, deferral, durable result |
 | Scope | Covered | Clickable breadcrumb, explicit capture target, filesystem-root boundary |
 | Recovery | Covered | File-backed persistence, process restart, note autosave and confirmation, Escape cancel, capture Undo |
-| Disclosure | Covered | Context, captures, notes, details, and portfolio are opt-in |
+| Disclosure | Covered | Context, captures, notes, files, details, and portfolio are opt-in |
 | Motor/keyboard | Covered | 44px targets, focus-visible styles, keyboard capture |
 | Sensory | Covered | Reduced motion and restrained non-color labels |
 | Language | Covered | Neutral, factual, non-punitive copy |
@@ -199,6 +201,10 @@ the tester needs hidden syntax after launch.
     survives restart.
 12. Cancel another card. Confirm it leaves the active columns but remains
     visible when **Show cancelled & archived** is enabled.
+13. Open **Files** in a Git-backed project. Expand a folder, select a text file,
+    and confirm language and change hints are visible. Confirm **Changed only**
+    reduces the tree, secret and binary files cannot be previewed, and no edit
+    or save-file control exists.
 
 Any moment that requires remembering hidden syntax, reconstructing scope, or
 completing metadata before preservation is a release blocker. So is a success

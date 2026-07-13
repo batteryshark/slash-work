@@ -27,6 +27,7 @@ import {
   validateProjectScopePath,
   workspaceSnapshot,
 } from "../lib/local-workspace.mjs";
+import { listFiles, readFilePreview } from "../lib/file-browser.mjs";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const DEFAULT_PORT = 4317;
@@ -240,6 +241,20 @@ async function handleRequest(workspaces, defaultWorkspace, service, request, res
   }
   if (method === "GET" && url.pathname === "/api/projects") {
     sendJson(request, response, 200, { projects: await discoverProjects(workspace.root) });
+    return;
+  }
+  if (method === "GET" && url.pathname === "/api/files/directory") {
+    sendJson(request, response, 200, await listFiles(workspace, {
+      scopePath: url.searchParams.get("scopePath") ?? ".",
+      path: url.searchParams.get("path") ?? ".",
+    }));
+    return;
+  }
+  if (method === "GET" && url.pathname === "/api/files/content") {
+    sendJson(request, response, 200, await readFilePreview(workspace, {
+      scopePath: url.searchParams.get("scopePath") ?? ".",
+      path: url.searchParams.get("path"),
+    }));
     return;
   }
   if (method === "GET" && url.pathname === "/api/captures") {
