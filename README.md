@@ -13,13 +13,10 @@ Requires Node.js 22.13 or newer and npm.
 
 ## Start Work for a root directory
 
-Clone and install the repository once:
+Install the public npm package once:
 
 ```bash
-git clone https://github.com/batteryshark/slash-work.git
-cd slash-work
-npm install
-npm link
+npm install --global slash-work
 ```
 
 Then enter any directory that contains projects and run one command:
@@ -29,12 +26,14 @@ cd /path/to/my-projects
 work
 ```
 
-You can also launch a specific root from the Work source checkout without
-linking the command:
+Update to the newest published version at any time:
 
 ```bash
-npm run work -- /path/to/my-projects
+npm update --global slash-work
 ```
+
+Contributors can instead clone the repository, run `npm install`, and use
+`npm link` to test the current source checkout globally.
 
 Work opens the local address in your browser and also prints it in the terminal.
 Pass `--no-open` when you do not want that. Work listens on the loopback

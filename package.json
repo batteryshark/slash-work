@@ -2,7 +2,6 @@
   "name": "slash-work",
   "version": "0.2.0",
   "description": "A local, filesystem-backed project manager for humans and agent teams.",
-  "private": true,
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -21,6 +20,19 @@
   "bin": {
     "work": "./bin/work.mjs"
   },
+  "files": [
+    "app",
+    "bin",
+    "lib",
+    "public",
+    "server",
+    "src",
+    "index.html",
+    "vite.config.ts"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=22.13.0"
   },
@@ -29,19 +41,20 @@
     "build": "tsc --noEmit && vite build",
     "start": "node ./bin/work.mjs",
     "work": "node ./bin/work.mjs",
-    "test": "npm run build && node --test tests/*.test.mjs"
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "prepublishOnly": "npm test"
   },
   "dependencies": {
+    "@vitejs/plugin-react": "6.0.2",
     "react": "19.2.6",
-    "react-dom": "19.2.6"
+    "react-dom": "19.2.6",
+    "vite": "8.1.4"
   },
   "devDependencies": {
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
-    "@vitejs/plugin-react": "6.0.2",
-    "typescript": "5.9.3",
-    "vite": "8.1.4"
+    "typescript": "5.9.3"
   },
   "type": "module"
 }
