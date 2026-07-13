@@ -1,5 +1,7 @@
 # Work
 
+![Work logo](public/logo.svg)
+
 ![Work: capture anything and continue without reconstructing context](public/og.png)
 
 Work stores project tasks, captures, notes, and decisions as local files for
@@ -13,8 +15,8 @@ Requires Node.js 22.13 or newer and npm.
 Clone and install the repository once:
 
 ```bash
-git clone https://github.com/batteryshark/work-root-manager.git
-cd work-root-manager
+git clone https://github.com/batteryshark/slash-work.git
+cd slash-work
 npm install
 npm link
 ```

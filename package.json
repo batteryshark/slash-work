@@ -1,17 +1,17 @@
 {
-  "name": "work-root-manager",
+  "name": "slash-work",
   "version": "0.2.0",
   "description": "A local, filesystem-backed project manager for humans and agent teams.",
   "private": true,
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/batteryshark/work-root-manager.git"
+    "url": "https://github.com/batteryshark/slash-work.git"
   },
   "bugs": {
-    "url": "https://github.com/batteryshark/work-root-manager/issues"
+    "url": "https://github.com/batteryshark/slash-work/issues"
   },
-  "homepage": "https://github.com/batteryshark/work-root-manager#readme",
+  "homepage": "https://github.com/batteryshark/slash-work#readme",
   "keywords": ["agents", "kanban", "local-first", "project-management"],
   "bin": {
     "work": "./bin/work.mjs"
