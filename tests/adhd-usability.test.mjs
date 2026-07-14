@@ -66,6 +66,12 @@ test("makes captures immediate, durable, and visibly undoable", async () => {
   assert.match(page, /health\.service\.instanceId !== serviceInstanceId/);
   assert.match(page, /Install & restart/);
   assert.match(page, /Check now/);
+  assert.match(page, /Open Work system menu/);
+  assert.match(page, /Work system controls/);
+  assert.match(page, /Select workspace root\. Current:/);
+  assert.match(page, /workspace-current-name/);
+  assert.match(page, /\{data\.workspace\.name\}/);
+  assert.match(css, /\.system-menu/);
   assert.match(page, /6 \* 60 \* 60 \* 1000/);
   assert.match(page, /"x-work-update": "confirm"/);
   assert.match(page, /update-available-dot/);

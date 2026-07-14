@@ -372,6 +372,7 @@ export default function Home() {
   const [captureMoveSearch, setCaptureMoveSearch] = useState("");
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [captureReceipt, setCaptureReceipt] = useState<CaptureReceipt | null>(null);
+  const [systemMenuOpen, setSystemMenuOpen] = useState(false);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [pickingWorkspace, setPickingWorkspace] = useState(false);
@@ -552,7 +553,7 @@ export default function Home() {
       await waitForServiceRestart(accepted.serviceInstanceId);
       await loadWorkspace();
       setRestartArmed(false);
-      setWorkspaceMenuOpen(false);
+      setSystemMenuOpen(false);
     } catch (error) {
       setServiceRestartError(error instanceof Error ? error.message : "Work could not restart.");
     } finally {
@@ -780,7 +781,9 @@ export default function Home() {
 
   function navigate(nextScope: string) {
     setScopePath(nextScope || ".");
+    setSystemMenuOpen(false);
     setProjectMenuOpen(false);
+    setWorkspaceMenuOpen(false);
     setProjectSearch("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -1334,23 +1337,36 @@ export default function Home() {
 
       <header className="topbar">
         <div className="brand-group">
-          <button className="brand" type="button" onClick={() => navigate(".")} aria-label={`Go to all in ${data.workspace.name}`}>
+          <button
+            className="brand-system"
+            type="button"
+            onClick={() => {
+              setSystemMenuOpen((open) => !open);
+              setWorkspaceMenuOpen(false);
+              setProjectMenuOpen(false);
+            }}
+            aria-label="Open Work system menu"
+            aria-expanded={systemMenuOpen}
+            aria-haspopup="menu"
+          >
             <span className="brand-mark" aria-hidden="true">/</span>
-            <span>work</span>
+            {updateStatus?.updateAvailable && <span className="update-available-dot" aria-label={`Work ${updateStatus.latestVersion} is available`} title={`Work ${updateStatus.latestVersion} is available`} />}
           </button>
+          <button className="brand-word" type="button" onClick={() => navigate(".")} aria-label={`Go to all in ${data.workspace.name}`}>work</button>
           <button
             className="root-switch"
             type="button"
             onClick={() => {
               setWorkspaceMenuOpen((open) => !open);
+              setSystemMenuOpen(false);
               setProjectMenuOpen(false);
             }}
             aria-expanded={workspaceMenuOpen}
             aria-haspopup="menu"
+            aria-label={`Select workspace root. Current: ${data.workspace.name}`}
             title={`${data.workspace.name} · Switch workspace root`}
           >
-            <span>{data.workspace.name}</span>
-            {updateStatus?.updateAvailable && <span className="update-available-dot" aria-label={`Work ${updateStatus.latestVersion} is available`} title={`Work ${updateStatus.latestVersion} is available`} />}
+            <span className="workspace-current-name">{data.workspace.name}</span>
             <span aria-hidden="true">⌄</span>
           </button>
         </div>
@@ -1394,6 +1410,7 @@ export default function Home() {
         <div className="header-actions">
           <button className="project-switch" type="button" onClick={() => {
             setProjectMenuOpen((open) => !open);
+            setSystemMenuOpen(false);
             setWorkspaceMenuOpen(false);
           }} aria-expanded={projectMenuOpen}>
             <span>
@@ -1444,6 +1461,61 @@ export default function Home() {
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {systemMenuOpen && (
+          <div className="system-menu" role="menu" aria-label="Work system controls">
+            <div className="project-menu-heading">
+              <div>
+                <p className="eyebrow">Work system</p>
+                <strong>Service and updates</strong>
+                <small>Maintain this local Work installation.</small>
+              </div>
+              <button type="button" onClick={() => setSystemMenuOpen(false)} aria-label="Close Work system menu">×</button>
+            </div>
+            <section className="update-control" aria-label="Work updates">
+              <div>
+                <strong>Updates {updateStatus?.updateAvailable && <span className="update-badge">Available</span>}</strong>
+                <small>{updateStatus
+                  ? updateStatus.updateAvailable
+                    ? `Version ${updateStatus.currentVersion} · ${updateStatus.latestVersion} is available${updateStatus.installable ? "" : " · Source checkout"}`
+                    : `Version ${updateStatus.currentVersion} · Up to date`
+                  : "Checks npm quietly every six hours while Work is open."}</small>
+              </div>
+              <div className="update-actions">
+                <button type="button" onClick={() => void checkForUpdates(false, true)} disabled={checkingUpdate || installingUpdate}>{checkingUpdate ? "Checking…" : "Check now"}</button>
+                {updateStatus?.updateAvailable && updateStatus.installable && !updateArmed && (
+                  <button type="button" className="update-install" onClick={() => setUpdateArmed(true)} disabled={installingUpdate}>Install & restart</button>
+                )}
+                {updateStatus?.updateAvailable && updateStatus.installable && updateArmed && (
+                  <div className="update-confirm">
+                    <button type="button" onClick={() => setUpdateArmed(false)} disabled={installingUpdate}>Cancel</button>
+                    <button type="button" className="primary-action" onClick={() => void installServiceUpdate()} disabled={installingUpdate}>{installingUpdate ? "Installing…" : `Install ${updateStatus.latestVersion}`}</button>
+                  </div>
+                )}
+              </div>
+              {updateStatus?.updateAvailable && !updateStatus.installable && <small className="update-source-note">This copy is running from source; update its Git checkout instead.</small>}
+              {updateError && <small className="update-error" role="alert">{updateError}</small>}
+            </section>
+            <section className="service-control" aria-label="Local Work service">
+              <div>
+                <strong>Local service</strong>
+                <small>Reload the Work API and interface without changing project files.</small>
+              </div>
+              {!restartArmed ? (
+                <button type="button" onClick={() => { setRestartArmed(true); setServiceRestartError(null); }}>Restart Work</button>
+              ) : (
+                <div className="service-restart-confirm">
+                  <span>Restart now?</span>
+                  <button type="button" onClick={() => setRestartArmed(false)} disabled={restartingService}>Cancel</button>
+                  <button type="button" className="danger-action" onClick={() => void restartLocalService()} disabled={restartingService}>
+                    {restartingService ? "Restarting…" : "Confirm restart"}
+                  </button>
+                </div>
+              )}
+              {serviceRestartError && <small className="service-restart-error" role="alert">{serviceRestartError}</small>}
+            </section>
           </div>
         )}
 
@@ -1506,48 +1578,6 @@ export default function Home() {
                 {pickingWorkspace ? "Opening…" : "Choose folder…"}
               </button>
               {workspacePickerError && <small className="workspace-picker-error" role="alert">{workspacePickerError}</small>}
-            </section>
-            <section className="service-control" aria-label="Local Work service">
-              <div>
-                <strong>Local service</strong>
-                <small>Reload the Work API and interface without changing project files.</small>
-              </div>
-              {!restartArmed ? (
-                <button type="button" onClick={() => { setRestartArmed(true); setServiceRestartError(null); }}>Restart Work</button>
-              ) : (
-                <div className="service-restart-confirm">
-                  <span>Restart now?</span>
-                  <button type="button" onClick={() => setRestartArmed(false)} disabled={restartingService}>Cancel</button>
-                  <button type="button" className="danger-action" onClick={() => void restartLocalService()} disabled={restartingService}>
-                    {restartingService ? "Restarting…" : "Confirm restart"}
-                  </button>
-                </div>
-              )}
-              {serviceRestartError && <small className="service-restart-error" role="alert">{serviceRestartError}</small>}
-            </section>
-            <section className="update-control" aria-label="Work updates">
-              <div>
-                <strong>Updates {updateStatus?.updateAvailable && <span className="update-badge">Available</span>}</strong>
-                <small>{updateStatus
-                  ? updateStatus.updateAvailable
-                    ? `Version ${updateStatus.currentVersion} · ${updateStatus.latestVersion} is available${updateStatus.installable ? "" : " · Source checkout"}`
-                    : `Version ${updateStatus.currentVersion} · Up to date`
-                  : "Checks npm quietly every six hours while Work is open."}</small>
-              </div>
-              <div className="update-actions">
-                <button type="button" onClick={() => void checkForUpdates(false, true)} disabled={checkingUpdate || installingUpdate}>{checkingUpdate ? "Checking…" : "Check now"}</button>
-                {updateStatus?.updateAvailable && updateStatus.installable && !updateArmed && (
-                  <button type="button" className="update-install" onClick={() => setUpdateArmed(true)} disabled={installingUpdate}>Install & restart</button>
-                )}
-                {updateStatus?.updateAvailable && updateStatus.installable && updateArmed && (
-                  <div className="update-confirm">
-                    <button type="button" onClick={() => setUpdateArmed(false)} disabled={installingUpdate}>Cancel</button>
-                    <button type="button" className="primary-action" onClick={() => void installServiceUpdate()} disabled={installingUpdate}>{installingUpdate ? "Installing…" : `Install ${updateStatus.latestVersion}`}</button>
-                  </div>
-                )}
-              </div>
-              {updateStatus?.updateAvailable && !updateStatus.installable && <small className="update-source-note">This copy is running from source; update its Git checkout instead.</small>}
-              {updateError && <small className="update-error" role="alert">{updateError}</small>}
             </section>
           </div>
         )}

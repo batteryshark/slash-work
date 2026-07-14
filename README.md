@@ -100,14 +100,16 @@ submits a typed path. The loopback Work process opens the native picker after
 an explicit local button press and accepts only the directory returned by the
 operating system.
 
-The workspace-root menu also has service and update controls. Work quietly
-checks npm every six hours while the interface is open and marks the existing
-root button when a newer version is available. **Check now** performs a manual
-check. A global npm installation can use the confirmed **Install & restart**
-action to install that exact published version, replace the current loopback
-service, and reload the interface. Source checkouts report updates but must be
-updated with Git. **Restart Work** remains available separately for reloading
-the service without changing files or versions.
+The root control beside the Work brand shows the current workspace and opens
+only workspace management: switch roots, remove a remembered root, or choose
+another folder. The slash mark opens a separate system menu. Work quietly checks npm every six hours
+while the interface is open and marks the slash when a newer version is
+available. **Check now** performs a manual check. A global npm installation can
+use the confirmed **Install & restart** action to install that exact published
+version, replace the current loopback service, and reload the interface. Source
+checkouts report updates but must be updated with Git. **Restart Work** remains
+available in the same system menu for reloading the service without changing
+files or versions.
 
 The selected workspace root is a hard visibility boundary. Work can discover
 projects below it, but it does not scan its parent or siblings. Switching the
