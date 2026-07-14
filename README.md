@@ -217,6 +217,13 @@ Run the complete build and test suite before submitting a change:
 npm test
 ```
 
+Releases use npm trusted publishing rather than a stored npm token. After
+updating `package.json` and `package-lock.json`, merge the release commit and
+push a matching version tag such as `v0.2.4`. The
+[`publish.yml`](.github/workflows/publish.yml) workflow verifies the tag, runs
+the complete test suite, and publishes through GitHub Actions OIDC. The npm
+package must trust `batteryshark/slash-work` and the `publish.yml` workflow.
+
 The product acceptance gates and five-minute human scenario live in
 [`docs/ADHD-USABILITY-STANDARD.md`](docs/ADHD-USABILITY-STANDARD.md).
 
