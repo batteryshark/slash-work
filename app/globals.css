@@ -418,6 +418,16 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .continue-label > span { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 7px var(--accent-soft); }
 .pulse-header h1 { overflow: hidden; margin: 14px 0 5px; font-size: clamp(32px, 3vw, 44px); line-height: 1; letter-spacing: -0.045em; text-overflow: ellipsis; white-space: nowrap; }
 .pulse-path { color: var(--muted); font: 12px var(--mono); }
+.project-purpose { margin-top: 22px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 16px; background: var(--accent-softer); }
+.project-purpose-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.project-purpose-heading h2 { margin: 3px 0 0; font-size: 18px; }
+.project-purpose-heading > button { min-height: 40px; border: 0; background: transparent; color: var(--accent-dark); cursor: pointer; font-weight: 750; }
+.project-purpose > p:not(.field-error) { max-width: 920px; margin: 12px 0 0; color: var(--ink); font-size: 15px; line-height: 1.55; white-space: pre-wrap; }
+.project-purpose > p.project-purpose-empty { color: var(--muted); }
+.project-purpose-editor { display: grid; gap: 10px; margin-top: 12px; }
+.project-purpose-editor textarea { width: 100%; min-height: 110px; resize: vertical; padding: 12px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--surface); color: var(--ink); font: inherit; line-height: 1.5; }
+.project-purpose-editor > div { display: flex; justify-content: flex-end; gap: 8px; }
+.project-purpose-editor > div > button:not(.primary-action) { min-height: 44px; padding: 0 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--muted); cursor: pointer; }
 .pulse-stats { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
 .pulse-stats > span { padding: 7px 10px; border: 1px solid var(--line); border-radius: 9px; color: var(--muted); font-size: 12px; }
 .pulse-stats strong { color: var(--ink); }

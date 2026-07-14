@@ -27,6 +27,7 @@ import {
   updateCaptureDestination,
   updateIdea,
   updateNote,
+  updateProjectDescription,
   updateTask,
   validateProjectScopePath,
   workspaceSnapshot,
@@ -67,7 +68,12 @@ function responseHeaders(request, extra = {}) {
   const origin = requestOrigin(request);
   if (origin && LOCAL_ORIGIN.test(origin)) {
     headers["Access-Control-Allow-Origin"] = origin;
+    headers["Access-Control-Expose-Headers"] = "X-Work-Workspace";
     headers.Vary = "Origin";
+  }
+  if (request.workWorkspaceId) {
+    headers["X-Work-Workspace"] = request.workWorkspaceId;
+    headers.Vary = headers.Vary ? `${headers.Vary}, X-Work-Workspace` : "X-Work-Workspace";
   }
   return headers;
 }
@@ -159,7 +165,10 @@ function publicWorkspace(workspace) {
 
 function selectedWorkspace(workspaces, defaultWorkspace, request) {
   const requestedId = request.headers["x-work-workspace"];
-  if (requestedId == null || requestedId === "") return defaultWorkspace;
+  if (requestedId == null || requestedId === "") {
+    request.workWorkspaceId = defaultWorkspace.id;
+    return defaultWorkspace;
+  }
   if (typeof requestedId !== "string") {
     throw new WorkspaceError("A single workspace id is required.", { code: "invalid_workspace", status: 400 });
   }
@@ -170,6 +179,7 @@ function selectedWorkspace(workspaces, defaultWorkspace, request) {
       status: 404,
     });
   }
+  request.workWorkspaceId = workspace.id;
   return workspace;
 }
 
@@ -194,6 +204,7 @@ async function handleRequest(workspaces, service, request, response) {
 
   if (method === "GET" && url.pathname === "/api/workspaces") {
     sendJson(request, response, 200, {
+      defaultWorkspaceId: defaultWorkspace.id,
       activeWorkspaceId: defaultWorkspace.id,
       workspaces: [...workspaces.values()].map(publicWorkspace),
     });
@@ -291,6 +302,7 @@ async function handleRequest(workspaces, service, request, response) {
     }
     sendJson(request, response, 200, {
       removedWorkspaceId: workspaceToRemove,
+      defaultWorkspaceId: service.defaultWorkspace.id,
       activeWorkspaceId: service.defaultWorkspace.id,
       workspaces: [...workspaces.values()].map(publicWorkspace),
     });
@@ -430,6 +442,12 @@ async function handleRequest(workspaces, service, request, response) {
   }
   if (method === "GET" && url.pathname === "/api/projects") {
     sendJson(request, response, 200, { projects: await discoverProjects(workspace.root) });
+    return;
+  }
+  if (method === "PATCH" && url.pathname === "/api/projects/profile") {
+    const body = await readJsonBody(request);
+    const projects = await discoverProjects(workspace.root);
+    sendJson(request, response, 200, await updateProjectDescription(workspace, body?.projectPath, body, projects));
     return;
   }
   if (method === "GET" && url.pathname === "/api/files/directory") {

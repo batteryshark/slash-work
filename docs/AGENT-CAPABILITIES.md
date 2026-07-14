@@ -40,6 +40,13 @@ The loopback service renders the same catalog:
 | `GET /api/agent/schemas/artifacts/{type}` | Schema for one artifact type |
 | `GET /api/openapi.json` | OpenAPI 3.1 description of canonical API operations |
 
+One service can expose multiple independent workspace roots. Call
+`GET /api/workspaces`, select the exact ID, and send it as
+`X-Work-Workspace` on every workspace-scoped request. `defaultWorkspaceId` is
+only a fallback and may not match a browser tab's selection. Verify the
+selection with `GET /api/workspace`; workspace-scoped responses echo the
+resolved ID in the `X-Work-Workspace` response header.
+
 The catalog declares both `protocolVersion` and `serviceVersion`. Instructions
 therefore update atomically with the installed Work version. The protocol
 version changes only when the capability representation becomes incompatible.
@@ -78,3 +85,11 @@ operation without requiring access to the server's filesystem.
 Remote access must add authentication, workspace authorization, and secure
 service discovery before the loopback restriction is relaxed. Those concerns
 are deliberately separate from this discovery contract.
+
+## Portable skill
+
+`skills/slash-work/SKILL.md` is a vendor-neutral skill that agents can load for
+the stable bootstrap workflow. It contains no provider-specific metadata and
+delegates changing operation schemas to the installed `work agent` catalog.
+Its references progressively disclose multi-service routing, artifact
+semantics, and direct-filesystem fallback rules.

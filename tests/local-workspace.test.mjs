@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile as execFileCallback, spawn } from "node:child_process";
 import { once } from "node:events";
+import { createServer } from "node:http";
 import { after, test } from "node:test";
 import { mkdtemp, mkdir, readFile, readdir, realpath, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -225,6 +226,58 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   }
 });
 
+test("reports the actual UI URL when the requested port is occupied", async () => {
+  const root = await temporaryDirectory("work-dynamic-ui-port-");
+  const blocker = createServer((_request, response) => response.end("occupied"));
+  await new Promise((resolve, reject) => {
+    blocker.once("error", reject);
+    blocker.listen(0, "127.0.0.1", resolve);
+  });
+  const address = blocker.address();
+  assert.ok(address && typeof address === "object");
+  const requestedPort = address.port;
+  const child = spawn(
+    process.execPath,
+    [launcherPath.pathname, "serve", root, "--no-open", "--api-port", "0", "--ui-port", String(requestedPort)],
+    {
+      cwd: repositoryRoot,
+      env: { ...process.env, WORK_REGISTRY_FILE: join(root, ".work-test-roots.json") },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  let output = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => { output += chunk; });
+  child.stderr.on("data", (chunk) => { output += chunk; });
+
+  try {
+    const actualUrl = await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error(`Work did not report a ready UI URL. Output: ${output}`)), 10_000);
+      const inspect = () => {
+        const match = output.match(/\[work\] UI ready at (http:\/\/127\.0\.0\.1:\d+\/?)/);
+        if (!match) return;
+        clearTimeout(timeout);
+        resolve(match[1]);
+      };
+      child.stdout.on("data", inspect);
+      child.stderr.on("data", inspect);
+      child.once("exit", (code) => {
+        clearTimeout(timeout);
+        reject(new Error(`Work exited before the UI was ready (${code}). Output: ${output}`));
+      });
+    });
+    assert.notEqual(new URL(actualUrl).port, String(requestedPort));
+    const proxiedHealth = await fetch(new URL("/api/health", actualUrl));
+    assert.equal(proxiedHealth.status, 200, "the dynamically selected UI must proxy to the actual API origin");
+  } finally {
+    const exited = once(child, "exit");
+    child.kill("SIGTERM");
+    await exited;
+    await new Promise((resolve, reject) => blocker.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test("launches on loopback, discovers only explicit projects, and contains the root", async () => {
   const { root } = await makeWorkspaceFixture();
   const first = await startLocalApi({ root, port: 0 });
@@ -238,10 +291,24 @@ test("launches on loopback, discovers only explicit projects, and contains the r
 
     const result = await apiRequest(first.origin, "/api/workspace");
     assert.equal(result.response.status, 200);
+    assert.equal(result.response.headers.get("x-work-workspace"), first.workspace.id);
 
     const paths = result.payload.projects.map(projectPath).sort();
     assert.deepEqual(paths, ["research/unmask", "software/rekit"]);
     assert.equal(paths.some((path) => path.startsWith("outside-link")), false);
+
+    const described = await apiRequest(first.origin, "/api/projects/profile", {
+      method: "PATCH",
+      body: {
+        projectPath: "software/rekit",
+        description: "A durable workspace for coordinating people and agents.",
+      },
+    });
+    assert.equal(described.response.status, 200);
+    assert.equal(described.payload.description, "A durable workspace for coordinating people and agents.");
+    const projectsAfterDescription = await apiRequest(first.origin, "/api/projects");
+    assert.equal(projectsAfterDescription.payload.projects.find((project) => project.path === "software/rekit").description, described.payload.description);
+    assert.equal(JSON.parse(await readFile(join(root, "software", "rekit", ".work", "project.json"), "utf8")).description, described.payload.description);
 
     const traversal = await apiRequest(first.origin, "/api/captures", {
       method: "POST",
@@ -637,6 +704,8 @@ test("offers registered roots and resolves every request inside the selected wor
     const directory = await apiRequest(launched.origin, "/api/workspaces");
     assert.equal(directory.response.status, 200);
     assert.equal(directory.payload.workspaces.length, 2);
+    assert.equal(directory.payload.defaultWorkspaceId, launched.workspace.id);
+    assert.equal(directory.payload.activeWorkspaceId, launched.workspace.id, "legacy activeWorkspaceId remains the default fallback");
 
     const canonicalSecondRoot = await realpath(secondRoot);
     const second = directory.payload.workspaces.find((workspace) => workspace.root === canonicalSecondRoot);
@@ -644,6 +713,7 @@ test("offers registered roots and resolves every request inside the selected wor
     const selectedHeaders = { "x-work-workspace": second.id };
     const snapshot = await apiRequest(launched.origin, "/api/workspace", { headers: selectedHeaders });
     assert.equal(snapshot.payload.workspace.root, canonicalSecondRoot);
+    assert.equal(snapshot.response.headers.get("x-work-workspace"), second.id);
 
     const created = await apiRequest(launched.origin, "/api/captures", {
       method: "POST",

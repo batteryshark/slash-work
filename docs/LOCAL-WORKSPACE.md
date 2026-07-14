@@ -58,6 +58,9 @@ at once. Discovery follows these rules:
    from the directory's physical location. Two projects with the same final
    directory name remain distinct, and moving one updates its visible path
    without orphaning its records.
+   The marker also carries a human-authored `description` of what the project
+   is, who it serves, and why it exists. Work returns that enduring purpose in
+   project discovery so people and agents can read it before scoping work.
 5. Linked Git worktrees are aliases of one logical project. When several
    discovered paths share a Git common directory, including when that shared
    directory and the primary checkout live outside the selected root, Work
@@ -111,6 +114,11 @@ ReKit card is stored at `software/rekit/.work/tasks/W-0001.md`, not centralized
 at the root. Record files use small machine-readable headers where stable
 identifiers or relationships are needed. Their bodies preserve the human's
 original wording; notes remain plain text.
+
+`project.json` keeps the project's stable identity, display name, and purpose
+description. The purpose is project context rather than an operational record:
+it should explain the durable reason for the project, not duplicate its board
+or latest status.
 
 Assignment is a physical ownership operation. Assigning or reassigning a
 record atomically relocates its file to the destination `.work/`; making it

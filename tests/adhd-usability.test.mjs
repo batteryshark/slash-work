@@ -78,6 +78,10 @@ test("makes captures immediate, durable, and visibly undoable", async () => {
   assert.match(server, /\/api\/service\/update/);
   assert.match(server, /update_confirmation_required/);
   assert.match(page, /Project pulse/);
+  assert.match(page, /Project purpose/);
+  assert.match(page, /Why this project exists/);
+  assert.match(page, /\/api\/projects\/profile/);
+  assert.match(server, /updateProjectDescription/);
   assert.match(page, /Current work/);
   assert.match(page, /Latest progress/);
   assert.match(page, /\.slice\(0, 3\)/);

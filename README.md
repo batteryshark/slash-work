@@ -177,6 +177,9 @@ Do not commit `.work/` if the workspace contains private operational notes.
   files are not exposed as source previews.
 - Open **Board** to see Backlog, Ready, In flight, Blocked, Review, and
   Completed. Drag cards between columns or use the accessible status control.
+- Open a project and add its **Project purpose**: a durable description of what
+  it is, who it serves, and why it exists. Work returns this context to agents
+  before they scope operational records.
 - Open a card for project, type, priority, human owner, agent teams, tags,
   dependencies, blockers, requirements, acceptance criteria, plan, notes,
   completion summary, timestamps, and its append-only progress log.
@@ -220,6 +223,12 @@ version rather than copied into `.work/`, and describe capabilities without
 granting authority. See
 [`docs/AGENT-CAPABILITIES.md`](docs/AGENT-CAPABILITIES.md) for the complete
 contract.
+
+For agents that support portable Markdown skills, the repository and npm
+package also ship [`skills/slash-work/SKILL.md`](skills/slash-work/SKILL.md).
+It is vendor-neutral—there is no OpenAI- or Claude-specific metadata—and uses
+progressive disclosure to explain service routing, artifact semantics, and the
+filesystem fallback only when needed.
 
 See [`docs/LOCAL-WORKSPACE.md`](docs/LOCAL-WORKSPACE.md) for discovery,
 containment, storage, and recovery details.

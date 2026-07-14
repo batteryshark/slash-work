@@ -14,6 +14,7 @@ type Project = {
   id: string;
   projectId: string | null;
   name: string;
+  description: string;
   path: string;
   depth: number;
   markers: string[];
@@ -203,6 +204,7 @@ type WorkspaceSummary = {
 };
 
 type WorkspaceDirectory = {
+  defaultWorkspaceId: string;
   activeWorkspaceId: string;
   workspaces: WorkspaceSummary[];
 };
@@ -470,6 +472,18 @@ export default function Home() {
     await loadWorkspace();
   }
 
+  async function updateProjectPurpose(projectPath: string, description: string) {
+    const project = await requestJson<Project>("/api/projects/profile", {
+      method: "PATCH",
+      body: JSON.stringify({ projectPath, description }),
+    });
+    setData((current) => current ? {
+      ...current,
+      projects: current.projects.map((item) => item.path === project.path ? project : item),
+    } : current);
+    return project;
+  }
+
   async function pickWorkspace() {
     if (pickingWorkspace) return;
     setPickingWorkspace(true);
@@ -508,6 +522,7 @@ export default function Home() {
         headers: { "x-work-unregister": "confirm" },
       });
       setWorkspaceDirectory({
+        defaultWorkspaceId: receipt.defaultWorkspaceId,
         activeWorkspaceId: receipt.activeWorkspaceId,
         workspaces: receipt.workspaces,
       });
@@ -767,7 +782,7 @@ export default function Home() {
     const query = projectSearch.trim().toLowerCase();
     if (!query) return data?.projects.filter((project) => project.path !== ".") ?? [];
     return (data?.projects ?? []).filter((project) =>
-      project.path !== "." && `${project.name} ${project.path} ${(project.aliasPaths ?? []).join(" ")}`.toLowerCase().includes(query),
+      project.path !== "." && `${project.name} ${project.path} ${project.description} ${(project.aliasPaths ?? []).join(" ")}`.toLowerCase().includes(query),
     );
   }, [data, projectSearch]);
 
@@ -1651,6 +1666,7 @@ export default function Home() {
               tasks={scopedTasks.filter((task) => task.projectPath === selectedProject.path)}
               onOpenBoard={() => setView("board")}
               onOpenTask={(taskId) => { setView("board"); setSelectedTaskId(taskId); }}
+              onUpdatePurpose={updateProjectPurpose}
             />
           ) : (
             <ScopeOverview
@@ -1689,7 +1705,7 @@ export default function Home() {
                   {directProjects.map((project) => (
                     <button type="button" className="project-card" key={project.id} onClick={() => navigate(project.path)}>
                       <span className="project-card-code" aria-hidden="true">{project.name.slice(0, 2).toUpperCase()}</span>
-                      <span className="project-card-copy"><small>Project</small><strong>{project.name}</strong><span>{project.path}</span></span>
+                      <span className="project-card-copy"><small>Project · {project.path}</small><strong>{project.name}</strong><span>{project.description || "Add a purpose description"}</span></span>
                       <span className="project-card-meta">Open<span aria-hidden="true">→</span></span>
                     </button>
                   ))}
@@ -1986,13 +2002,18 @@ function ScopeOverview({
   );
 }
 
-function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask }: {
+function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpdatePurpose }: {
   project: Project;
   captures: Capture[];
   tasks: WorkTask[];
   onOpenBoard: () => void;
   onOpenTask: (taskId: string) => void;
+  onUpdatePurpose: (projectPath: string, description: string) => Promise<Project>;
 }) {
+  const [editingPurpose, setEditingPurpose] = useState(false);
+  const [purpose, setPurpose] = useState(project.description ?? "");
+  const [savingPurpose, setSavingPurpose] = useState(false);
+  const [purposeError, setPurposeError] = useState<string | null>(null);
   const updates = captures.filter((capture) => capture.kind === "update");
   const inFlight = tasks.filter((task) => ["in_progress", "blocked", "review"].includes(task.status));
   const queued = tasks.filter((task) => ["ready", "backlog"].includes(task.status));
@@ -2007,6 +2028,25 @@ function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask }: {
       ? `${latestCapture.kind} · ${shortTime(latestCapture.updatedAt)}`
       : "Waiting for the first update";
 
+  useEffect(() => {
+    setPurpose(project.description ?? "");
+    setEditingPurpose(false);
+    setPurposeError(null);
+  }, [project.path, project.description]);
+
+  async function savePurpose() {
+    setSavingPurpose(true);
+    setPurposeError(null);
+    try {
+      await onUpdatePurpose(project.path, purpose.trim());
+      setEditingPurpose(false);
+    } catch (error) {
+      setPurposeError(error instanceof Error ? error.message : "The project purpose could not be saved.");
+    } finally {
+      setSavingPurpose(false);
+    }
+  }
+
   return (
     <article className="project-pulse">
       <header className="pulse-header">
@@ -2017,6 +2057,22 @@ function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask }: {
         </div>
         <button type="button" className="primary-action" onClick={onOpenBoard}>Open board<span aria-hidden="true">→</span></button>
       </header>
+
+      <section className="project-purpose" aria-label="Project purpose">
+        <div className="project-purpose-heading">
+          <div><p className="eyebrow">Why this project exists</p><h2>Project purpose</h2></div>
+          {!editingPurpose && <button type="button" onClick={() => setEditingPurpose(true)}>{project.description ? "Edit" : "Add purpose"}</button>}
+        </div>
+        {editingPurpose ? (
+          <div className="project-purpose-editor">
+            <textarea value={purpose} onChange={(event) => setPurpose(event.target.value)} maxLength={20_000} rows={4} aria-label="Project purpose description" placeholder="What is this project, who does it serve, and why does it exist?" />
+            <div><button type="button" onClick={() => { setPurpose(project.description ?? ""); setEditingPurpose(false); setPurposeError(null); }}>Cancel</button><button type="button" className="primary-action" disabled={savingPurpose} onClick={() => void savePurpose()}>{savingPurpose ? "Saving…" : "Save purpose"}</button></div>
+          </div>
+        ) : (
+          <p className={project.description ? "" : "project-purpose-empty"}>{project.description || "Add a short description so people and agents understand what this project is trying to make possible."}</p>
+        )}
+        {purposeError && <p className="field-error" role="alert">{purposeError}</p>}
+      </section>
 
       <div className="pulse-stats" aria-label="Project summary">
         <span><strong>{tasks.length}</strong> work items</span>
