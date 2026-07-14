@@ -20,7 +20,9 @@ jobs:
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
       - name: Verify tag matches package version
-        run: test "v$(node -p \"require('./package.json').version\")" = "$GITHUB_REF_NAME"
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node -e "const expected = 'v' + require('./package.json').version; if (process.env.RELEASE_TAG !== expected) throw new Error('Tag ' + process.env.RELEASE_TAG + ' does not match ' + expected)"
       - run: npm ci
       - run: npm test
       - run: npm publish
