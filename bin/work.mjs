@@ -28,6 +28,7 @@ import {
 } from "../lib/workspace-registry.mjs";
 import { closeLocalApi, startLocalApi } from "../server/local-api.mjs";
 import { createServiceUpdater } from "../lib/service-updater.mjs";
+import { createServer as createViteServer } from "vite";
 import {
   getAgentIndex,
   getAgentOperation,
@@ -414,20 +415,9 @@ function openLocalUrl(url) {
   child.unref();
 }
 
-async function stopUiProcess(child) {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return;
-  await new Promise((resolve) => {
-    let timeout;
-    const finished = () => {
-      clearTimeout(timeout);
-      child.off("exit", finished);
-      resolve();
-    };
-    child.once("exit", finished);
-    timeout = setTimeout(finished, 5_000);
-    timeout.unref();
-    child.kill("SIGTERM");
-  });
+async function stopUiServer(server) {
+  if (!server) return;
+  await server.close();
 }
 
 async function runServer(options, positionals) {
@@ -465,13 +455,13 @@ async function runServer(options, positionals) {
   console.log(`[work] Roots available: ${localApi.workspaces.length}`);
   console.log(`[work] API ready at ${localApi.origin}`);
 
-  let uiProcess = null;
+  let uiServer = null;
   let shuttingDown = false;
 
   async function shutdown(exitCode = 0, { restart = false } = {}) {
     if (shuttingDown) return;
     shuttingDown = true;
-    await stopUiProcess(uiProcess);
+    await stopUiServer(uiServer);
     await closeLocalApi(localApi.server).catch((error) => console.error(`[work] ${error.message}`));
     if (restart) {
       console.log("[work] Restarting local service…");
@@ -497,40 +487,29 @@ async function runServer(options, positionals) {
   process.once("SIGTERM", () => void shutdown(143));
 
   if (!options.noUi) {
-    const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
-    uiProcess = spawn(
-      npmCommand,
-      ["run", "dev", "--", "--host", "127.0.0.1", "--port", String(uiPort)],
-      {
-        cwd: APP_ROOT,
-        env: {
-          ...process.env,
-          WORK_API_ORIGIN: localApi.origin,
-          WORKSPACE_ROOT: localApi.workspace.root,
+    try {
+      uiServer = await createViteServer({
+        root: APP_ROOT,
+        server: {
+          host: "127.0.0.1",
+          port: uiPort,
+          proxy: {
+            "/api": {
+              target: localApi.origin,
+              changeOrigin: false,
+            },
+          },
         },
-        stdio: "inherit",
-      },
-    );
-    uiProcess.once("error", async (error) => {
+      });
+      await uiServer.listen();
+      const uiUrl = uiServer.resolvedUrls?.local.find((url) => url.includes("127.0.0.1"))
+        ?? uiServer.resolvedUrls?.local[0]
+        ?? `http://127.0.0.1:${uiPort}/`;
+      console.log(`[work] UI ready at ${uiUrl}`);
+      if (!options.noOpen) openLocalUrl(uiUrl);
+    } catch (error) {
       console.error(`[work] Could not start the UI: ${error.message}`);
       await shutdown(1);
-    });
-    uiProcess.once("exit", async (code, signal) => {
-      if (!shuttingDown) {
-        const exitCode = typeof code === "number" ? code : signal ? 1 : 0;
-        await shutdown(exitCode);
-      }
-    });
-    const uiUrl = `http://127.0.0.1:${uiPort}`;
-    console.log(`[work] UI starting at ${uiUrl}`);
-    if (!options.noOpen) {
-      setTimeout(() => {
-        try {
-          openLocalUrl(uiUrl);
-        } catch (error) {
-          console.error(`[work] Open ${uiUrl} in a browser. (${error.message})`);
-        }
-      }, 900).unref();
     }
   }
 }

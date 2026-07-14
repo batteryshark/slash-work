@@ -32,6 +32,8 @@ test("serves task-scoped agent instructions from the CLI without a workspace or 
 
   const bootstrap = await execFile(process.execPath, [launcherPath.pathname, "agent"], { cwd });
   assert.match(bootstrap.stdout, /work agent operations/i);
+  assert.match(bootstrap.stdout, /multiple independent workspaces/i);
+  assert.match(bootstrap.stdout, /X-Work-Workspace/);
   assert.match(bootstrap.stdout, /Instructions describe capabilities; they do not grant authorization/i);
 
   const operations = await execFile(process.execPath, [launcherPath.pathname, "agent", "operations"], { cwd });
@@ -71,12 +73,15 @@ test("exposes the same versioned capability catalog and canonical OpenAPI over H
     assert.equal(index.payload.protocolVersion, "1");
     assert.equal(index.payload.serviceVersion, "9.8.7-test");
     assert.equal(index.payload.links.openapi, "/api/openapi.json");
+    assert.equal(index.payload.routing.selectionHeader, "X-Work-Workspace");
 
     const catalog = await requestJson(api.origin, "/api/agent/operations");
     assert.equal(catalog.response.status, 200);
     const taskSummary = catalog.payload.operations.find((operation) => operation.id === "tasks.create");
     assert.equal(taskSummary.instructions, "/api/agent/operations/tasks.create");
     assert.equal("inputSchema" in taskSummary, false, "operation index should stay context-light");
+    assert.equal(taskSummary.scope, "workspace");
+    assert.equal(catalog.payload.operations.find((operation) => operation.id === "workspaces.list").scope, "service");
 
     const task = await requestJson(api.origin, "/api/agent/operations/tasks.create");
     assert.equal(task.response.status, 200);
@@ -95,6 +100,7 @@ test("exposes the same versioned capability catalog and canonical OpenAPI over H
     assert.equal(openapi.payload.openapi, "3.1.0");
     assert.equal(openapi.payload.info.version, "9.8.7-test");
     assert.equal(openapi.payload.paths["/api/tasks"].post.operationId, "tasks.create");
+    assert.equal(openapi.payload.paths["/api/tasks"].post.parameters.some((parameter) => parameter.name === "X-Work-Workspace"), true);
     assert.equal(openapi.payload.paths["/api/notes"].get.operationId, "notes.list");
     assert.equal(openapi.payload.paths["/api/notes/{id}"].patch.operationId, "notes.update");
     assert.equal(openapi.payload.paths["/api/ideas"].get.operationId, "ideas.list");
