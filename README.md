@@ -4,10 +4,10 @@
 
 ![Work: capture anything and continue without reconstructing context](public/og.png)
 
-Work stores project tasks, captures, notes, and decisions as local files for
+Work stores project tasks, captures, ideas, notes, and decisions as local files for
 people and agent teams managing many repositories. The home screen prioritizes
-capture and resumption; Board, Files, and Activity expose current work, a
-read-only source reference, and durable history.
+capture and resumption; Ideas, Board, Files, and Activity expose possibilities,
+current work, a read-only source reference, and durable history.
 
 Requires Node.js 22.13 or newer and npm.
 
@@ -128,9 +128,10 @@ the CLI or UI is launched from a linked worktree.
 ## What is saved
 
 Work keeps human-readable Markdown beside the thing it describes. The selected
-root's `.work/` contains `workspace.json` plus unassigned captures, notes,
-tasks, and decisions. Every project has its own `.work/project.json`,
-`.work/tasks/`, `.work/captures/`, `.work/notes/`, and `.work/decisions/`.
+root's `.work/` contains `workspace.json` plus unassigned captures, ideas,
+notes, tasks, and decisions. Every project has its own `.work/project.json`,
+`.work/tasks/`, `.work/captures/`, `.work/ideas/`, `.work/notes/`, and
+`.work/decisions/`.
 Notes use a plain-text body with a small metadata header so both people and
 agents can read them without a special editor. Every note records an explicit
 `agentIntent`: `reference_only` means context, never an instruction, while
@@ -158,6 +159,10 @@ Do not commit `.work/` if the workspace contains private operational notes.
   project. Notes are reference-only by default. **Ask agent to review** marks a
   note for prompt review; use a task card when you want execution. Deleting a
   note requires a second confirmation.
+- Open **Ideas** when a thought is worth evaluating but is not yet a proposal,
+  decision, or task. **Ask agent to evaluate** authorizes analysis only—never
+  implementation. Mark an idea **Not now** or **Closed** with a durable reason,
+  or develop it toward a proposal and scoped work later.
 - Open **Files** for a read-only, scope-bound tree and text preview. Language
   badges and Git markers make modified, added, and untracked files easy to
   spot. A project with linked worktrees gets an explicit checkout selector so
@@ -183,6 +188,7 @@ Do not commit `.work/` if the workspace contains private operational notes.
 Agents and terminal users use the same records:
 
 ```bash
+work idea "Federate remote Work instances" --detail "Explore read-only project trees across servers"
 work task "Implement the board" --project software/rekit --priority high
 work move W-0001 in_progress --note "UI team started"
 work log W-0001 "Requirements and dependency gate pass"

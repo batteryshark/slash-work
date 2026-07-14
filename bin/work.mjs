@@ -9,12 +9,14 @@ import {
   appendTaskLog,
   createCapture,
   createDecision,
+  createIdea,
   createTask,
   discoverProjects,
   findWorkspaceRoot,
   getTask,
   initializeWorkspace,
   listTasks,
+  listIdeas,
   moveTask,
   updateTask,
 } from "../lib/local-workspace.mjs";
@@ -38,6 +40,8 @@ Usage:
   work unregister <id|root>           Remove a root from the web workspace picker
   work roots                          List roots available to the web workspace picker
   work add "thought" [options]        Capture from any workspace descendant
+  work idea "title" [options]         Record something worth evaluating
+  work ideas                           List ideas and their states
   work decision "question" [options] Create a decision from any descendant
   work task "title" [options]         Create a full Kanban work item
   work list                            List work items in the current root
@@ -78,6 +82,7 @@ Examples:
   work ~/Projects
   work add "check whether the release needs a migration" --scope tools
   work add "validate the parser" --scope tools/parser --project tools/parser
+  work idea "Federate remote Work instances" --detail "Explore read-only project trees across servers"
   work decision "Where should the lab live?" --option "Keep unassigned" --option "Assign later"
   work task "Implement the board" --project tools/runner --type feature --priority high
   work move W-0001 in_progress --note "Agent team started implementation"
@@ -239,6 +244,32 @@ async function runDecision(options, positionals) {
   );
   console.log(`Created decision ${decision.id}`);
   console.log(decision.projectPath ? `Project: ${decision.projectPath}` : "Unassigned");
+}
+
+async function runIdea(options, positionals) {
+  if (positionals.length === 0) throw new WorkspaceError("idea requires a title in quotes.");
+  const workspace = await initializeWorkspace(await selectedRoot(options));
+  const projects = await discoverProjects(workspace.root);
+  const scopePath = options.scope ?? (await invocationScope(workspace));
+  const idea = await createIdea(workspace, {
+    title: positionals.join(" "),
+    opportunity: options.detail ?? "",
+    scopePath,
+    projectPath: options.project ?? null,
+    tags: options.tag,
+  }, projects);
+  console.log(`Created idea ${idea.id}: ${idea.title}`);
+  console.log(`${idea.status} · ${idea.projectPath ?? idea.scopePath}`);
+}
+
+async function runIdeas(options, positionals) {
+  if (positionals.length > 0) throw new WorkspaceError("ideas does not accept positional arguments.");
+  const ideas = await listIdeas(await currentWorkspace(options));
+  if (ideas.length === 0) {
+    console.log("No ideas in this root.");
+    return;
+  }
+  for (const idea of ideas) console.log(`${idea.id}\t${idea.status}\t${idea.projectPath ?? idea.scopePath}\t${idea.title}`);
 }
 
 async function currentWorkspace(options) {
@@ -433,7 +464,7 @@ async function runServer(options, positionals) {
 
 async function main() {
   const argv = process.argv.slice(2);
-  const knownCommands = new Set(["serve", "init", "register", "unregister", "roots", "add", "decision", "task", "create", "list", "show", "move", "assign", "log"]);
+  const knownCommands = new Set(["serve", "init", "register", "unregister", "roots", "add", "idea", "ideas", "decision", "task", "create", "list", "show", "move", "assign", "log"]);
   const command = knownCommands.has(argv[0]) ? argv.shift() : "serve";
   const { options, positionals } = parseArguments(argv);
   if (options.help) {
@@ -445,6 +476,8 @@ async function main() {
   if (command === "unregister") return runUnregister(options, positionals);
   if (command === "roots") return runRoots(options, positionals);
   if (command === "add") return runAdd(options, positionals);
+  if (command === "idea") return runIdea(options, positionals);
+  if (command === "ideas") return runIdeas(options, positionals);
   if (command === "decision") return runDecision(options, positionals);
   if (command === "task" || command === "create") return runTask(options, positionals);
   if (command === "list") return runList(options, positionals);

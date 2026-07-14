@@ -106,7 +106,7 @@ differ.
 There is one storage-folder shape: `.work/`. At the selected root it contains
 `workspace.json`, format metadata, Kanban column order, and records that are not
 assigned to a project. Inside a project it contains `project.json` and that
-project's `tasks/`, `captures/`, `notes/`, and `decisions/`. For example, a
+project's `tasks/`, `captures/`, `ideas/`, `notes/`, and `decisions/`. For example, a
 ReKit card is stored at `software/rekit/.work/tasks/W-0001.md`, not centralized
 at the root. Record files use small machine-readable headers where stable
 identifiers or relationships are needed. Their bodies preserve the human's
@@ -129,6 +129,8 @@ Important behavior:
 - an unassigned thought is valid and goes to the root inbox;
 - project assignment can happen later without changing the original text;
 - project records travel with the project directory when it is moved;
+- idea evaluation is explicitly non-executable; deferred and declined states
+  retain a reason and may retain a revisit date;
 - decision actions are explicit: assign, keep unassigned, approve, reject,
   defer, cancel, and reopen as appropriate to that decision;
 - resolution records what was chosen and when;
@@ -239,6 +241,7 @@ integration:
 
 ```bash
 work add "check whether the release needs a migration"
+work idea "Federate remote Work instances" --detail "Explore read-only project trees across servers"
 work decision "Where should the lab live?" --option "Keep unassigned" --option "Assign later"
 work task "Implement the board" --project software/rekit --priority high
 work move W-0001 in_progress --note "Agent team started"
@@ -248,7 +251,7 @@ work list
 work show W-0001
 ```
 
-Both commands search upward for the nearest workspace. `work add` uses its
+These commands search upward for the nearest workspace. `work add` uses its
 invocation directory as the folder scope, but stays unassigned unless
 `--project` is given an exact discovered root-relative path; project names
 mentioned inside the thought are treated only as text.
@@ -256,8 +259,8 @@ mentioned inside the thought are treated only as text.
 ## Recovery expectations
 
 After `Ctrl-C`, a crash, a browser refresh, or a computer restart, launching the
-same root restores the same work items, captures, decisions, checklists, and
-progress logs. Launching a different root
+same root restores the same work items, captures, ideas, decisions, checklists,
+and progress logs. Launching a different root
 shows none of them. If `.work/` cannot be read or written, Work reports the
 specific local filesystem problem and does not claim that a capture succeeded.
 

@@ -5,9 +5,9 @@ filesystem artifacts. Validate the logical artifact against
 [`schemas/work-artifact.schema.json`](../schemas/work-artifact.schema.json),
 then serialize it using the rules and templates below.
 
-The schema covers four Markdown artifact types: `capture`, `note`, `decision`,
-and `task`. The workspace and project marker files are JSON, not Markdown, and
-are outside this schema.
+The schema covers five Markdown artifact types: `capture`, `note`, `idea`,
+`decision`, and `task`. The workspace and project marker files are JSON, not
+Markdown, and are outside this schema.
 
 ## Storage and ownership
 
@@ -15,6 +15,7 @@ are outside this schema.
 | --- | --- | --- | --- |
 | Capture | `.work/captures/` | `<project>/.work/captures/` | `<capture id>.md` |
 | Note | `.work/notes/` | `<project>/.work/notes/` | `<note id>.md` |
+| Idea | `.work/ideas/` | `<project>/.work/ideas/` | `<idea id>.md` |
 | Decision | `.work/decisions/` | `<project>/.work/decisions/` | `<decision id>.md` |
 | Task | `.work/tasks/` | `<project>/.work/tasks/` | `<task id>.md` |
 
@@ -23,11 +24,13 @@ non-null project path must exactly match a discovered, root-relative project
 path. Store project-owned records inside that project's `.work/` directory;
 do not merely set the metadata while leaving the file at the root.
 
-IDs and filenames must agree. Capture, note, and decision IDs use these forms:
+IDs and filenames must agree. Capture, note, idea, and decision IDs use these
+forms:
 
 ```text
 capture_<8-to-81 lowercase letters, digits, underscores, or hyphens>
 note_<8-to-81 lowercase letters, digits, underscores, or hyphens>
+idea_<8-to-81 lowercase letters, digits, underscores, or hyphens>
 decision_<8-to-81 lowercase letters, digits, underscores, or hyphens>
 ```
 
@@ -113,6 +116,72 @@ updatedAt: "2026-07-13T14:30:00.000Z"
 The migration must remain reversible.
 Keep this note as context for release work.
 ```
+
+## Idea
+
+An idea is a possibility worth evaluating before anyone decides or authorizes
+work. It sits between a raw capture and a decision or task. Reading, editing,
+or evaluating an idea never grants permission to implement it.
+
+Statuses are `open`, `exploring`, `deferred`, `proposed`, `adopted`, and
+`declined`. The UI labels `deferred` as **Not now** and `declined` as
+**Closed**. Moving to either of those states requires a written reason. Every
+state transition appends `{from,to,reason,at}` to `history`; never discard prior
+reasons. `revisitAt` is optional and is especially useful for deferred ideas.
+
+`agentIntent` is either:
+
+- `consideration_only`: preserve this possibility; it is not a request.
+- `evaluation_requested`: assess feasibility, value, unknowns, risks, and
+  possible approaches, but do not implement anything.
+
+```markdown
+---
+id: "idea_mabc1234_ab12cd34ef56"
+type: "idea"
+title: "Federate remote Work instances"
+status: "exploring"
+scopePath: "."
+projectPath: null
+tags: ["remote","architecture"]
+source: null
+revisitAt: null
+agentIntent: "evaluation_requested"
+history: [{"from":"open","to":"exploring","reason":"Evaluation requested.","at":"2026-07-14T14:30:00.000Z"}]
+createdAt: "2026-07-14T14:25:00.000Z"
+updatedAt: "2026-07-14T14:30:00.000Z"
+---
+
+## Opportunity
+See project trees from several Work servers in one place.
+
+## Why It Might Matter
+Reduce context switching across machines.
+
+## Hypothesis
+Read-only federation may provide most of the value without distributed writes.
+
+## Unknowns
+Authentication, offline behavior, and ownership boundaries.
+
+## Potential Shape
+Store approved remote endpoints and show each server as a separate boundary.
+
+## Evidence
+
+## Risks and Constraints
+Remote access changes Work's current loopback-only security model.
+
+## Next Evaluation
+Assess whether read-only discovery is useful before designing synchronization.
+
+## Outcome
+```
+
+Emit all nine canonical sections in that order, even when empty. Preserve
+unrecognized metadata and extra sections on update. An adopted idea may lead to
+a decision, epic, or tasks, but that promotion must be an explicit separate
+action.
 
 ## Decision
 

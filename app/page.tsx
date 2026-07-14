@@ -41,6 +41,34 @@ type ProjectNote = {
   updatedAt: string;
 };
 
+type IdeaStatus = "open" | "exploring" | "deferred" | "proposed" | "adopted" | "declined";
+
+type ProjectIdea = {
+  id: string;
+  title: string;
+  status: IdeaStatus;
+  scopePath: string;
+  projectPath: string | null;
+  tags: string[];
+  source: string | null;
+  revisitAt: string | null;
+  agentIntent: "consideration_only" | "evaluation_requested";
+  history: Array<{ from: IdeaStatus; to: IdeaStatus; reason: string | null; at: string }>;
+  createdAt: string;
+  updatedAt: string;
+  sections: {
+    opportunity: string;
+    whyItMightMatter: string;
+    hypothesis: string;
+    unknowns: string;
+    potentialShape: string;
+    evidence: string;
+    risksAndConstraints: string;
+    nextEvaluation: string;
+    outcome: string;
+  };
+};
+
 type GitFileStatus = "conflict" | "deleted" | "added" | "untracked" | "modified" | "renamed";
 
 type FileEntry = {
@@ -147,7 +175,7 @@ type WorkTask = {
   log: Array<{ at: string; message: string }>;
 };
 
-type AppView = "home" | "board" | "notes" | "files" | "activity";
+type AppView = "home" | "board" | "ideas" | "notes" | "files" | "activity";
 type ThemePreference = "system" | "light" | "dark";
 
 type WorkspacePayload = {
@@ -163,6 +191,7 @@ type WorkspacePayload = {
   projects: Project[];
   captures: Capture[];
   decisions: Decision[];
+  ideas: ProjectIdea[];
   notes: ProjectNote[];
   tasks: WorkTask[];
 };
@@ -346,6 +375,10 @@ export default function Home() {
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [creatingNote, setCreatingNote] = useState(false);
   const [noteError, setNoteError] = useState<string | null>(null);
+  const [selectedIdeaId, setSelectedIdeaId] = useState<string | null>(null);
+  const [creatingIdea, setCreatingIdea] = useState(false);
+  const [savingIdea, setSavingIdea] = useState(false);
+  const [ideaError, setIdeaError] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [creatingTask, setCreatingTask] = useState(false);
   const [taskError, setTaskError] = useState<string | null>(null);
@@ -393,6 +426,7 @@ export default function Home() {
     setWorkspaceMenuOpen(false);
     setProjectMenuOpen(false);
     setSelectedNoteId(null);
+    setSelectedIdeaId(null);
     setSelectedTaskId(null);
     setScopePath(".");
     setView("home");
@@ -415,6 +449,7 @@ export default function Home() {
       setWorkspaceMenuOpen(false);
       setProjectMenuOpen(false);
       setSelectedNoteId(null);
+      setSelectedIdeaId(null);
       setSelectedTaskId(null);
       setScopePath(".");
       setView("home");
@@ -630,6 +665,18 @@ export default function Home() {
     setSelectedNoteId(scopedNotes[0]?.id ?? null);
   }, [view, selectedNoteId, scopedNotes]);
 
+  const scopedIdeas = useMemo(() => {
+    return (data?.ideas ?? [])
+      .filter((idea) => scopePath === "." || pathContains(idea.scopePath, scopePath) || pathContains(idea.projectPath, scopePath))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }, [data, scopePath]);
+
+  useEffect(() => {
+    if (view !== "ideas") return;
+    if (selectedIdeaId && scopedIdeas.some((idea) => idea.id === selectedIdeaId)) return;
+    setSelectedIdeaId(scopedIdeas[0]?.id ?? null);
+  }, [view, selectedIdeaId, scopedIdeas]);
+
   const scopedTasks = useMemo(() => {
     return (data?.tasks ?? [])
       .filter((task) => scopePath === "." || pathContains(task.projectPath, scopePath))
@@ -710,6 +757,74 @@ export default function Home() {
       ...current,
       notes: [note, ...(current.notes ?? []).filter((item) => item.id !== note.id)],
     } : current);
+  }
+
+  function replaceIdea(idea: ProjectIdea) {
+    setData((current) => current ? {
+      ...current,
+      ideas: [idea, ...(current.ideas ?? []).filter((item) => item.id !== idea.id)],
+    } : current);
+  }
+
+  async function createProjectIdea(input: { title?: string; opportunity?: string; tags?: string[]; source?: string | null } = {}) {
+    setCreatingIdea(true);
+    setIdeaError(null);
+    try {
+      const idea = await requestJson<ProjectIdea>("/api/ideas", {
+        method: "POST",
+        body: JSON.stringify({
+          title: input.title ?? "Untitled idea",
+          opportunity: input.opportunity ?? "",
+          scopePath,
+          projectPath: selectedProject?.path ?? null,
+          tags: input.tags ?? [],
+          source: input.source ?? null,
+        }),
+      });
+      replaceIdea(idea);
+      setSelectedIdeaId(idea.id);
+      setView("ideas");
+      return idea;
+    } catch (error) {
+      setIdeaError(error instanceof Error ? error.message : "The idea could not be created.");
+      throw error;
+    } finally {
+      setCreatingIdea(false);
+    }
+  }
+
+  async function updateProjectIdea(ideaId: string, patch: Record<string, unknown>) {
+    setSavingIdea(true);
+    setIdeaError(null);
+    try {
+      const idea = await requestJson<ProjectIdea>(`/api/ideas/${encodeURIComponent(ideaId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      replaceIdea(idea);
+      return idea;
+    } catch (error) {
+      setIdeaError(error instanceof Error ? error.message : "The idea could not be saved.");
+      throw error;
+    } finally {
+      setSavingIdea(false);
+    }
+  }
+
+  async function scopeIdeaAsWork(idea: ProjectIdea) {
+    return createWorkTask({
+      title: idea.title,
+      projectPath: idea.projectPath,
+      status: "backlog",
+      type: "epic",
+      source: idea.id,
+      goal: [idea.sections.opportunity, idea.sections.whyItMightMatter].filter(Boolean).join("\n\n"),
+      notes: [
+        idea.sections.hypothesis && `Hypothesis\n${idea.sections.hypothesis}`,
+        idea.sections.potentialShape && `Potential shape\n${idea.sections.potentialShape}`,
+        idea.sections.risksAndConstraints && `Risks and constraints\n${idea.sections.risksAndConstraints}`,
+      ].filter(Boolean).join("\n\n"),
+    });
   }
 
   async function createProjectNote() {
@@ -857,7 +972,7 @@ export default function Home() {
     }
   }
 
-  async function promoteCapture(capture: Capture) {
+  async function promoteCaptureToTask(capture: Capture) {
     const firstLine = capture.text.split("\n").find((line) => line.trim())?.trim() ?? capture.text;
     const title = firstLine.length > 500 ? `${firstLine.slice(0, 497)}…` : firstLine;
     await createWorkTask({
@@ -869,6 +984,17 @@ export default function Home() {
       notes: capture.text.includes("\n")
         ? `Promoted from capture ${capture.id}.\n\n${capture.text}`
         : `Promoted from capture ${capture.id}.`,
+    });
+  }
+
+  async function promoteCaptureToIdea(capture: Capture) {
+    const firstLine = capture.text.split("\n").find((line) => line.trim())?.trim() ?? capture.text;
+    const title = firstLine.length > 500 ? `${firstLine.slice(0, 497)}…` : firstLine;
+    await createProjectIdea({
+      title,
+      opportunity: capture.text,
+      tags: capture.kind === "idea" ? [] : [capture.kind],
+      source: capture.id,
     });
   }
 
@@ -907,6 +1033,11 @@ export default function Home() {
       }
       if (/\b(notes?|notebook)\b/.test(lower)) {
         setView("notes");
+        setCommand("");
+        return;
+      }
+      if (/\b(ideas?|possibilities)\b/.test(lower)) {
+        setView("ideas");
         setCommand("");
         return;
       }
@@ -1161,6 +1292,7 @@ export default function Home() {
         <nav className="view-tabs" aria-label="Workspace views">
           <button type="button" className={view === "home" ? "selected" : ""} onClick={() => setView("home")}>Home</button>
           <button type="button" className={view === "board" ? "selected" : ""} onClick={() => setView("board")}>Board</button>
+          <button type="button" className={view === "ideas" ? "selected" : ""} onClick={() => setView("ideas")}>Ideas</button>
           <button type="button" className={view === "notes" ? "selected" : ""} onClick={() => setView("notes")}>Notes</button>
           <button type="button" className={view === "files" ? "selected" : ""} onClick={() => setView("files")}>Files</button>
           <button type="button" className={view === "activity" ? "selected" : ""} onClick={() => setView("activity")}>Activity</button>
@@ -1333,6 +1465,21 @@ export default function Home() {
             onCreate={() => setCreatingTask(true)}
             error={taskError}
           />
+        ) : view === "ideas" ? (
+          <IdeasView
+            scopeLabel={scopeLabel}
+            scopeKind={scopeKind}
+            ideas={scopedIdeas}
+            projects={data.projects}
+            selectedIdeaId={selectedIdeaId}
+            creating={creatingIdea}
+            saving={savingIdea}
+            error={ideaError}
+            onSelect={setSelectedIdeaId}
+            onCreate={createProjectIdea}
+            onUpdate={updateProjectIdea}
+            onScopeWork={scopeIdeaAsWork}
+          />
         ) : view === "notes" ? (
           <NotesView
             scopeLabel={scopeLabel}
@@ -1375,6 +1522,7 @@ export default function Home() {
               scopePath={scopePath}
               projectCount={visibleProjects.length + (scopePath === "." && rootProject ? 1 : 0)}
               captureCount={scopedCaptures.length}
+              ideaCount={scopedIdeas.length}
               decisionCount={activeDecisions.length}
               taskCount={scopedTasks.length}
               inFlightCount={scopedTasks.filter((task) => ["in_progress", "blocked", "review"].includes(task.status)).length}
@@ -1519,7 +1667,8 @@ export default function Home() {
                     <div><strong>{capture.text}</strong><small>{destinationLabel} · {shortTime(capture.createdAt)}</small></div>
                     <div className="capture-row-actions">
                       <button type="button" className="capture-icon-action" title="Move to another inbox" onClick={() => { setCaptureToMove(capture); setCaptureMoveSearch(""); }} aria-label={`Move thought to another inbox: ${capture.text}`}><span aria-hidden="true">↗</span></button>
-                      <button type="button" className="capture-icon-action promote-capture" title="Make this a task" onClick={() => void promoteCapture(capture).catch(() => {})} aria-label={`Make task from thought: ${capture.text}`}><span aria-hidden="true">＋</span></button>
+                      <button type="button" className="capture-icon-action promote-idea" title="Develop this as an idea" onClick={() => void promoteCaptureToIdea(capture).catch(() => {})} aria-label={`Make idea from thought: ${capture.text}`}><span aria-hidden="true">◇</span></button>
+                      <button type="button" className="capture-icon-action promote-capture" title="Make this a task" onClick={() => void promoteCaptureToTask(capture).catch(() => {})} aria-label={`Make task from thought: ${capture.text}`}><span aria-hidden="true">＋</span></button>
                       <button type="button" className="capture-icon-action remove-capture" title="Remove this thought" onClick={() => void deleteCapture(capture.id)} aria-label={`Remove capture: ${capture.text}`}><span aria-hidden="true">×</span></button>
                     </div>
                   </li>
@@ -1586,7 +1735,8 @@ export default function Home() {
             <span className="receipt-check" aria-hidden="true">✓</span>
             <div><strong>Saved: “{captureReceipt.capture.text}”</strong><small>{captureReceipt.destination} · Available to agents in this root</small></div>
             <div className="receipt-actions">
-              <button type="button" onClick={() => void promoteCapture(captureReceipt.capture).catch(() => {})}>Make task</button>
+              <button type="button" onClick={() => void promoteCaptureToIdea(captureReceipt.capture).catch(() => {})}>Make idea</button>
+              <button type="button" onClick={() => void promoteCaptureToTask(captureReceipt.capture).catch(() => {})}>Make task</button>
               <button type="button" onClick={() => void deleteCapture(captureReceipt.capture.id)}>Undo</button>
               <button type="button" onClick={() => openHomeSection("inbox")}>Open inbox</button>
               <button type="button" onClick={() => setCaptureReceipt(null)} aria-label="Dismiss saved receipt">×</button>
@@ -1659,6 +1809,7 @@ function ScopeOverview({
   scopePath,
   projectCount,
   captureCount,
+  ideaCount,
   decisionCount,
   taskCount,
   inFlightCount,
@@ -1671,6 +1822,7 @@ function ScopeOverview({
   scopePath: string;
   projectCount: number;
   captureCount: number;
+  ideaCount: number;
   decisionCount: number;
   taskCount: number;
   inFlightCount: number;
@@ -1689,6 +1841,7 @@ function ScopeOverview({
         <span><strong>{inFlightCount}</strong> in flight</span>
         <span><strong>{doneCount}</strong> completed</span>
         <span><strong>{captureCount}</strong> captured</span>
+        <span><strong>{ideaCount}</strong> ideas</span>
         <span><strong>{decisionCount}</strong> need you</span>
       </div>
     </div>
@@ -1991,6 +2144,217 @@ function FilesView({ scopeLabel, scopePath, project }: { scopeLabel: string; sco
             <div className="file-preview-empty unavailable"><span aria-hidden="true">×</span><strong>Preview unavailable</strong><p>{previewError}</p><small>{selectedEntry?.path}</small></div>
           ) : (
             <div className="file-preview-empty"><span aria-hidden="true">⌘</span><strong>Select a file</strong><p>Choose a text file to inspect it here. Work will not edit or save source files.</p></div>
+          )}
+        </article>
+      </div>
+    </section>
+  );
+}
+
+const IDEA_STATUS_OPTIONS: Array<{ value: IdeaStatus; label: string }> = [
+  { value: "open", label: "Open" },
+  { value: "exploring", label: "Exploring" },
+  { value: "deferred", label: "Not now" },
+  { value: "proposed", label: "Proposed" },
+  { value: "adopted", label: "Adopted" },
+  { value: "declined", label: "Closed" },
+];
+
+function ideaStatusLabel(status: IdeaStatus) {
+  return IDEA_STATUS_OPTIONS.find((option) => option.value === status)?.label ?? displaySegment(status);
+}
+
+function IdeasView({
+  scopeLabel,
+  scopeKind,
+  ideas,
+  projects,
+  selectedIdeaId,
+  creating,
+  saving,
+  error,
+  onSelect,
+  onCreate,
+  onUpdate,
+  onScopeWork,
+}: {
+  scopeLabel: string;
+  scopeKind: "root" | "group" | "project";
+  ideas: ProjectIdea[];
+  projects: Project[];
+  selectedIdeaId: string | null;
+  creating: boolean;
+  saving: boolean;
+  error: string | null;
+  onSelect: (ideaId: string) => void;
+  onCreate: (input?: { title?: string; opportunity?: string; tags?: string[]; source?: string | null }) => Promise<ProjectIdea>;
+  onUpdate: (ideaId: string, patch: Record<string, unknown>) => Promise<ProjectIdea>;
+  onScopeWork: (idea: ProjectIdea) => Promise<WorkTask>;
+}) {
+  const selectedIdea = ideas.find((idea) => idea.id === selectedIdeaId) ?? null;
+  const [search, setSearch] = useState("");
+  const [draft, setDraft] = useState({
+    title: "",
+    status: "open" as IdeaStatus,
+    tags: "",
+    revisitAt: "",
+    reason: "",
+    opportunity: "",
+    whyItMightMatter: "",
+    hypothesis: "",
+    unknowns: "",
+    potentialShape: "",
+    evidence: "",
+    risksAndConstraints: "",
+    nextEvaluation: "",
+    outcome: "",
+  });
+
+  useEffect(() => {
+    setDraft({
+      title: selectedIdea?.title ?? "",
+      status: selectedIdea?.status ?? "open",
+      tags: selectedIdea?.tags.join(", ") ?? "",
+      revisitAt: selectedIdea?.revisitAt?.slice(0, 10) ?? "",
+      reason: "",
+      opportunity: selectedIdea?.sections.opportunity ?? "",
+      whyItMightMatter: selectedIdea?.sections.whyItMightMatter ?? "",
+      hypothesis: selectedIdea?.sections.hypothesis ?? "",
+      unknowns: selectedIdea?.sections.unknowns ?? "",
+      potentialShape: selectedIdea?.sections.potentialShape ?? "",
+      evidence: selectedIdea?.sections.evidence ?? "",
+      risksAndConstraints: selectedIdea?.sections.risksAndConstraints ?? "",
+      nextEvaluation: selectedIdea?.sections.nextEvaluation ?? "",
+      outcome: selectedIdea?.sections.outcome ?? "",
+    });
+  }, [selectedIdea?.id, selectedIdea?.updatedAt]);
+
+  const filteredIdeas = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return ideas;
+    return ideas.filter((idea) => `${idea.title} ${idea.status} ${idea.tags.join(" ")} ${Object.values(idea.sections).join(" ")}`.toLowerCase().includes(query));
+  }, [ideas, search]);
+
+  function setField(field: keyof typeof draft, value: string) {
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  function ideaLocation(idea: ProjectIdea) {
+    if (!idea.projectPath) return idea.scopePath === "." ? "Workspace idea" : `${displaySegment(pathParts(idea.scopePath).at(-1) ?? idea.scopePath)} idea`;
+    return projects.find((project) => project.path === idea.projectPath)?.name ?? idea.projectPath;
+  }
+
+  async function saveIdea(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedIdea) return;
+    await onUpdate(selectedIdea.id, {
+      title: draft.title.trim() || "Untitled idea",
+      status: draft.status,
+      reason: draft.reason,
+      tags: draft.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
+      revisitAt: draft.revisitAt || null,
+      opportunity: draft.opportunity,
+      whyItMightMatter: draft.whyItMightMatter,
+      hypothesis: draft.hypothesis,
+      unknowns: draft.unknowns,
+      potentialShape: draft.potentialShape,
+      evidence: draft.evidence,
+      risksAndConstraints: draft.risksAndConstraints,
+      nextEvaluation: draft.nextEvaluation,
+      outcome: draft.outcome,
+    });
+  }
+
+  async function toggleEvaluationRequest() {
+    if (!selectedIdea) return;
+    const requested = selectedIdea.agentIntent === "evaluation_requested";
+    const shouldExplore = ["open", "deferred", "declined"].includes(selectedIdea.status);
+    await onUpdate(selectedIdea.id, requested
+      ? { agentIntent: "consideration_only" }
+      : {
+          agentIntent: "evaluation_requested",
+          status: shouldExplore ? "exploring" : selectedIdea.status,
+          reason: shouldExplore ? (selectedIdea.status === "open" ? "Evaluation requested." : "Evaluation reopened.") : "",
+        });
+  }
+
+  const reasonNeeded = selectedIdea && draft.status !== selectedIdea.status && ["deferred", "declined"].includes(draft.status);
+  const sectionFields: Array<{ key: keyof typeof draft; label: string; placeholder: string }> = [
+    { key: "opportunity", label: "Opportunity", placeholder: "What might become possible?" },
+    { key: "whyItMightMatter", label: "Why it might matter", placeholder: "Who benefits, and what improves?" },
+    { key: "hypothesis", label: "Hypothesis", placeholder: "What do we believe could be true?" },
+    { key: "unknowns", label: "Unknowns", placeholder: "Questions that need investigation." },
+    { key: "potentialShape", label: "Potential shape", placeholder: "A possible approach, without committing to it." },
+    { key: "evidence", label: "Evidence", placeholder: "Research, examples, experiments, or observations." },
+    { key: "risksAndConstraints", label: "Risks and constraints", placeholder: "Security, cost, complexity, or boundary concerns." },
+    { key: "nextEvaluation", label: "Next evaluation", placeholder: "What should we learn or discuss next?" },
+    { key: "outcome", label: "Outcome", placeholder: "What did we conclude, and why?" },
+  ];
+
+  return (
+    <section className="notes-view ideas-view" aria-labelledby="ideas-heading">
+      <header className="notes-toolbar">
+        <div>
+          <p className="eyebrow">{scopeKind === "project" ? "Project possibilities" : "Possibilities worth keeping"}</p>
+          <h1 id="ideas-heading">{scopeLabel} ideas</h1>
+          <p>Explore value and feasibility without authorizing implementation. Promote an idea only when you are ready to decide or scope work.</p>
+        </div>
+        <button type="button" className="primary-action" disabled={creating} onClick={() => void onCreate()}>
+          {creating ? "Creating…" : "New idea"}<span aria-hidden="true">＋</span>
+        </button>
+      </header>
+
+      {error && <p className="note-error" role="alert">{error}</p>}
+
+      <div className="notes-workspace ideas-workspace">
+        <aside className="notes-list-panel" aria-label="Ideas in this scope">
+          <div className="notes-list-heading"><div><strong>Ideas</strong><small>{ideas.length} in this scope</small></div><span className="count-badge">{ideas.length}</span></div>
+          <label className="notes-search"><span className="sr-only">Find an idea</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find an idea…" /></label>
+          {filteredIdeas.length === 0 ? (
+            <div className="notes-list-empty"><strong>{ideas.length === 0 ? "No ideas yet." : "No ideas match."}</strong><span>{ideas.length === 0 ? "Promote an inbox thought or record something worth considering." : "Try a different search."}</span></div>
+          ) : (
+            <div className="notes-list idea-list" role="listbox" aria-label="Select an idea">
+              {filteredIdeas.map((idea) => (
+                <button type="button" role="option" aria-selected={idea.id === selectedIdea?.id} className={idea.id === selectedIdea?.id ? "selected" : ""} key={idea.id} onClick={() => onSelect(idea.id)}>
+                  <span className="note-list-title"><strong>{idea.title}</strong>{idea.agentIntent === "evaluation_requested" && <em>Evaluate</em>}</span>
+                  <span className={`idea-status status-${idea.status}`}>{ideaStatusLabel(idea.status)}</span>
+                  <small>{ideaLocation(idea)} · {shortTime(idea.updatedAt)}</small>
+                </button>
+              ))}
+            </div>
+          )}
+        </aside>
+
+        <article className="idea-editor" aria-label={selectedIdea ? `Develop idea: ${selectedIdea.title}` : "Idea editor"}>
+          {selectedIdea ? (
+            <form onSubmit={(event) => void saveIdea(event).catch(() => {})}>
+              <div className={`idea-intent ${selectedIdea.agentIntent === "evaluation_requested" ? "evaluation-requested" : "consideration-only"}`}>
+                <div><strong>{selectedIdea.agentIntent === "evaluation_requested" ? "Evaluation requested" : "Consideration only"}</strong><span>{selectedIdea.agentIntent === "evaluation_requested" ? "An agent may assess feasibility, value, unknowns, and options. Implementation is not authorized." : "This preserves a possibility. It is not a task, decision, or approval to implement."}</span></div>
+                {(selectedIdea.status !== "adopted" || selectedIdea.agentIntent === "evaluation_requested") && <button type="button" disabled={saving} onClick={() => void toggleEvaluationRequest().catch(() => {})}>{selectedIdea.agentIntent === "evaluation_requested" ? "Clear request" : "Ask agent to evaluate"}</button>}
+              </div>
+              <label className="idea-title"><span>Idea</span><input value={draft.title} maxLength={500} onChange={(event) => setField("title", event.target.value)} /></label>
+              <div className="idea-state-fields">
+                <label><span>State</span><select value={draft.status} onChange={(event) => setField("status", event.target.value)}>{IDEA_STATUS_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
+                <label><span>Revisit date</span><input type="date" value={draft.revisitAt} onChange={(event) => setField("revisitAt", event.target.value)} /></label>
+                <label><span>Tags</span><input value={draft.tags} onChange={(event) => setField("tags", event.target.value)} placeholder="remote, architecture" /></label>
+              </div>
+              {draft.status !== selectedIdea.status && (
+                <label className="idea-transition-reason"><span>{reasonNeeded ? "Why? Required for this state" : "Reason for this state change"}</span><textarea value={draft.reason} onChange={(event) => setField("reason", event.target.value)} placeholder={draft.status === "deferred" ? "Why not now, and what could change?" : draft.status === "declined" ? "Why is this not worth pursuing?" : "What changed?"} /></label>
+              )}
+              <div className="idea-sections">
+                {sectionFields.map((field) => <label key={field.key}><span>{field.label}</span><textarea value={draft[field.key]} onChange={(event) => setField(field.key, event.target.value)} placeholder={field.placeholder} /></label>)}
+              </div>
+              {selectedIdea.history.length > 0 && <section className="idea-history"><h3>State history</h3><ol>{[...selectedIdea.history].reverse().map((entry, index) => <li key={`${entry.at}-${index}`}><strong>{ideaStatusLabel(entry.from)} → {ideaStatusLabel(entry.to)}</strong><span>{entry.reason ?? "No reason recorded."}</span><small>{new Date(entry.at).toLocaleString()}</small></li>)}</ol></section>}
+              <footer className="idea-editor-footer">
+                <span>{ideaLocation(selectedIdea)} · Updated {shortTime(selectedIdea.updatedAt)}</span>
+                <div>
+                  {selectedIdea.status === "adopted" && <button type="button" className="secondary-action" disabled={saving} onClick={() => void onScopeWork(selectedIdea).catch(() => {})}>Scope as work</button>}
+                  <button type="submit" className="primary-action" disabled={saving || !draft.title.trim()}>{saving ? "Saving…" : "Save idea"}</button>
+                </div>
+              </footer>
+            </form>
+          ) : (
+            <div className="note-editor-empty"><span aria-hidden="true">◇</span><strong>{ideas.length === 0 ? "Capture a possibility" : "Select an idea"}</strong><p>{ideas.length === 0 ? "Ideas give you room to evaluate something before deciding or creating work." : "Choose one to continue the conversation."}</p>{ideas.length === 0 && <button type="button" className="primary-action" disabled={creating} onClick={() => void onCreate()}>New idea</button>}</div>
           )}
         </article>
       </div>

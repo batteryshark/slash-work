@@ -11,10 +11,12 @@ test("publishes a machine-readable schema for every Markdown artifact type", asy
   assert.equal(schema.$schema, "https://json-schema.org/draft/2020-12/schema");
   assert.deepEqual(
     schema.oneOf.map((entry) => entry.$ref),
-    ["#/$defs/capture", "#/$defs/note", "#/$defs/decision", "#/$defs/task"],
+    ["#/$defs/capture", "#/$defs/note", "#/$defs/idea", "#/$defs/decision", "#/$defs/task"],
   );
   assert.deepEqual(schema.$defs.capture.properties.kind.enum, ["idea", "question", "update"]);
   assert.deepEqual(schema.$defs.note.properties.agentIntent.enum, ["reference_only", "review_requested"]);
+  assert.deepEqual(schema.$defs.idea.properties.status.enum, ["open", "exploring", "deferred", "proposed", "adopted", "declined"]);
+  assert.deepEqual(schema.$defs.idea.properties.agentIntent.enum, ["consideration_only", "evaluation_requested"]);
   assert.ok(schema.$defs.decision.properties.status.enum.includes("kept_unassigned"));
   assert.deepEqual(
     schema.$defs.task.properties.taskType.enum,
@@ -25,7 +27,7 @@ test("publishes a machine-readable schema for every Markdown artifact type", asy
 test("documents exact storage, envelope, and body grammar for automations", async () => {
   const contract = await readFile(contractUrl, "utf8");
 
-  for (const heading of ["## Capture", "## Note", "## Decision", "## Task"]) {
+  for (const heading of ["## Capture", "## Note", "## Idea", "## Decision", "## Task"]) {
     assert.ok(contract.includes(heading), `missing ${heading}`);
   }
   for (const requiredRule of [
@@ -33,6 +35,8 @@ test("documents exact storage, envelope, and body grammar for automations", asyn
     "projectPath: null",
     "- [ ] text",
     "- <ISO timestamp> — <message>",
+    "evaluation_requested",
+    "never grants permission to implement it",
     "temporary\nsibling file followed by an atomic rename",
   ]) {
     assert.ok(contract.includes(requiredRule), `missing contract rule: ${requiredRule}`);

@@ -100,7 +100,7 @@ test("provides durable selectable plain-text notes without turning capture into 
     readFile(new URL("docs/ADHD-USABILITY-STANDARD.md", root), "utf8"),
   ]);
 
-  assert.match(page, /type AppView = "home" \| "board" \| "notes" \| "files" \| "activity"/);
+  assert.match(page, /type AppView = "home" \| "board" \| "ideas" \| "notes" \| "files" \| "activity"/);
   assert.match(page, /function NotesView/);
   assert.match(page, /role="listbox"/);
   assert.match(page, /aria-label="Note title"/);
@@ -125,6 +125,33 @@ test("provides durable selectable plain-text notes without turning capture into 
   assert.match(server, /url\.pathname === "\/api\/notes"/);
   assert.match(standard, /plain-text notes autosave/i);
   assert.match(standard, /passive reference material/i);
+});
+
+test("keeps ideas explicitly evaluative and separate from executable work", async () => {
+  const [page, css, store, server, contract] = await Promise.all([
+    readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+    readFile(new URL("lib/local-workspace.mjs", root), "utf8"),
+    readFile(new URL("server/local-api.mjs", root), "utf8"),
+    readFile(new URL("docs/ARTIFACT-SCHEMA.md", root), "utf8"),
+  ]);
+
+  assert.match(page, /function IdeasView/);
+  assert.match(page, /Ask agent to evaluate/);
+  assert.match(page, /Implementation is not authorized/);
+  assert.match(page, /Remove from list\? Files stay untouched/);
+  assert.match(page, /Make idea/);
+  assert.match(page, /Scope as work/);
+  assert.match(page, /selectedIdea\.status === "adopted"/);
+  assert.match(page, /Why\? Required for this state/);
+  assert.match(css, /\.ideas-workspace/);
+  assert.match(css, /\.idea-intent\.evaluation-requested/);
+  assert.match(store, /const IDEA_STATUSES = new Set\(\["open", "exploring", "deferred", "proposed", "adopted", "declined"\]\)/);
+  assert.match(store, /reason_required/);
+  assert.match(store, /evaluation_requested/);
+  assert.match(server, /url\.pathname === "\/api\/ideas"/);
+  assert.match(contract, /sits between a raw capture and a decision or task/i);
+  assert.match(contract, /never grants permission to implement it/i);
 });
 
 test("provides a scope-bound read-only file reference instead of an embedded editor", async () => {
