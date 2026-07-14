@@ -656,6 +656,11 @@ kbd { display: inline-grid; place-items: center; min-width: 23px; height: 23px; 
 .idea-editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
 .idea-editor-footer > div { display: flex; align-items: center; gap: 8px; }
 .idea-editor-footer .primary-action, .idea-editor-footer .secondary-action { width: auto; }
+.idea-delete, .idea-delete-confirm button { min-height: 42px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--muted); cursor: pointer; font-weight: 680; }
+.idea-delete:hover { background: var(--danger-soft); color: var(--danger); }
+.idea-delete-confirm { display: flex; align-items: center; gap: 8px; padding-right: 10px; border-right: 1px solid var(--line); }
+.idea-delete-confirm > span { color: var(--danger); font-size: 12px; font-weight: 700; }
+.idea-delete-confirm .danger-action { padding-inline: 13px; background: var(--danger); color: white; }
 
 .files-view { min-width: 0; }
 .files-toolbar { display: flex; align-items: flex-end; justify-content: space-between; gap: 28px; margin-bottom: 22px; }

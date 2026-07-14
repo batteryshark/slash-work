@@ -12,6 +12,7 @@ import {
   createNote,
   createTask,
   deleteCapture,
+  deleteIdea,
   deleteNote,
   discoverProjects,
   initializeWorkspace,
@@ -386,6 +387,11 @@ async function handleRequest(workspaces, service, request, response) {
     const body = await readJsonBody(request);
     const projects = await discoverProjects(workspace.root);
     sendJson(request, response, 200, await updateIdea(workspace, ideaId, body, projects));
+    return;
+  }
+  if (method === "DELETE" && ideaId) {
+    await deleteIdea(workspace, ideaId);
+    sendEmpty(request, response);
     return;
   }
   if (method === "GET" && url.pathname === "/api/decisions") {

@@ -941,6 +941,8 @@ test("keeps ideas between raw thoughts and executable work with explicit evaluat
     const evaluation = await apiRequest(first.origin, `/api/ideas/${ideaId}`, {
       method: "PATCH",
       body: {
+        title: "Federate trusted Work instances",
+        opportunity: "See saved draft changes while requesting evaluation.",
         status: "exploring",
         reason: "Evaluation requested.",
         agentIntent: "evaluation_requested",
@@ -949,6 +951,8 @@ test("keeps ideas between raw thoughts and executable work with explicit evaluat
     assert.equal(evaluation.response.status, 200);
     assert.equal(evaluation.payload.status, "exploring");
     assert.equal(evaluation.payload.agentIntent, "evaluation_requested");
+    assert.equal(evaluation.payload.title, "Federate trusted Work instances");
+    assert.equal(evaluation.payload.sections.opportunity, "See saved draft changes while requesting evaluation.");
     assert.deepEqual(evaluation.payload.history[0].from, "open");
     assert.deepEqual(evaluation.payload.history[0].to, "exploring");
 
@@ -984,6 +988,10 @@ test("keeps ideas between raw thoughts and executable work with explicit evaluat
     assert.equal(idea.status, "deferred");
     assert.equal(idea.history.length, 2);
     assert.equal(idea.sections.outcome, "Remote authentication is not mature enough yet.");
+
+    const removed = await apiRequest(restarted.origin, `/api/ideas/${encodeURIComponent(ideaId)}`, { method: "DELETE" });
+    assert.equal(removed.response.status, 204);
+    assert.deepEqual(await readdir(join(root, "software", "rekit", ".work", "ideas")), []);
   } finally {
     await closeLocalApi(restarted.server);
   }

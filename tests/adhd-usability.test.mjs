@@ -138,6 +138,8 @@ test("keeps ideas explicitly evaluative and separate from executable work", asyn
 
   assert.match(page, /function IdeasView/);
   assert.match(page, /Ask agent to evaluate/);
+  assert.match(page, /Delete idea/);
+  assert.match(page, /draftPatch\(nextStatus, transitionReason\)/);
   assert.match(page, /Implementation is not authorized/);
   assert.match(page, /Remove from list\? Files stay untouched/);
   assert.match(page, /Make idea/);
@@ -149,6 +151,7 @@ test("keeps ideas explicitly evaluative and separate from executable work", asyn
   assert.match(store, /const IDEA_STATUSES = new Set\(\["open", "exploring", "deferred", "proposed", "adopted", "declined"\]\)/);
   assert.match(store, /reason_required/);
   assert.match(store, /evaluation_requested/);
+  assert.match(store, /export async function deleteIdea/);
   assert.match(server, /url\.pathname === "\/api\/ideas"/);
   assert.match(contract, /sits between a raw capture and a decision or task/i);
   assert.match(contract, /never grants permission to implement it/i);

@@ -811,6 +811,21 @@ export default function Home() {
     }
   }
 
+  async function deleteProjectIdea(ideaId: string) {
+    setIdeaError(null);
+    try {
+      await requestJson<{ ok: boolean }>(`/api/ideas/${encodeURIComponent(ideaId)}`, { method: "DELETE" });
+      setData((current) => current ? {
+        ...current,
+        ideas: (current.ideas ?? []).filter((item) => item.id !== ideaId),
+      } : current);
+      setSelectedIdeaId((current) => current === ideaId ? null : current);
+    } catch (error) {
+      setIdeaError(error instanceof Error ? error.message : "The idea could not be deleted.");
+      throw error;
+    }
+  }
+
   async function scopeIdeaAsWork(idea: ProjectIdea) {
     return createWorkTask({
       title: idea.title,
@@ -1478,6 +1493,7 @@ export default function Home() {
             onSelect={setSelectedIdeaId}
             onCreate={createProjectIdea}
             onUpdate={updateProjectIdea}
+            onDelete={deleteProjectIdea}
             onScopeWork={scopeIdeaAsWork}
           />
         ) : view === "notes" ? (
@@ -2176,6 +2192,7 @@ function IdeasView({
   onSelect,
   onCreate,
   onUpdate,
+  onDelete,
   onScopeWork,
 }: {
   scopeLabel: string;
@@ -2189,10 +2206,13 @@ function IdeasView({
   onSelect: (ideaId: string) => void;
   onCreate: (input?: { title?: string; opportunity?: string; tags?: string[]; source?: string | null }) => Promise<ProjectIdea>;
   onUpdate: (ideaId: string, patch: Record<string, unknown>) => Promise<ProjectIdea>;
+  onDelete: (ideaId: string) => Promise<void>;
   onScopeWork: (idea: ProjectIdea) => Promise<WorkTask>;
 }) {
   const selectedIdea = ideas.find((idea) => idea.id === selectedIdeaId) ?? null;
   const [search, setSearch] = useState("");
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [draft, setDraft] = useState({
     title: "",
     status: "open" as IdeaStatus,
@@ -2227,6 +2247,7 @@ function IdeasView({
       nextEvaluation: selectedIdea?.sections.nextEvaluation ?? "",
       outcome: selectedIdea?.sections.outcome ?? "",
     });
+    setDeleteArmed(false);
   }, [selectedIdea?.id, selectedIdea?.updatedAt]);
 
   const filteredIdeas = useMemo(() => {
@@ -2244,13 +2265,11 @@ function IdeasView({
     return projects.find((project) => project.path === idea.projectPath)?.name ?? idea.projectPath;
   }
 
-  async function saveIdea(event: FormEvent) {
-    event.preventDefault();
-    if (!selectedIdea) return;
-    await onUpdate(selectedIdea.id, {
+  function draftPatch(status = draft.status, reason = draft.reason) {
+    return {
       title: draft.title.trim() || "Untitled idea",
-      status: draft.status,
-      reason: draft.reason,
+      status,
+      reason,
       tags: draft.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
       revisitAt: draft.revisitAt || null,
       opportunity: draft.opportunity,
@@ -2262,20 +2281,42 @@ function IdeasView({
       risksAndConstraints: draft.risksAndConstraints,
       nextEvaluation: draft.nextEvaluation,
       outcome: draft.outcome,
-    });
+    };
+  }
+
+  async function saveIdea(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedIdea) return;
+    await onUpdate(selectedIdea.id, draftPatch());
   }
 
   async function toggleEvaluationRequest() {
     if (!selectedIdea) return;
     const requested = selectedIdea.agentIntent === "evaluation_requested";
-    const shouldExplore = ["open", "deferred", "declined"].includes(selectedIdea.status);
-    await onUpdate(selectedIdea.id, requested
-      ? { agentIntent: "consideration_only" }
-      : {
+    const shouldExplore = ["open", "deferred", "adopted", "declined"].includes(draft.status);
+    const nextStatus = !requested && shouldExplore ? "exploring" : draft.status;
+    const transitionReason = nextStatus !== draft.status
+      ? (draft.status === "open" ? "Evaluation requested." : "Evaluation reopened.")
+      : draft.reason;
+    await onUpdate(selectedIdea.id, {
+      ...draftPatch(nextStatus, transitionReason),
+      ...(requested
+        ? { agentIntent: "consideration_only" }
+        : {
           agentIntent: "evaluation_requested",
-          status: shouldExplore ? "exploring" : selectedIdea.status,
-          reason: shouldExplore ? (selectedIdea.status === "open" ? "Evaluation requested." : "Evaluation reopened.") : "",
-        });
+        }),
+    });
+  }
+
+  async function removeIdea() {
+    if (!selectedIdea || deleting) return;
+    setDeleting(true);
+    try {
+      await onDelete(selectedIdea.id);
+      setDeleteArmed(false);
+    } finally {
+      setDeleting(false);
+    }
   }
 
   const reasonNeeded = selectedIdea && draft.status !== selectedIdea.status && ["deferred", "declined"].includes(draft.status);
@@ -2348,6 +2389,15 @@ function IdeasView({
               <footer className="idea-editor-footer">
                 <span>{ideaLocation(selectedIdea)} · Updated {shortTime(selectedIdea.updatedAt)}</span>
                 <div>
+                  {deleteArmed ? (
+                    <div className="idea-delete-confirm">
+                      <span>Delete this idea?</span>
+                      <button type="button" onClick={() => setDeleteArmed(false)} disabled={deleting}>Cancel</button>
+                      <button type="button" className="danger-action" onClick={() => void removeIdea().catch(() => {})} disabled={deleting}>{deleting ? "Deleting…" : "Delete"}</button>
+                    </div>
+                  ) : (
+                    <button type="button" className="idea-delete" disabled={saving} onClick={() => setDeleteArmed(true)}>Delete idea</button>
+                  )}
                   {selectedIdea.status === "adopted" && <button type="button" className="secondary-action" disabled={saving} onClick={() => void onScopeWork(selectedIdea).catch(() => {})}>Scope as work</button>}
                   <button type="submit" className="primary-action" disabled={saving || !draft.title.trim()}>{saving ? "Saving…" : "Save idea"}</button>
                 </div>
