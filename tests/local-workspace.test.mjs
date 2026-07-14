@@ -420,6 +420,66 @@ test("restarts only after explicit local confirmation", async () => {
   }
 });
 
+test("checks, installs, and restarts for a confirmed npm update", async () => {
+  const root = await temporaryDirectory("work-update-");
+  let checkCalls = 0;
+  const installed = [];
+  let restartCalls = 0;
+  let acknowledgeRestart;
+  const restarted = new Promise((resolve) => { acknowledgeRestart = resolve; });
+  const api = await startLocalApi({
+    root,
+    port: 0,
+    version: "0.2.3",
+    checkForUpdate: async () => {
+      checkCalls += 1;
+      return {
+        currentVersion: "0.2.3",
+        latestVersion: "0.2.4",
+        updateAvailable: true,
+        installable: true,
+        checkedAt: new Date().toISOString(),
+      };
+    },
+    onUpdate: async (version) => { installed.push(version); },
+    onRestart: () => {
+      restartCalls += 1;
+      acknowledgeRestart();
+    },
+  });
+
+  try {
+    const available = await apiRequest(api.origin, "/api/service/update");
+    assert.equal(available.response.status, 200);
+    assert.equal(available.payload.latestVersion, "0.2.4");
+    assert.equal(available.payload.updateAvailable, true);
+    await apiRequest(api.origin, "/api/service/update");
+    assert.equal(checkCalls, 1, "normal checks use the short server cache");
+    await apiRequest(api.origin, "/api/service/update?force=1");
+    assert.equal(checkCalls, 2, "manual checks bypass the cache");
+
+    const rejected = await apiRequest(api.origin, "/api/service/update", {
+      method: "POST",
+      body: { confirm: true },
+    });
+    assert.equal(rejected.response.status, 403);
+    assert.deepEqual(installed, []);
+
+    const accepted = await apiRequest(api.origin, "/api/service/update", {
+      method: "POST",
+      headers: { "x-work-update": "confirm" },
+      body: { confirm: true },
+    });
+    assert.equal(accepted.response.status, 202);
+    assert.equal(accepted.payload.installedVersion, "0.2.4");
+    assert.deepEqual(installed, ["0.2.4"]);
+    await restarted;
+    assert.equal(restartCalls, 1);
+  } finally {
+    await closeLocalApi(api.server);
+  }
+});
+
 test("treats an empty project .work directory as the canonical marker", async () => {
   const root = await temporaryDirectory("work-dot-work-marker-");
   await mkdir(join(root, "projects", "portable", ".work"), { recursive: true });

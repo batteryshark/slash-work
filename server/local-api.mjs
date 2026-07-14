@@ -38,6 +38,7 @@ import { registerWorkspace, unregisterWorkspace } from "../lib/workspace-registr
 const LOOPBACK_HOST = "127.0.0.1";
 const DEFAULT_PORT = 4317;
 const MAX_BODY_BYTES = 128 * 1024;
+const UPDATE_CACHE_MS = 15 * 60 * 1000;
 const LOCAL_ORIGIN = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i;
 
 function isLocalHostname(hostname) {
@@ -295,6 +296,81 @@ async function handleRequest(workspaces, service, request, response) {
     return;
   }
 
+  if (method === "GET" && url.pathname === "/api/service/update") {
+    if (typeof service.checkForUpdate !== "function") {
+      throw new WorkspaceError("This Work process cannot check for npm updates.", {
+        code: "update_check_unavailable",
+        status: 409,
+      });
+    }
+    const force = url.searchParams.get("force") === "1";
+    const cachedAt = service.updateStatus?.checkedAt ? new Date(service.updateStatus.checkedAt).getTime() : 0;
+    if (force || !service.updateStatus || Date.now() - cachedAt >= UPDATE_CACHE_MS) {
+      service.updateStatus = await service.checkForUpdate();
+    }
+    sendJson(request, response, 200, service.updateStatus);
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/api/service/update") {
+    if (typeof service.onUpdate !== "function" || typeof service.onRestart !== "function") {
+      throw new WorkspaceError("This Work process cannot install and restart after an npm update.", {
+        code: "update_unavailable",
+        status: 409,
+      });
+    }
+    if (request.headers["x-work-update"] !== "confirm") {
+      throw new WorkspaceError("Installing an update requires explicit local confirmation.", {
+        code: "update_confirmation_required",
+        status: 403,
+      });
+    }
+    if (service.updatePending || service.restartPending) {
+      throw new WorkspaceError("Work is already updating or restarting.", {
+        code: "update_pending",
+        status: 409,
+      });
+    }
+    const body = await readJsonBody(request);
+    if (body.confirm !== true) {
+      throw new WorkspaceError("Installing an update requires confirm: true.", {
+        code: "update_confirmation_required",
+        status: 400,
+      });
+    }
+    const update = await service.checkForUpdate();
+    service.updateStatus = update;
+    if (!update.updateAvailable) {
+      throw new WorkspaceError("Work is already up to date.", { code: "already_current", status: 409 });
+    }
+    if (!update.installable) {
+      throw new WorkspaceError("This Work process is running from a source checkout. Update that checkout with Git instead.", {
+        code: "source_checkout_update",
+        status: 409,
+      });
+    }
+    service.updatePending = true;
+    try {
+      await service.onUpdate(update.latestVersion);
+      service.restartPending = true;
+      sendJson(request, response, 202, {
+        updating: true,
+        installedVersion: update.latestVersion,
+        serviceInstanceId: service.instanceId,
+      });
+      setTimeout(() => {
+        Promise.resolve(service.onRestart()).catch((error) => console.error("[work] Restart after update failed:", error));
+      }, 100).unref();
+    } catch (error) {
+      service.updatePending = false;
+      throw new WorkspaceError(`The npm update could not be installed: ${error.message}`, {
+        code: "update_install_failed",
+        status: 502,
+      });
+    }
+    return;
+  }
+
   const workspace = selectedWorkspace(workspaces, defaultWorkspace, request);
 
   if (method === "GET" && url.pathname === "/api/health") {
@@ -303,6 +379,8 @@ async function handleRequest(workspaces, service, request, response) {
       service: {
         instanceId: service.instanceId,
         restartable: typeof service.onRestart === "function",
+        version: service.version,
+        updatePending: service.updatePending,
       },
       workspace: { id: workspace.id, name: workspace.name, root: workspace.root },
     });
@@ -469,6 +547,9 @@ export async function startLocalApi({
   port = DEFAULT_PORT,
   forceNewWorkspace = false,
   onRestart = null,
+  version = null,
+  checkForUpdate = null,
+  onUpdate = null,
   pickWorkspaceDirectory = chooseWorkspaceDirectory,
   registryPath = undefined,
 } = {}) {
@@ -477,6 +558,12 @@ export async function startLocalApi({
   }
   if (onRestart != null && typeof onRestart !== "function") {
     throw new WorkspaceError("onRestart must be a function.", { code: "invalid_restart_handler" });
+  }
+  if (checkForUpdate != null && typeof checkForUpdate !== "function") {
+    throw new WorkspaceError("checkForUpdate must be a function.", { code: "invalid_update_checker" });
+  }
+  if (onUpdate != null && typeof onUpdate !== "function") {
+    throw new WorkspaceError("onUpdate must be a function.", { code: "invalid_update_handler" });
   }
   if (typeof pickWorkspaceDirectory !== "function") {
     throw new WorkspaceError("pickWorkspaceDirectory must be a function.", { code: "invalid_folder_picker" });
@@ -502,7 +589,12 @@ export async function startLocalApi({
     instanceId: randomUUID(),
     defaultWorkspace: workspace,
     onRestart,
+    version,
+    checkForUpdate,
+    onUpdate,
     restartPending: false,
+    updatePending: false,
+    updateStatus: null,
     pickWorkspaceDirectory,
     registryPath,
   };
