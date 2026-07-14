@@ -28,6 +28,8 @@ import {
   workspaceSnapshot,
 } from "../lib/local-workspace.mjs";
 import { listFiles, readFilePreview } from "../lib/file-browser.mjs";
+import { chooseWorkspaceDirectory } from "../lib/native-folder-picker.mjs";
+import { registerWorkspace, unregisterWorkspace } from "../lib/workspace-registry.mjs";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const DEFAULT_PORT = 4317;
@@ -159,16 +161,17 @@ function selectedWorkspace(workspaces, defaultWorkspace, request) {
   return workspace;
 }
 
-async function handleRequest(workspaces, defaultWorkspace, service, request, response) {
+async function handleRequest(workspaces, service, request, response) {
   assertLocalRequest(request);
   const url = new URL(request.url ?? "/", `http://${request.headers.host}`);
   const method = request.method ?? "GET";
+  const defaultWorkspace = service.defaultWorkspace;
 
   if (method === "OPTIONS") {
     response.writeHead(
       204,
       responseHeaders(request, {
-        "Access-Control-Allow-Headers": "Content-Type, X-Work-Restart, X-Work-Workspace",
+        "Access-Control-Allow-Headers": "Content-Type, X-Work-Folder-Picker, X-Work-Restart, X-Work-Unregister, X-Work-Workspace",
         "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
         "Access-Control-Max-Age": "600",
       }),
@@ -180,6 +183,72 @@ async function handleRequest(workspaces, defaultWorkspace, service, request, res
   if (method === "GET" && url.pathname === "/api/workspaces") {
     sendJson(request, response, 200, {
       activeWorkspaceId: defaultWorkspace.id,
+      workspaces: [...workspaces.values()].map(publicWorkspace),
+    });
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/api/workspaces/pick") {
+    if (request.headers["x-work-folder-picker"] !== "confirm") {
+      throw new WorkspaceError("Opening the folder picker requires explicit local confirmation.", {
+        code: "folder_picker_confirmation_required",
+        status: 403,
+      });
+    }
+    const body = await readJsonBody(request);
+    if (body.confirm !== true) {
+      throw new WorkspaceError("Opening the folder picker requires confirm: true.", {
+        code: "folder_picker_confirmation_required",
+        status: 400,
+      });
+    }
+    const selectedDirectory = await service.pickWorkspaceDirectory();
+    if (!selectedDirectory) {
+      sendJson(request, response, 200, { cancelled: true });
+      return;
+    }
+    const added = await registerWorkspace(selectedDirectory, {
+      force: true,
+      registryPath: service.registryPath,
+    });
+    workspaces.set(added.id, added);
+    sendJson(request, response, 201, {
+      cancelled: false,
+      workspace: publicWorkspace(added),
+      workspaces: [...workspaces.values()].map(publicWorkspace),
+    });
+    return;
+  }
+
+  const workspaceToRemove = routeId(url.pathname, "workspaces");
+  if (method === "DELETE" && workspaceToRemove) {
+    if (request.headers["x-work-unregister"] !== "confirm") {
+      throw new WorkspaceError("Removing a workspace root requires explicit local confirmation.", {
+        code: "workspace_removal_confirmation_required",
+        status: 403,
+      });
+    }
+    const currentWorkspace = selectedWorkspace(workspaces, defaultWorkspace, request);
+    if (workspaceToRemove === currentWorkspace.id) {
+      throw new WorkspaceError("Switch to another workspace before removing this root from the list.", {
+        code: "cannot_remove_current_workspace",
+        status: 409,
+      });
+    }
+    if (!workspaces.has(workspaceToRemove)) {
+      throw new WorkspaceError("That workspace root is not in the list.", {
+        code: "workspace_not_found",
+        status: 404,
+      });
+    }
+    await unregisterWorkspace(workspaceToRemove, { registryPath: service.registryPath });
+    workspaces.delete(workspaceToRemove);
+    if (service.defaultWorkspace.id === workspaceToRemove) {
+      service.defaultWorkspace = currentWorkspace;
+    }
+    sendJson(request, response, 200, {
+      removedWorkspaceId: workspaceToRemove,
+      activeWorkspaceId: service.defaultWorkspace.id,
       workspaces: [...workspaces.values()].map(publicWorkspace),
     });
     return;
@@ -374,12 +443,17 @@ export async function startLocalApi({
   port = DEFAULT_PORT,
   forceNewWorkspace = false,
   onRestart = null,
+  pickWorkspaceDirectory = chooseWorkspaceDirectory,
+  registryPath = undefined,
 } = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
     throw new WorkspaceError("port must be an integer between 0 and 65535.", { code: "invalid_port" });
   }
   if (onRestart != null && typeof onRestart !== "function") {
     throw new WorkspaceError("onRestart must be a function.", { code: "invalid_restart_handler" });
+  }
+  if (typeof pickWorkspaceDirectory !== "function") {
+    throw new WorkspaceError("pickWorkspaceDirectory must be a function.", { code: "invalid_folder_picker" });
   }
   const requestedDirectory = await realpath(root);
   const initialRoots = Array.isArray(roots) && roots.length > 0 ? roots : [root];
@@ -400,11 +474,14 @@ export async function startLocalApi({
       : ".";
   const service = {
     instanceId: randomUUID(),
+    defaultWorkspace: workspace,
     onRestart,
     restartPending: false,
+    pickWorkspaceDirectory,
+    registryPath,
   };
   const server = createServer((request, response) => {
-    handleRequest(workspaces, workspace, service, request, response).catch((error) => errorResponse(request, response, error));
+    handleRequest(workspaces, service, request, response).catch((error) => errorResponse(request, response, error));
   });
   server.requestTimeout = 15_000;
   server.headersTimeout = 10_000;

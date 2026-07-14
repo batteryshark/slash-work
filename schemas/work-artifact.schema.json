@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/batteryshark/slash-work/schemas/work-artifact.schema.json",
+  "title": "Work artifact authoring payload",
+  "description": "Structured input an automation can use to create a Work Markdown artifact. Serialize it according to docs/ARTIFACT-SCHEMA.md.",
+  "oneOf": [
+    { "$ref": "#/$defs/capture" },
+    { "$ref": "#/$defs/note" },
+    { "$ref": "#/$defs/decision" },
+    { "$ref": "#/$defs/task" }
+  ],
+  "$defs": {
+    "isoDateTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nullableIsoDateTime": {
+      "oneOf": [
+        { "$ref": "#/$defs/isoDateTime" },
+        { "type": "null" }
+      ]
+    },
+    "projectPath": {
+      "description": "Exact discovered project path relative to the workspace root, or null for a root-owned artifact.",
+      "oneOf": [
+        { "type": "string", "minLength": 1, "maxLength": 4096, "not": { "pattern": "(^|[\\\\/])\\.\\.([\\\\/]|$)|^[\\\\/]|^[A-Za-z]:[\\\\/]" } },
+        { "type": "null" }
+      ]
+    },
+    "scopePath": {
+      "description": "Existing directory relative to the workspace root. Use '.' for the root.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "not": { "pattern": "(^|[\\\\/])\\.\\.([\\\\/]|$)|^[\\\\/]|^[A-Za-z]:[\\\\/]" }
+    },
+    "recordId": {
+      "type": "string",
+      "pattern": "^(capture|decision|note)_[a-z0-9][a-z0-9_-]{7,80}$"
+    },
+    "taskId": {
+      "type": "string",
+      "pattern": "^W-[0-9]{4,10}$"
+    },
+    "stringList": {
+      "type": "array",
+      "maxItems": 200,
+      "items": { "type": "string", "minLength": 1, "maxLength": 500 }
+    },
+    "taskIdList": {
+      "type": "array",
+      "maxItems": 200,
+      "items": { "$ref": "#/$defs/taskId" }
+    },
+    "checklistItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "checked"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "checked": { "type": "boolean" }
+      }
+    },
+    "decisionEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "choice", "note", "at"],
+      "properties": {
+        "action": { "enum": ["approve", "reject", "defer", "cancel", "assign", "keep_unassigned", "reopen"] },
+        "choice": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["projectPath"],
+              "properties": { "projectPath": { "type": "string", "minLength": 1, "maxLength": 4096 } }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["until"],
+              "properties": { "until": { "$ref": "#/$defs/isoDateTime" } }
+            }
+          ]
+        },
+        "note": { "oneOf": [{ "type": "string", "maxLength": 10000 }, { "type": "null" }] },
+        "at": { "$ref": "#/$defs/isoDateTime" }
+      }
+    },
+    "capture": {
+      "title": "Capture",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactType", "id", "kind", "scopePath", "projectPath", "createdAt", "updatedAt", "text"],
+      "properties": {
+        "artifactType": { "const": "capture" },
+        "id": { "type": "string", "pattern": "^capture_[a-z0-9][a-z0-9_-]{7,80}$" },
+        "kind": { "enum": ["idea", "question", "update"] },
+        "scopePath": { "$ref": "#/$defs/scopePath" },
+        "projectPath": { "$ref": "#/$defs/projectPath" },
+        "createdAt": { "$ref": "#/$defs/isoDateTime" },
+        "updatedAt": { "$ref": "#/$defs/isoDateTime" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 100000 }
+      }
+    },
+    "note": {
+      "title": "Note",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactType", "id", "title", "scopePath", "projectPath", "agentIntent", "createdAt", "updatedAt", "text"],
+      "properties": {
+        "artifactType": { "const": "note" },
+        "id": { "type": "string", "pattern": "^note_[a-z0-9][a-z0-9_-]{7,80}$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "scopePath": { "$ref": "#/$defs/scopePath" },
+        "projectPath": { "$ref": "#/$defs/projectPath" },
+        "agentIntent": { "enum": ["reference_only", "review_requested"] },
+        "createdAt": { "$ref": "#/$defs/isoDateTime" },
+        "updatedAt": { "$ref": "#/$defs/isoDateTime" },
+        "text": { "type": "string", "maxLength": 100000 }
+      }
+    },
+    "decision": {
+      "title": "Decision",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactType", "id", "title", "detail", "projectPath", "options", "status", "resolution", "history", "createdAt", "updatedAt"],
+      "properties": {
+        "artifactType": { "const": "decision" },
+        "id": { "type": "string", "pattern": "^decision_[a-z0-9][a-z0-9_-]{7,80}$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 500, "pattern": "^[^\\r\\n]+$" },
+        "detail": { "type": "string", "maxLength": 100000 },
+        "projectPath": { "$ref": "#/$defs/projectPath" },
+        "options": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "type": "string", "minLength": 1, "maxLength": 500, "pattern": "^[^\\r\\n]+$" }
+        },
+        "status": { "enum": ["open", "approved", "rejected", "deferred", "cancelled", "assigned", "kept_unassigned"] },
+        "resolution": { "oneOf": [{ "$ref": "#/$defs/decisionEvent" }, { "type": "null" }] },
+        "history": { "type": "array", "items": { "$ref": "#/$defs/decisionEvent" } },
+        "createdAt": { "$ref": "#/$defs/isoDateTime" },
+        "updatedAt": { "$ref": "#/$defs/isoDateTime" }
+      }
+    },
+    "task": {
+      "title": "Task",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactType", "id", "title", "status", "projectPath", "taskType", "assignee", "agents", "priority", "tags", "dependsOn", "blockedBy", "blockedReason", "parentId", "dueAt", "estimate", "source", "createdAt", "updatedAt", "startedAt", "completedAt", "cancelledAt", "goal", "requirements", "acceptanceCriteria", "plan", "notes", "progressLog", "completionSummary"],
+      "properties": {
+        "artifactType": { "const": "task" },
+        "id": { "$ref": "#/$defs/taskId" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 500, "pattern": "^[^\\r\\n]+$" },
+        "status": { "type": "string", "minLength": 1, "maxLength": 80, "description": "One configured workspace status, or cancelled/archived. Defaults are backlog, ready, in_progress, blocked, review, done." },
+        "projectPath": { "$ref": "#/$defs/projectPath" },
+        "taskType": { "enum": ["task", "bug", "feature", "research", "admin", "epic", "idea"] },
+        "assignee": { "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 200 }, { "type": "null" }] },
+        "agents": { "$ref": "#/$defs/stringList" },
+        "priority": { "enum": ["critical", "high", "medium", "low", "none"] },
+        "tags": { "$ref": "#/$defs/stringList" },
+        "dependsOn": { "$ref": "#/$defs/taskIdList" },
+        "blockedBy": { "$ref": "#/$defs/taskIdList" },
+        "blockedReason": { "oneOf": [{ "type": "string", "maxLength": 10000 }, { "type": "null" }] },
+        "parentId": { "oneOf": [{ "$ref": "#/$defs/taskId" }, { "type": "null" }] },
+        "dueAt": { "$ref": "#/$defs/nullableIsoDateTime" },
+        "estimate": { "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 100 }, { "type": "null" }] },
+        "source": { "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 500 }, { "type": "null" }] },
+        "createdAt": { "$ref": "#/$defs/isoDateTime" },
+        "updatedAt": { "$ref": "#/$defs/isoDateTime" },
+        "startedAt": { "$ref": "#/$defs/nullableIsoDateTime" },
+        "completedAt": { "$ref": "#/$defs/nullableIsoDateTime" },
+        "cancelledAt": { "$ref": "#/$defs/nullableIsoDateTime" },
+        "goal": { "type": "string", "maxLength": 100000 },
+        "requirements": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/checklistItem" } },
+        "acceptanceCriteria": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/checklistItem" } },
+        "plan": { "type": "string", "maxLength": 100000 },
+        "notes": { "type": "string", "maxLength": 100000 },
+        "progressLog": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["at", "message"],
+            "properties": {
+              "at": { "$ref": "#/$defs/isoDateTime" },
+              "message": { "type": "string", "minLength": 1, "maxLength": 20000 }
+            }
+          }
+        },
+        "completionSummary": { "type": "string", "maxLength": 100000 },
+        "extraSections": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["heading", "content"],
+            "properties": {
+              "heading": { "type": "string", "minLength": 1 },
+              "content": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

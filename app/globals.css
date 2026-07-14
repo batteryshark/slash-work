@@ -218,7 +218,16 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
   box-shadow: var(--shadow);
 }
 .workspace-menu-list { display: grid; gap: 7px; margin-top: 16px; }
-.workspace-menu-list > button {
+.workspace-menu-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  background: transparent;
+}
+.workspace-menu-item:hover, .workspace-menu-item.selected { border-color: #d9d3ff; background: var(--accent-softer); }
+.workspace-select {
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr) auto;
   align-items: center;
@@ -226,18 +235,71 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
   width: 100%;
   min-height: 68px;
   padding: 9px 11px;
-  border: 1px solid transparent;
-  border-radius: 13px;
+  border: 0;
+  border-radius: 12px;
   background: transparent;
   text-align: left;
   cursor: pointer;
 }
-.workspace-menu-list > button:hover, .workspace-menu-list > button.selected { border-color: #d9d3ff; background: var(--accent-softer); }
-.workspace-menu-list > button > span:nth-child(2) { display: grid; gap: 4px; min-width: 0; }
+.workspace-select > span:nth-child(2) { display: grid; gap: 4px; min-width: 0; }
 .workspace-menu-list small { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
 .workspace-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--accent-soft); color: var(--accent-dark); font-weight: 800; }
 .current-root { color: var(--accent-dark); font-size: 11px; font-weight: 780; }
-.workspace-menu-help { margin: 15px 0 0; padding-top: 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.workspace-remove {
+  min-height: 44px;
+  margin-right: 10px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 720;
+}
+.workspace-remove:hover { background: var(--danger-soft); color: var(--danger); }
+.workspace-remove-confirm {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 10px 10px;
+}
+.workspace-remove-confirm > span { margin-right: auto; color: var(--muted); font-size: 12px; }
+.workspace-remove-confirm button {
+  min-height: 40px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  cursor: pointer;
+  font-weight: 720;
+}
+.workspace-remove-confirm .danger-action { border-color: #e1b2ad; background: var(--danger-soft); color: var(--danger); }
+.workspace-folder-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px 16px;
+  margin-top: 15px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.workspace-folder-action > div { display: grid; gap: 4px; min-width: 0; }
+.workspace-folder-action small { color: var(--muted); line-height: 1.4; white-space: normal; }
+.workspace-folder-action > button {
+  min-height: 44px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: pointer;
+  font-weight: 720;
+}
+.workspace-folder-action > button:hover { border-color: var(--accent); background: var(--accent-softer); }
+.workspace-folder-action > button:disabled { cursor: wait; opacity: .62; }
+.workspace-picker-error { grid-column: 1 / -1; color: var(--danger) !important; }
 .service-control {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -825,7 +887,9 @@ html[data-theme="dark"] .task-log li { border-bottom-color: var(--line); }
   .view-tabs button { flex: 1; }
   .project-menu { top: 62px; right: 12px; width: calc(100vw - 24px); }
   .workspace-menu { top: 62px; left: 12px; width: calc(100vw - 24px); }
-  .service-control { grid-template-columns: 1fr; }
+  .workspace-folder-action, .service-control { grid-template-columns: 1fr; }
+  .workspace-remove-confirm { align-items: stretch; flex-direction: column; }
+  .workspace-remove-confirm > span { margin-right: 0; }
   .service-restart-confirm { justify-content: flex-start; flex-wrap: wrap; }
   .root-switch > span:first-child { max-width: 82px; }
   .project-menu-grid { grid-template-columns: 1fr; }

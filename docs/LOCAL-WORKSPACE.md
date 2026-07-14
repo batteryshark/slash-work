@@ -26,12 +26,17 @@ Paths containing `..`, absolute paths supplied through the API, and symbolic
 links that escape the root are rejected rather than normalized into another
 workspace.
 
-The registry at `~/.work/roots.json` is an allowlist, not a filesystem browser.
-Only the local CLI can add or remove roots (`work register`, `work unregister`);
-remote-sized web clients can only select an approved workspace ID. The client
-sends that ID on every request, so switching one browser does not change the
-workspace selected in another browser and records from multiple roots are never
-merged into one response.
+The registry at `~/.work/roots.json` is an allowlist, not a remotely addressable
+filesystem browser. A person can add a root with `work register` or by pressing
+**Choose folder…** in the local UI. That explicit action asks the loopback Work
+process to open the operating system's native folder picker; the web client
+cannot supply an arbitrary path. A newly selected directory is initialized as
+its own top-level Work root and registered. A non-current root can be removed
+from the recent list after inline confirmation; removal changes only the
+registry and never deletes its directory or `.work/` data. The client sends the
+selected root's ID on every request, so switching one browser does not change
+the workspace selected in another browser and records from multiple roots are
+never merged into one response.
 
 ## Recursive project discovery
 
