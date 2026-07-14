@@ -6,6 +6,7 @@
   "oneOf": [
     { "$ref": "#/$defs/capture" },
     { "$ref": "#/$defs/note" },
+    { "$ref": "#/$defs/idea" },
     { "$ref": "#/$defs/decision" },
     { "$ref": "#/$defs/task" }
   ],
@@ -36,7 +37,7 @@
     },
     "recordId": {
       "type": "string",
-      "pattern": "^(capture|decision|note)_[a-z0-9][a-z0-9_-]{7,80}$"
+      "pattern": "^(capture|decision|idea|note)_[a-z0-9][a-z0-9_-]{7,80}$"
     },
     "taskId": {
       "type": "string",
@@ -88,6 +89,17 @@
         "at": { "$ref": "#/$defs/isoDateTime" }
       }
     },
+    "ideaEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "reason", "at"],
+      "properties": {
+        "from": { "enum": ["open", "exploring", "deferred", "proposed", "adopted", "declined"] },
+        "to": { "enum": ["open", "exploring", "deferred", "proposed", "adopted", "declined"] },
+        "reason": { "oneOf": [{ "type": "string", "maxLength": 20000 }, { "type": "null" }] },
+        "at": { "$ref": "#/$defs/isoDateTime" }
+      }
+    },
     "capture": {
       "title": "Capture",
       "type": "object",
@@ -117,8 +129,38 @@
         "projectPath": { "$ref": "#/$defs/projectPath" },
         "agentIntent": { "enum": ["reference_only", "review_requested"] },
         "createdAt": { "$ref": "#/$defs/isoDateTime" },
-        "updatedAt": { "$ref": "#/$defs/isoDateTime" },
         "text": { "type": "string", "maxLength": 100000 }
+      }
+    },
+    "idea": {
+      "title": "Idea",
+      "description": "A possibility to evaluate. It never authorizes implementation.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactType", "id", "title", "status", "scopePath", "projectPath", "tags", "source", "revisitAt", "agentIntent", "history", "createdAt", "updatedAt", "opportunity", "whyItMightMatter", "hypothesis", "unknowns", "potentialShape", "evidence", "risksAndConstraints", "nextEvaluation", "outcome"],
+      "properties": {
+        "artifactType": { "const": "idea" },
+        "id": { "type": "string", "pattern": "^idea_[a-z0-9][a-z0-9_-]{7,80}$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 500, "pattern": "^[^\\r\\n]+$" },
+        "status": { "enum": ["open", "exploring", "deferred", "proposed", "adopted", "declined"] },
+        "scopePath": { "$ref": "#/$defs/scopePath" },
+        "projectPath": { "$ref": "#/$defs/projectPath" },
+        "tags": { "$ref": "#/$defs/stringList" },
+        "source": { "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 500 }, { "type": "null" }] },
+        "revisitAt": { "$ref": "#/$defs/nullableIsoDateTime" },
+        "agentIntent": { "enum": ["consideration_only", "evaluation_requested"] },
+        "history": { "type": "array", "items": { "$ref": "#/$defs/ideaEvent" } },
+        "createdAt": { "$ref": "#/$defs/isoDateTime" },
+        "updatedAt": { "$ref": "#/$defs/isoDateTime" },
+        "opportunity": { "type": "string", "maxLength": 100000 },
+        "whyItMightMatter": { "type": "string", "maxLength": 100000 },
+        "hypothesis": { "type": "string", "maxLength": 100000 },
+        "unknowns": { "type": "string", "maxLength": 100000 },
+        "potentialShape": { "type": "string", "maxLength": 100000 },
+        "evidence": { "type": "string", "maxLength": 100000 },
+        "risksAndConstraints": { "type": "string", "maxLength": 100000 },
+        "nextEvaluation": { "type": "string", "maxLength": 100000 },
+        "outcome": { "type": "string", "maxLength": 100000 }
       }
     },
     "decision": {

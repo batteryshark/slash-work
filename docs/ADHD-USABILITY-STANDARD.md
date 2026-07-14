@@ -79,6 +79,9 @@ thought go?” without remembering prior navigation.
 - Notes default to passive reference material. Requesting agent review is a
   separate explicit action, persists in the note metadata, and does not imply
   authorization to execute work.
+- Ideas provide a durable middle state between capture and execution. Asking an
+  agent to evaluate an idea authorizes analysis only; deferring or declining it
+  records why without deleting the possibility or creating a task.
 - The last harmless interface scope may persist on the device.
 - Removing a non-current root from the recent list requires confirmation and
   never deletes its directory or `.work/` records.
@@ -160,7 +163,7 @@ scenario below, which remains a tagged-release check.
 | Attention | Covered | Decision-only items, explicit alternatives, deferral, durable result |
 | Scope | Covered | Clickable breadcrumb, explicit capture target, filesystem-root boundary |
 | Recovery | Covered | File-backed persistence, process restart, note autosave and confirmation, Escape cancel, capture Undo |
-| Disclosure | Covered | Context, captures, notes, files, details, and portfolio are opt-in |
+| Disclosure | Covered | Context, captures, ideas, notes, files, details, and portfolio are opt-in |
 | Motor/keyboard | Covered | 44px targets, focus-visible styles, keyboard capture |
 | Sensory | Covered | Reduced motion and restrained non-color labels |
 | Language | Covered | Neutral, factual, non-punitive copy |
@@ -197,19 +200,23 @@ the tester needs hidden syntax after launch.
    second note, and return to the first. Confirm the text autosaved, the note is
    labelled as passive reference, **Ask agent to review** is an explicit action,
    and deleting the note requires a separate confirmation.
-8. Stop the server with `Ctrl-C`, launch the same root again, and explain what
-   changed. Both thoughts, the note, and the recorded decision must remain.
-9. Launch against a different empty root. None of the first root's projects or
+8. Promote an Inbox thought to an Idea. Ask an agent to evaluate it and confirm
+   the record explicitly says implementation is not authorized. Move it to
+   **Not now** and confirm a reason is required and survives refresh.
+9. Stop the server with `Ctrl-C`, launch the same root again, and explain what
+   changed. Both thoughts, the note, the idea outcome, and the recorded decision
+   must remain.
+10. Launch against a different empty root. None of the first root's projects or
    work may appear.
-10. Create two dependent cards. Confirm all card fields and both checklist
+11. Create two dependent cards. Confirm all card fields and both checklist
    sections are visible. Attempt to complete the dependent card first and
    confirm the dependency gate names the unfinished card.
-11. Move one card through In flight and Review, check a requirement, append a
+12. Move one card through In flight and Review, check a requirement, append a
     progress note, and complete it. Confirm every event appears in Activity and
     survives restart.
-12. Cancel another card. Confirm it leaves the active columns but remains
+13. Cancel another card. Confirm it leaves the active columns but remains
     visible when **Show cancelled & archived** is enabled.
-13. Open **Files** in a Git-backed project. Expand a folder, select a text file,
+14. Open **Files** in a Git-backed project. Expand a folder, select a text file,
     and confirm language and change hints are visible. Confirm **Changed only**
     reduces the tree, secret and binary files cannot be previewed, and no edit
     or save-file control exists.

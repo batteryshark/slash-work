@@ -8,20 +8,24 @@ import {
   applyDecisionAction,
   createCapture,
   createDecision,
+  createIdea,
   createNote,
   createTask,
   deleteCapture,
+  deleteIdea,
   deleteNote,
   discoverProjects,
   initializeWorkspace,
   getTask,
   listCaptures,
   listDecisions,
+  listIdeas,
   listNotes,
   listTasks,
   moveTask,
   toggleTaskChecklist,
   updateCaptureDestination,
+  updateIdea,
   updateNote,
   updateTask,
   validateProjectScopePath,
@@ -365,6 +369,28 @@ async function handleRequest(workspaces, service, request, response) {
   }
   if (method === "DELETE" && noteId) {
     await deleteNote(workspace, noteId);
+    sendEmpty(request, response);
+    return;
+  }
+  if (method === "GET" && url.pathname === "/api/ideas") {
+    sendJson(request, response, 200, { ideas: await listIdeas(workspace) });
+    return;
+  }
+  if (method === "POST" && url.pathname === "/api/ideas") {
+    const body = await readJsonBody(request);
+    const projects = await discoverProjects(workspace.root);
+    sendJson(request, response, 201, await createIdea(workspace, body, projects));
+    return;
+  }
+  const ideaId = routeId(url.pathname, "ideas");
+  if (method === "PATCH" && ideaId) {
+    const body = await readJsonBody(request);
+    const projects = await discoverProjects(workspace.root);
+    sendJson(request, response, 200, await updateIdea(workspace, ideaId, body, projects));
+    return;
+  }
+  if (method === "DELETE" && ideaId) {
+    await deleteIdea(workspace, ideaId);
     sendEmpty(request, response);
     return;
   }

@@ -125,6 +125,8 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   });
   assert.match(help.stdout, /work \[root\]/i);
   assert.match(help.stdout, /--init/);
+  assert.match(help.stdout, /work idea "title"/i);
+  assert.match(help.stdout, /work ideas/i);
   assert.match(help.stdout, /--project <path>.*never inferred/i);
 
   const root = await temporaryDirectory("work-cli-root-");
@@ -152,6 +154,18 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   assert.match(markdown, /scopePath: "projects\/one"/);
   assert.match(markdown, /projectPath: null/);
   await assert.rejects(readdir(join(descendant, ".work")), { code: "ENOENT" });
+
+  const idea = await execFile(
+    process.execPath,
+    [launcherPath.pathname, "idea", "Federate remote instances", "--detail", "Evaluate read-only project trees", "--tag", "remote"],
+    { cwd: descendant },
+  );
+  assert.match(idea.stdout, /Created idea idea_/);
+  const ideaFiles = await readdir(join(root, ".work", "ideas"));
+  assert.equal(ideaFiles.length, 1);
+  assert.match(await readFile(join(root, ".work", "ideas", ideaFiles[0]), "utf8"), /## Opportunity\nEvaluate read-only project trees/);
+  const ideas = await execFile(process.execPath, [launcherPath.pathname, "ideas"], { cwd: descendant });
+  assert.match(ideas.stdout, /open.*Federate remote instances/);
 
   const decision = await execFile(
     process.execPath,
@@ -886,6 +900,98 @@ Existing notes must remain passive by default.
     const removed = await apiRequest(restarted.origin, `/api/notes/${encodeURIComponent(noteId)}`, { method: "DELETE" });
     assert.equal(removed.response.status, 204);
     assert.deepEqual(await readdir(join(root, "software", "rekit", ".work", "notes")), []);
+  } finally {
+    await closeLocalApi(restarted.server);
+  }
+});
+
+test("keeps ideas between raw thoughts and executable work with explicit evaluation outcomes", async () => {
+  const { root } = await makeWorkspaceFixture();
+  const first = await startLocalApi({ root, port: 0 });
+  let ideaId;
+
+  try {
+    const created = await apiRequest(first.origin, "/api/ideas", {
+      method: "POST",
+      body: {
+        title: "Federate remote Work instances",
+        opportunity: "See project trees from several servers in one place.",
+        whyItMightMatter: "Reduce context switching across machines.",
+        unknowns: "Authentication, offline behavior, and ownership boundaries.",
+        projectPath: "software/rekit",
+        scopePath: "software/rekit",
+        tags: ["remote", "architecture"],
+        source: "capture_example1234",
+      },
+    });
+    assert.equal(created.response.status, 201);
+    assert.equal(created.payload.status, "open");
+    assert.equal(created.payload.agentIntent, "consideration_only");
+    assert.equal(created.payload.source, "capture_example1234");
+    assert.equal(created.payload.sections.opportunity, "See project trees from several servers in one place.");
+    ideaId = created.payload.id;
+
+    const pathname = join(root, "software", "rekit", ".work", "ideas", `${ideaId}.md`);
+    const stored = await readFile(pathname, "utf8");
+    assert.match(stored, /type: "idea"/);
+    assert.match(stored, /agentIntent: "consideration_only"/);
+    assert.match(stored, /## Opportunity\nSee project trees from several servers in one place\./);
+    assert.match(stored, /## Outcome\n?$/);
+
+    const evaluation = await apiRequest(first.origin, `/api/ideas/${ideaId}`, {
+      method: "PATCH",
+      body: {
+        title: "Federate trusted Work instances",
+        opportunity: "See saved draft changes while requesting evaluation.",
+        status: "exploring",
+        reason: "Evaluation requested.",
+        agentIntent: "evaluation_requested",
+      },
+    });
+    assert.equal(evaluation.response.status, 200);
+    assert.equal(evaluation.payload.status, "exploring");
+    assert.equal(evaluation.payload.agentIntent, "evaluation_requested");
+    assert.equal(evaluation.payload.title, "Federate trusted Work instances");
+    assert.equal(evaluation.payload.sections.opportunity, "See saved draft changes while requesting evaluation.");
+    assert.deepEqual(evaluation.payload.history[0].from, "open");
+    assert.deepEqual(evaluation.payload.history[0].to, "exploring");
+
+    const missingReason = await apiRequest(first.origin, `/api/ideas/${ideaId}`, {
+      method: "PATCH",
+      body: { status: "deferred" },
+    });
+    assert.equal(missingReason.response.status, 400);
+    assert.equal(missingReason.payload.error.code, "reason_required");
+
+    const deferred = await apiRequest(first.origin, `/api/ideas/${ideaId}`, {
+      method: "PATCH",
+      body: {
+        status: "deferred",
+        reason: "Remote authentication is not mature enough yet.",
+        revisitAt: "2027-01-15",
+      },
+    });
+    assert.equal(deferred.response.status, 200);
+    assert.equal(deferred.payload.status, "deferred");
+    assert.equal(deferred.payload.agentIntent, "consideration_only");
+    assert.equal(deferred.payload.sections.outcome, "Remote authentication is not mature enough yet.");
+    assert.equal(deferred.payload.revisitAt, "2027-01-15T00:00:00.000Z");
+    assert.equal(deferred.payload.history.length, 2);
+  } finally {
+    await closeLocalApi(first.server);
+  }
+
+  const restarted = await startLocalApi({ root, port: 0 });
+  try {
+    const snapshot = await apiRequest(restarted.origin, "/api/workspace");
+    const idea = snapshot.payload.ideas.find((item) => item.id === ideaId);
+    assert.equal(idea.status, "deferred");
+    assert.equal(idea.history.length, 2);
+    assert.equal(idea.sections.outcome, "Remote authentication is not mature enough yet.");
+
+    const removed = await apiRequest(restarted.origin, `/api/ideas/${encodeURIComponent(ideaId)}`, { method: "DELETE" });
+    assert.equal(removed.response.status, 204);
+    assert.deepEqual(await readdir(join(root, "software", "rekit", ".work", "ideas")), []);
   } finally {
     await closeLocalApi(restarted.server);
   }
