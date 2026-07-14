@@ -1,6 +1,6 @@
 {
   "name": "slash-work",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A local, filesystem-backed project manager for humans and agent teams.",
   "license": "MIT",
   "repository": {
@@ -23,8 +23,11 @@
   "files": [
     "app",
     "bin",
+    "docs/ARTIFACT-SCHEMA.md",
+    "docs/LOCAL-WORKSPACE.md",
     "lib",
     "public",
+    "schemas",
     "server",
     "src",
     "index.html",

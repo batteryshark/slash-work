@@ -178,6 +178,16 @@ type WorkspaceDirectory = {
   workspaces: WorkspaceSummary[];
 };
 
+type WorkspacePickerReceipt = {
+  cancelled: boolean;
+  workspace?: WorkspaceSummary;
+  workspaces?: WorkspaceSummary[];
+};
+
+type WorkspaceRemovalReceipt = WorkspaceDirectory & {
+  removedWorkspaceId: string;
+};
+
 type DecisionDraft = {
   action: Exclude<DecisionAction, "reopen"> | "";
   projectPath: string;
@@ -321,6 +331,10 @@ export default function Home() {
   const [captureReceipt, setCaptureReceipt] = useState<CaptureReceipt | null>(null);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
+  const [pickingWorkspace, setPickingWorkspace] = useState(false);
+  const [workspacePickerError, setWorkspacePickerError] = useState<string | null>(null);
+  const [workspaceRemovalTarget, setWorkspaceRemovalTarget] = useState<string | null>(null);
+  const [removingWorkspace, setRemovingWorkspace] = useState<string | null>(null);
   const [restartArmed, setRestartArmed] = useState(false);
   const [restartingService, setRestartingService] = useState(false);
   const [serviceRestartError, setServiceRestartError] = useState<string | null>(null);
@@ -384,6 +398,54 @@ export default function Home() {
     setView("home");
     setData(null);
     await loadWorkspace();
+  }
+
+  async function pickWorkspace() {
+    if (pickingWorkspace) return;
+    setPickingWorkspace(true);
+    setWorkspacePickerError(null);
+    try {
+      const receipt = await requestJson<WorkspacePickerReceipt>("/api/workspaces/pick", {
+        method: "POST",
+        headers: { "x-work-folder-picker": "confirm" },
+        body: JSON.stringify({ confirm: true }),
+      });
+      if (receipt.cancelled || !receipt.workspace) return;
+      localStorage.setItem("work.workspace", receipt.workspace.id);
+      setWorkspaceMenuOpen(false);
+      setProjectMenuOpen(false);
+      setSelectedNoteId(null);
+      setSelectedTaskId(null);
+      setScopePath(".");
+      setView("home");
+      setData(null);
+      await loadWorkspace();
+    } catch (error) {
+      setWorkspacePickerError(error instanceof Error ? error.message : "The folder picker could not open.");
+    } finally {
+      setPickingWorkspace(false);
+    }
+  }
+
+  async function removeWorkspace(workspaceId: string) {
+    if (removingWorkspace) return;
+    setRemovingWorkspace(workspaceId);
+    setWorkspacePickerError(null);
+    try {
+      const receipt = await requestJson<WorkspaceRemovalReceipt>(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+        method: "DELETE",
+        headers: { "x-work-unregister": "confirm" },
+      });
+      setWorkspaceDirectory({
+        activeWorkspaceId: receipt.activeWorkspaceId,
+        workspaces: receipt.workspaces,
+      });
+      setWorkspaceRemovalTarget(null);
+    } catch (error) {
+      setWorkspacePickerError(error instanceof Error ? error.message : "The workspace root could not be removed from the list.");
+    } finally {
+      setRemovingWorkspace(null);
+    }
   }
 
   async function restartLocalService() {
@@ -1176,27 +1238,60 @@ export default function Home() {
               <div>
                 <p className="eyebrow">Workspace roots</p>
                 <strong>Where do you want to work?</strong>
-                <small>Only roots registered on this computer appear here.</small>
+                <small>Choose a recent root or open any folder on this computer.</small>
               </div>
               <button type="button" onClick={() => setWorkspaceMenuOpen(false)} aria-label="Close workspace picker">×</button>
             </div>
             <div className="workspace-menu-list">
-              {workspaceDirectory.workspaces.map((workspace) => (
-                <button
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={workspace.id === data.workspace.id}
-                  className={workspace.id === data.workspace.id ? "selected" : ""}
-                  key={workspace.id}
-                  onClick={() => void switchWorkspace(workspace.id)}
-                >
-                  <span className="workspace-icon" aria-hidden="true">{workspace.name.slice(0, 1).toUpperCase()}</span>
-                  <span><strong>{workspace.name}</strong><small>{workspace.root}</small></span>
-                  {workspace.id === data.workspace.id && <span className="current-root">Current</span>}
-                </button>
-              ))}
+              {workspaceDirectory.workspaces.map((workspace) => {
+                const current = workspace.id === data.workspace.id;
+                const confirmingRemoval = workspaceRemovalTarget === workspace.id;
+                return (
+                  <div className={`workspace-menu-item${current ? " selected" : ""}`} role="group" key={workspace.id}>
+                    <button
+                      className="workspace-select"
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={current}
+                      onClick={() => void switchWorkspace(workspace.id)}
+                    >
+                      <span className="workspace-icon" aria-hidden="true">{workspace.name.slice(0, 1).toUpperCase()}</span>
+                      <span><strong>{workspace.name}</strong><small>{workspace.root}</small></span>
+                      {current && <span className="current-root">Current</span>}
+                    </button>
+                    {!current && !confirmingRemoval && (
+                      <button
+                        type="button"
+                        className="workspace-remove"
+                        aria-label={`Remove ${workspace.name} from the workspace list`}
+                        onClick={() => { setWorkspaceRemovalTarget(workspace.id); setWorkspacePickerError(null); }}
+                      >
+                        Remove
+                      </button>
+                    )}
+                    {!current && confirmingRemoval && (
+                      <div className="workspace-remove-confirm" role="alert">
+                        <span>Remove from list? Files stay untouched.</span>
+                        <button type="button" onClick={() => setWorkspaceRemovalTarget(null)} disabled={removingWorkspace === workspace.id}>Cancel</button>
+                        <button type="button" className="danger-action" onClick={() => void removeWorkspace(workspace.id)} disabled={removingWorkspace === workspace.id}>
+                          {removingWorkspace === workspace.id ? "Removing…" : "Confirm"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-            <p className="workspace-menu-help"><code>work register /path/to/root</code> adds another approved space.</p>
+            <section className="workspace-folder-action" aria-label="Open another workspace root">
+              <div>
+                <strong>Open another folder</strong>
+                <small>If it is not already a Work root, its `.work` storage will be created automatically.</small>
+              </div>
+              <button type="button" onClick={() => void pickWorkspace()} disabled={pickingWorkspace}>
+                {pickingWorkspace ? "Opening…" : "Choose folder…"}
+              </button>
+              {workspacePickerError && <small className="workspace-picker-error" role="alert">{workspacePickerError}</small>}
+            </section>
             <section className="service-control" aria-label="Local Work service">
               <div>
                 <strong>Local service</strong>

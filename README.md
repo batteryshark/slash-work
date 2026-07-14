@@ -79,9 +79,11 @@ folder scope. Use `work --init` when you intentionally want the current
 directory to become a separate nested workspace.
 
 Every launched root is also registered in `~/.work/roots.json`. After that you
-can start `work` without a path and switch among approved roots from the root
-button in the web header—including from a narrow phone-sized browser. Register
-other spaces without launching them first:
+can start `work` without a path and switch among recent roots from the root
+button in the web header—including from a narrow phone-sized browser. Use
+**Choose folder…** to open the operating system's folder picker. Selecting a
+directory registers it and creates its top-level `.work/` workspace when
+needed. The CLI remains available for scripted setup:
 
 ```bash
 work register ~/Home
@@ -90,9 +92,13 @@ work register ~/Career
 work roots
 ```
 
-Use `work unregister <id-or-path>` to remove an entry from the picker. The
-browser cannot browse the server's filesystem or submit a new arbitrary path;
-it can select only these pre-registered roots.
+Use **Remove** beside a non-current root, or
+`work unregister <id-or-path>`, to remove an entry from the picker. This only
+forgets the recent root; it never deletes the directory, `.work/`, or any
+artifact. The browser never receives a general filesystem-browsing API or
+submits a typed path. The loopback Work process opens the native picker after
+an explicit local button press and accepts only the directory returned by the
+operating system.
 
 The workspace-root menu also has a two-step **Restart Work** control for
 reloading this local service after code or configuration changes. It restarts
@@ -186,6 +192,10 @@ work show W-0001
 
 See [`docs/LOCAL-WORKSPACE.md`](docs/LOCAL-WORKSPACE.md) for discovery,
 containment, storage, and recovery details.
+Automations that write the filesystem records directly should follow the
+[`Work Artifact Markdown Contract`](docs/ARTIFACT-SCHEMA.md) and validate their
+logical payloads with
+[`schemas/work-artifact.schema.json`](schemas/work-artifact.schema.json).
 
 ## Development and validation
 

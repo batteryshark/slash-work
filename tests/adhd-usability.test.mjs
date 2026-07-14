@@ -13,6 +13,11 @@ test("builds a local root-scoped interface instead of a hosted demo", async () =
 
   assert.match(html, /<title>Work · One root at a time<\/title>/i);
   assert.match(page, /\/api\/workspace/);
+  assert.match(page, /\/api\/workspaces\/pick/);
+  assert.match(page, /Choose folder…/);
+  assert.match(page, /created automatically/);
+  assert.match(page, /Remove from list\? Files stay untouched/);
+  assert.match(page, /"x-work-unregister": "confirm"/);
   assert.match(page, /scopePath/);
   assert.match(page, /projectPath: selectedProject\?\.path \?\? null/);
   assert.match(page, /Project names in the thought never reroute it/);

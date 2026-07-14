@@ -9,6 +9,8 @@ import { promisify } from "node:util";
 
 import { closeLocalApi, startLocalApi } from "../server/local-api.mjs";
 import { discoverProjects } from "../lib/local-workspace.mjs";
+import { chooseWorkspaceDirectory } from "../lib/native-folder-picker.mjs";
+import { registerWorkspace } from "../lib/workspace-registry.mjs";
 
 const temporaryDirectories = [];
 const execFile = promisify(execFileCallback);
@@ -586,6 +588,129 @@ test("offers registered roots and resolves every request inside the selected wor
   } finally {
     await closeLocalApi(launched.server);
   }
+});
+
+test("opens a native folder picker and initializes the selected directory as an exact root", async () => {
+  const root = await temporaryDirectory("work-picker-current-");
+  const selected = join(root, "new-nested-root");
+  const registryPath = join(root, "test-roots.json");
+  await mkdir(selected, { recursive: true });
+  await registerWorkspace(root, { force: true, registryPath });
+  let pickerCalls = 0;
+  const api = await startLocalApi({
+    root,
+    port: 0,
+    registryPath,
+    pickWorkspaceDirectory: async () => {
+      pickerCalls += 1;
+      return pickerCalls === 1 ? null : selected;
+    },
+  });
+
+  try {
+    const missingConfirmation = await apiRequest(api.origin, "/api/workspaces/pick", {
+      method: "POST",
+      body: { confirm: true },
+    });
+    assert.equal(missingConfirmation.response.status, 403);
+    assert.equal(pickerCalls, 0);
+
+    const cancelled = await apiRequest(api.origin, "/api/workspaces/pick", {
+      method: "POST",
+      headers: { "x-work-folder-picker": "confirm" },
+      body: { confirm: true },
+    });
+    assert.equal(cancelled.response.status, 200);
+    assert.equal(cancelled.payload.cancelled, true);
+
+    const opened = await apiRequest(api.origin, "/api/workspaces/pick", {
+      method: "POST",
+      headers: { "x-work-folder-picker": "confirm" },
+      body: { confirm: true },
+    });
+    assert.equal(opened.response.status, 201);
+    assert.equal(opened.payload.cancelled, false);
+    assert.equal(opened.payload.workspace.root, await realpath(selected));
+    assert.equal(opened.payload.workspaces.length, 2);
+
+    const marker = JSON.parse(await readFile(join(selected, ".work", "workspace.json"), "utf8"));
+    assert.equal(marker.id, opened.payload.workspace.id);
+    const registry = JSON.parse(await readFile(registryPath, "utf8"));
+    assert.equal(registry.roots.some((entry) => entry.id === marker.id && entry.root === opened.payload.workspace.root), true);
+
+    const switched = await apiRequest(api.origin, "/api/workspace", {
+      headers: { "x-work-workspace": marker.id },
+    });
+    assert.equal(switched.response.status, 200);
+    assert.equal(switched.payload.workspace.root, await realpath(selected));
+
+    const currentRemoval = await apiRequest(api.origin, `/api/workspaces/${marker.id}`, {
+      method: "DELETE",
+      headers: {
+        "x-work-workspace": marker.id,
+        "x-work-unregister": "confirm",
+      },
+    });
+    assert.equal(currentRemoval.response.status, 409);
+    assert.equal(currentRemoval.payload.error.code, "cannot_remove_current_workspace");
+
+    const removedOriginal = await apiRequest(api.origin, `/api/workspaces/${api.workspace.id}`, {
+      method: "DELETE",
+      headers: {
+        "x-work-workspace": marker.id,
+        "x-work-unregister": "confirm",
+      },
+    });
+    assert.equal(removedOriginal.response.status, 200);
+    assert.equal(removedOriginal.payload.removedWorkspaceId, api.workspace.id);
+    assert.equal(removedOriginal.payload.activeWorkspaceId, marker.id);
+    assert.deepEqual(removedOriginal.payload.workspaces.map((workspace) => workspace.id), [marker.id]);
+    assert.equal(JSON.parse(await readFile(join(root, ".work", "workspace.json"), "utf8")).id, api.workspace.id, "unregistering must not delete workspace data");
+    assert.deepEqual(JSON.parse(await readFile(registryPath, "utf8")).roots.map((entry) => entry.id), [marker.id]);
+
+    const fallback = await apiRequest(api.origin, "/api/workspace");
+    assert.equal(fallback.response.status, 200);
+    assert.equal(fallback.payload.workspace.id, marker.id);
+  } finally {
+    await closeLocalApi(api.server);
+  }
+});
+
+test("uses the operating system folder chooser and treats cancellation as a no-op", async () => {
+  let invocation;
+  const selected = await chooseWorkspaceDirectory({
+    platform: "darwin",
+    run: async (command, args, options) => {
+      invocation = { command, args, options };
+      return { stdout: "/Users/example/Projects\n" };
+    },
+  });
+  assert.equal(selected, "/Users/example/Projects");
+  assert.equal(invocation.command, "osascript");
+  assert.match(invocation.args.join(" "), /choose folder/i);
+
+  const cancelled = await chooseWorkspaceDirectory({
+    platform: "darwin",
+    run: async () => {
+      const error = new Error("Command failed");
+      error.code = 1;
+      error.stderr = "execution error: User canceled. (-128)";
+      throw error;
+    },
+  });
+  assert.equal(cancelled, null);
+
+  await assert.rejects(
+    chooseWorkspaceDirectory({
+      platform: "linux",
+      run: async () => {
+        const error = new Error("spawn zenity ENOENT");
+        error.code = "ENOENT";
+        throw error;
+      },
+    }),
+    (error) => error.code === "folder_picker_unavailable" && error.status === 501,
+  );
 });
 
 test("writes exact Markdown captures and restores them after a restart", async () => {

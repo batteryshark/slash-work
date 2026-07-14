@@ -57,6 +57,9 @@ items compete in the first project viewport.
 
 - The current zoom level is always named in a breadcrumb.
 - The capture target is stated beside the universal input.
+- The workspace menu opens a native folder picker; it does not require a path
+  to be remembered or typed. Selecting an ordinary folder initializes it as a
+  Work root and switches to it without a service restart.
 - Zooming out never changes the identity of project records.
 - An ambiguous portfolio capture goes to an inbox instead of opening a form.
 - A running workspace never reveals a project, record, or search result outside
@@ -77,6 +80,8 @@ thought go?” without remembering prior navigation.
   separate explicit action, persists in the note metadata, and does not imply
   authorization to execute work.
 - The last harmless interface scope may persist on the device.
+- Removing a non-current root from the recent list requires confirmation and
+  never deletes its directory or `.work/` records.
 - Capture offers an immediate Undo action.
 - Escape clears an unfinished command without saving it.
 - Destructive or irreversible actions are not part of the quick-capture path;
@@ -172,6 +177,9 @@ the tester needs hidden syntax after launch.
    one unrelated unmarked repository beside them. Launch with
    `npm run work -- /path/to/root`.
 2. Confirm both nested projects appear and the unrelated directory does not.
+   Open the workspace menu, choose a separate ordinary folder with no `.work/`
+   directory, and confirm Work initializes and switches to it. Switch back using
+   the recent-root list.
 3. From **All work**, press `/`, type `Do not assign the IDA lab to ReKit
    Factory yet`, and press Enter. Confirm immediately that the exact wording was
    saved to the root inbox as unassigned. Mentioning a project name, including
