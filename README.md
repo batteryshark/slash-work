@@ -202,6 +202,25 @@ work list
 work show W-0001
 ```
 
+A fresh agent can discover the installed version's capabilities from any
+directory without initializing a workspace or starting the service:
+
+```bash
+work agent operations
+work agent instructions tasks.create
+work agent instructions notes.request-review --json
+work agent schema task
+```
+
+The operation index stays small; the agent loads rules and input schemas only
+for the operation it needs. A running service exposes the same catalog at
+`GET /api/agent`, task-scoped guides below `GET /api/agent/operations/`, and
+OpenAPI 3.1 at `GET /api/openapi.json`. Instructions are bundled with the npm
+version rather than copied into `.work/`, and describe capabilities without
+granting authority. See
+[`docs/AGENT-CAPABILITIES.md`](docs/AGENT-CAPABILITIES.md) for the complete
+contract.
+
 See [`docs/LOCAL-WORKSPACE.md`](docs/LOCAL-WORKSPACE.md) for discovery,
 containment, storage, and recovery details.
 Automations that write the filesystem records directly should follow the

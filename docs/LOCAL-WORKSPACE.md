@@ -232,6 +232,13 @@ An agent can capture, inspect, or update records through the local interface,
 but it sees the same selected root and the same durable files as the human. No
 harness-specific hook or telemetry integration is required.
 
+A fresh agent should run `work agent operations` and then
+`work agent instructions <operation>` to load only the relevant rules. These
+commands work without a running server or workspace. The loopback service
+exposes the same versioned catalog under `/api/agent`; see
+[`AGENT-CAPABILITIES.md`](AGENT-CAPABILITIES.md). The catalog lives in the
+installed package, not `.work/`, so instructions stay aligned with upgrades.
+
 The minimal agent instruction is: preserve new information immediately, do not
 invent missing project assignments, and use stable record identifiers when
 updating an existing item.

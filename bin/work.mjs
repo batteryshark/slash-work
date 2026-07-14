@@ -28,6 +28,15 @@ import {
 } from "../lib/workspace-registry.mjs";
 import { closeLocalApi, startLocalApi } from "../server/local-api.mjs";
 import { createServiceUpdater } from "../lib/service-updater.mjs";
+import {
+  getAgentIndex,
+  getAgentOperation,
+  getArtifactSchema,
+  listAgentOperations,
+  renderAgentIndexMarkdown,
+  renderAgentOperationMarkdown,
+  renderAgentOperationsMarkdown,
+} from "../lib/agent-capabilities.mjs";
 
 const APP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -40,6 +49,10 @@ Usage:
   work register [root]                Approve a root for the web workspace picker
   work unregister <id|root>           Remove a root from the web workspace picker
   work roots                          List roots available to the web workspace picker
+  work agent                          Print the agent capability bootstrap
+  work agent operations               List available task-scoped operations
+  work agent instructions <operation> Print instructions for one operation
+  work agent schema <artifact>        Print one artifact's JSON Schema
   work add "thought" [options]        Capture from any workspace descendant
   work idea "title" [options]         Record something worth evaluating
   work ideas                           List ideas and their states
@@ -74,6 +87,8 @@ Options:
   --note <text>       Status-change note
   --api-port <port>   Local API port (default: 4317)
   --ui-port <port>    Local UI port (default: 3000)
+  --format <format>   Agent output format: markdown or json
+  --json              Shortcut for --format json
   --no-ui             Start only the local API
   --no-open           Do not open the local UI in your browser
   --init              Force a new workspace at the selected root
@@ -116,6 +131,7 @@ function parseArguments(argv) {
     ["--note", "note"],
     ["--api-port", "apiPort"],
     ["--ui-port", "uiPort"],
+    ["--format", "format"],
   ]);
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -134,6 +150,10 @@ function parseArguments(argv) {
     }
     if (token === "--init") {
       options.forceInit = true;
+      continue;
+    }
+    if (token === "--json") {
+      options.json = true;
       continue;
     }
     if (token === "--help" || token === "-h") {
@@ -206,6 +226,54 @@ async function runRoots(options, positionals) {
   }
   for (const workspace of workspaces) console.log(`${workspace.id}\t${workspace.name}\t${workspace.root}`);
   console.log(`Registry: ${workspaceRegistryPath()}`);
+}
+
+function agentOutputFormat(options, fallback = "markdown") {
+  const format = options.json ? "json" : options.format ?? fallback;
+  if (!new Set(["markdown", "json"]).has(format)) {
+    throw new WorkspaceError("--format must be markdown or json.");
+  }
+  return format;
+}
+
+async function runAgent(options, positionals) {
+  const [command, value, ...extra] = positionals;
+  if (extra.length > 0) throw new WorkspaceError("agent accepts only a command and one operation or artifact name.");
+
+  if (command == null) {
+    if (value != null) throw new WorkspaceError("Unexpected agent argument.");
+    const format = agentOutputFormat(options);
+    process.stdout.write(format === "json" ? `${JSON.stringify(getAgentIndex(), null, 2)}\n` : renderAgentIndexMarkdown());
+    return;
+  }
+
+  if (command === "operations") {
+    if (value != null) throw new WorkspaceError("agent operations does not accept an operation name.");
+    const format = agentOutputFormat(options);
+    process.stdout.write(format === "json" ? `${JSON.stringify(listAgentOperations(), null, 2)}\n` : renderAgentOperationsMarkdown());
+    return;
+  }
+
+  if (command === "instructions") {
+    if (!value) throw new WorkspaceError("agent instructions requires an operation name. Run `work agent operations` first.");
+    const operation = getAgentOperation(value);
+    if (!operation) throw new WorkspaceError(`Unknown agent operation: ${value}. Run \`work agent operations\` first.`);
+    const format = agentOutputFormat(options);
+    process.stdout.write(format === "json" ? `${JSON.stringify(operation, null, 2)}\n` : renderAgentOperationMarkdown(value));
+    return;
+  }
+
+  if (command === "schema") {
+    if (!value) throw new WorkspaceError("agent schema requires capture, note, idea, decision, or task.");
+    const schema = getArtifactSchema(value);
+    if (!schema) throw new WorkspaceError(`Unknown artifact type: ${value}.`);
+    const format = agentOutputFormat(options, "json");
+    const json = JSON.stringify(schema, null, 2);
+    process.stdout.write(format === "json" ? `${json}\n` : `# ${value} artifact schema\n\n\`\`\`json\n${json}\n\`\`\`\n`);
+    return;
+  }
+
+  throw new WorkspaceError(`Unknown agent command: ${command}. Use operations, instructions, or schema.`);
 }
 
 async function runAdd(options, positionals) {
@@ -469,7 +537,7 @@ async function runServer(options, positionals) {
 
 async function main() {
   const argv = process.argv.slice(2);
-  const knownCommands = new Set(["serve", "init", "register", "unregister", "roots", "add", "idea", "ideas", "decision", "task", "create", "list", "show", "move", "assign", "log"]);
+  const knownCommands = new Set(["serve", "init", "register", "unregister", "roots", "agent", "add", "idea", "ideas", "decision", "task", "create", "list", "show", "move", "assign", "log"]);
   const command = knownCommands.has(argv[0]) ? argv.shift() : "serve";
   const { options, positionals } = parseArguments(argv);
   if (options.help) {
@@ -480,6 +548,7 @@ async function main() {
   if (command === "register") return runRegister(options, positionals);
   if (command === "unregister") return runUnregister(options, positionals);
   if (command === "roots") return runRoots(options, positionals);
+  if (command === "agent") return runAgent(options, positionals);
   if (command === "add") return runAdd(options, positionals);
   if (command === "idea") return runIdea(options, positionals);
   if (command === "ideas") return runIdeas(options, positionals);
