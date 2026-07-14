@@ -176,6 +176,17 @@ type WorkTask = {
   log: Array<{ at: string; message: string }>;
 };
 
+type ScheduledItem = {
+  key: string;
+  id: string;
+  kind: "task" | "idea" | "decision";
+  title: string;
+  projectPath: string | null;
+  scheduledAt: string;
+  allDay: boolean;
+  detail: string;
+};
+
 type AppView = "home" | "board" | "ideas" | "notes" | "files" | "activity";
 type ThemePreference = "system" | "light" | "dark";
 
@@ -307,6 +318,55 @@ function shortTime(iso: string) {
   return sameDay
     ? date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
     : date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function calendarDate(iso: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!match) return new Date(iso);
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function scheduleDate(item: Pick<ScheduledItem, "scheduledAt" | "allDay">) {
+  return item.allDay ? calendarDate(item.scheduledAt) : new Date(item.scheduledAt);
+}
+
+function startOfDay(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function scheduleTone(item: Pick<ScheduledItem, "scheduledAt" | "allDay">) {
+  const date = scheduleDate(item);
+  const now = new Date();
+  if (item.allDay) {
+    const difference = startOfDay(date).getTime() - startOfDay(now).getTime();
+    if (difference < 0) return "overdue";
+    if (difference === 0) return "today";
+    return "upcoming";
+  }
+  if (date.getTime() < now.getTime()) return "overdue";
+  if (startOfDay(date).getTime() === startOfDay(now).getTime()) return "today";
+  return "upcoming";
+}
+
+function scheduleLabel(item: Pick<ScheduledItem, "scheduledAt" | "allDay">, prefix = "") {
+  const date = scheduleDate(item);
+  const difference = Math.round((startOfDay(date).getTime() - startOfDay(new Date()).getTime()) / 86_400_000);
+  const tone = scheduleTone(item);
+  const day = difference === 0
+    ? "Today"
+    : difference === 1
+      ? "Tomorrow"
+      : date.toLocaleDateString([], { month: "short", day: "numeric", ...(date.getFullYear() !== new Date().getFullYear() ? { year: "numeric" } : {}) });
+  const label = tone === "overdue" ? `Overdue · ${day}` : day;
+  if (!prefix || tone === "overdue") return label;
+  return `${prefix} ${difference === 0 || difference === 1 ? day.toLowerCase() : day}`;
+}
+
+function scheduleDateDetail(item: Pick<ScheduledItem, "scheduledAt" | "allDay">) {
+  const date = scheduleDate(item);
+  return item.allDay
+    ? date.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })
+    : date.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 function deferUntil(preset: DecisionDraft["deferFor"]) {
@@ -777,6 +837,53 @@ export default function Home() {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [data, scopePath]);
   const visibleDecisions = activeDecisions.slice(0, 3);
+
+  const scheduledItems = useMemo(() => {
+    const tasks: ScheduledItem[] = scopedTasks
+      .filter((task) => task.dueAt && !["done", "cancelled", "archived"].includes(task.status))
+      .map((task) => ({
+        key: `task:${task.id}`,
+        id: task.id,
+        kind: "task",
+        title: task.title,
+        projectPath: task.projectPath,
+        scheduledAt: task.dueAt as string,
+        allDay: true,
+        detail: `${task.id} · ${statusLabel(task.status)}`,
+      }));
+    const ideas: ScheduledItem[] = scopedIdeas
+      .filter((idea) => idea.revisitAt && !["adopted", "declined"].includes(idea.status))
+      .map((idea) => ({
+        key: `idea:${idea.id}`,
+        id: idea.id,
+        kind: "idea",
+        title: idea.title,
+        projectPath: idea.projectPath,
+        scheduledAt: idea.revisitAt as string,
+        allDay: true,
+        detail: idea.status === "deferred" ? "Idea · Not now" : `Idea · ${displaySegment(idea.status)}`,
+      }));
+    const decisions: ScheduledItem[] = (data?.decisions ?? [])
+      .filter((decision) => decision.status === "deferred")
+      .filter((decision) => scopePath === "." || pathContains(decision.projectPath, scopePath))
+      .flatMap((decision) => {
+        const until = decision.resolution?.choice?.until;
+        if (typeof until !== "string" || Number.isNaN(new Date(until).valueOf()) || new Date(until).getTime() <= Date.now()) return [];
+        return [{
+          key: `decision:${decision.id}`,
+          id: decision.id,
+          kind: "decision" as const,
+          title: decision.title,
+          projectPath: decision.projectPath,
+          scheduledAt: until,
+          allDay: false,
+          detail: "Decision returns",
+        }];
+      });
+    return [...tasks, ...ideas, ...decisions]
+      .filter((item) => !Number.isNaN(scheduleDate(item).valueOf()))
+      .sort((left, right) => scheduleDate(left).getTime() - scheduleDate(right).getTime());
+  }, [data?.decisions, scopedIdeas, scopedTasks, scopePath]);
 
   const filteredProjectMenu = useMemo(() => {
     const query = projectSearch.trim().toLowerCase();
@@ -1714,6 +1821,13 @@ export default function Home() {
             </div>
           )}
         </section>
+
+        <UpcomingSchedule
+          items={scheduledItems}
+          projects={data.projects}
+          onOpenTask={(taskId) => { setView("board"); setSelectedTaskId(taskId); }}
+          onOpenIdea={(ideaId) => { setView("ideas"); setSelectedIdeaId(ideaId); }}
+        />
 
         <div className="home-support-grid">
         <section id="needs-you" className="attention-section" aria-labelledby="needs-you-heading">
@@ -2908,6 +3022,59 @@ function checklistProgress(task: WorkTask) {
   return { complete, total: items.length };
 }
 
+function UpcomingSchedule({ items, projects, onOpenTask, onOpenIdea }: {
+  items: ScheduledItem[];
+  projects: Project[];
+  onOpenTask: (id: string) => void;
+  onOpenIdea: (id: string) => void;
+}) {
+  return (
+    <section id="upcoming" className="upcoming-section" aria-labelledby="upcoming-heading">
+      <div className="section-heading compact">
+        <div><p className="eyebrow">Dates across this scope</p><h2 id="upcoming-heading">Upcoming</h2></div>
+        <span className="count-badge" aria-label={`${items.length} scheduled items`}>{items.length}</span>
+      </div>
+      {items.length === 0 ? (
+        <div className="upcoming-empty"><strong>Nothing scheduled here.</strong><span>Due dates and revisit dates will appear automatically.</span></div>
+      ) : (
+        <ol className="upcoming-list" aria-label="Upcoming scheduled dates">
+          {items.map((item) => {
+            const tone = scheduleTone(item);
+            const project = projects.find((candidate) => candidate.path === item.projectPath);
+            const content = (
+              <>
+                <time className={`upcoming-date ${tone}`} dateTime={item.scheduledAt}>
+                  <strong>{scheduleLabel(item)}</strong>
+                  <span>{scheduleDateDetail(item)}</span>
+                </time>
+                <span className="upcoming-copy">
+                  <small><i>{item.kind}</i>{project?.name ?? item.projectPath ?? "Unassigned"}</small>
+                  <strong>{item.title}</strong>
+                  <span>{item.detail}</span>
+                </span>
+                {item.kind !== "decision" && <span className="upcoming-open" aria-hidden="true">→</span>}
+              </>
+            );
+            if (item.kind === "decision") return <li key={item.key}><article className="upcoming-item">{content}</article></li>;
+            return (
+              <li key={item.key}>
+                <button
+                  type="button"
+                  className="upcoming-item"
+                  onClick={() => item.kind === "task" ? onOpenTask(item.id) : onOpenIdea(item.id)}
+                  aria-label={`Open ${item.kind}: ${item.title}`}
+                >
+                  {content}
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </section>
+  );
+}
+
 function KanbanBoard({
   scopeLabel,
   tasks,
@@ -3004,6 +3171,7 @@ function KanbanBoard({
                           ? `${task.dependsOn.length} dependencies · ${task.blockedBy.length} blockers`
                           : null,
                         task.blockedReason ? `Blocked: ${task.blockedReason}` : null,
+                        task.dueAt ? scheduleLabel({ scheduledAt: task.dueAt, allDay: true }, "Due") : null,
                         "Select for full details.",
                       ].filter(Boolean).join("\n");
                       return (
@@ -3021,6 +3189,11 @@ function KanbanBoard({
                           <span className="card-topline"><strong>{task.id}</strong><span>{task.type}</span><span>{task.priority}</span></span>
                           <span className="card-title">{task.title}</span>
                           <span className="card-project">{projectName}</span>
+                          {task.dueAt && (
+                            <time className={`card-due ${scheduleTone({ scheduledAt: task.dueAt, allDay: true })}`} dateTime={task.dueAt}>
+                              <span aria-hidden="true">◷</span>{scheduleLabel({ scheduledAt: task.dueAt, allDay: true }, "Due")}
+                            </time>
+                          )}
                           {owners && <span className="card-owners">{owners}</span>}
                           {task.tags.length > 0 && <span className="card-tags">{task.tags.slice(0, 4).map((tag) => <i key={tag}>{tag}</i>)}</span>}
                           {(task.dependsOn.length > 0 || task.blockedBy.length > 0) && <span className="card-links">{task.dependsOn.length} dependencies · {task.blockedBy.length} blockers</span>}

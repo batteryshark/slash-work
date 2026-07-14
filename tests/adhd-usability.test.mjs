@@ -277,3 +277,22 @@ test("ships a scoped Kanban, complete cards, lifecycle history, and retained ter
   assert.match(store, /appendProgress/);
   assert.match(store, /unfinished dependencies/);
 });
+
+test("surfaces due dates on cards and keeps a scoped, scrollable upcoming schedule", async () => {
+  const [page, css] = await Promise.all([
+    readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+
+  assert.match(page, /function UpcomingSchedule/);
+  assert.match(page, /Dates across this scope/);
+  assert.match(page, /Due dates and revisit dates will appear automatically/);
+  assert.match(page, /task\.dueAt && !\["done", "cancelled", "archived"\]\.includes\(task\.status\)/);
+  assert.match(page, /idea\.revisitAt && !\["adopted", "declined"\]\.includes\(idea\.status\)/);
+  assert.match(page, /decision\.status === "deferred"/);
+  assert.match(page, /className=\{`card-due/);
+  assert.match(page, /scheduleTone/);
+  assert.match(page, /Overdue/);
+  assert.match(css, /\.upcoming-list\s*\{[^}]*max-height:\s*250px[^}]*overflow-y:\s*auto/s);
+  assert.match(css, /\.card-due\.overdue/);
+});
