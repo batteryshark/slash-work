@@ -34,6 +34,13 @@ import {
 import { listFiles, readFilePreview } from "../lib/file-browser.mjs";
 import { chooseWorkspaceDirectory } from "../lib/native-folder-picker.mjs";
 import { registerWorkspace, unregisterWorkspace } from "../lib/workspace-registry.mjs";
+import {
+  getAgentIndex,
+  getAgentOpenApi,
+  getAgentOperation,
+  getArtifactSchema,
+  listAgentOperations,
+} from "../lib/agent-capabilities.mjs";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const DEFAULT_PORT = 4317;
@@ -190,6 +197,37 @@ async function handleRequest(workspaces, service, request, response) {
       activeWorkspaceId: defaultWorkspace.id,
       workspaces: [...workspaces.values()].map(publicWorkspace),
     });
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/api/agent") {
+    sendJson(request, response, 200, getAgentIndex({ serviceVersion: service.version }));
+    return;
+  }
+  if (method === "GET" && url.pathname === "/api/agent/operations") {
+    sendJson(request, response, 200, listAgentOperations({ serviceVersion: service.version }));
+    return;
+  }
+  const agentOperationId = routeId(url.pathname, "agent/operations");
+  if (method === "GET" && agentOperationId) {
+    const operation = getAgentOperation(agentOperationId, { serviceVersion: service.version });
+    if (!operation) throw new WorkspaceError("Agent operation not found.", { code: "not_found", status: 404 });
+    sendJson(request, response, 200, operation);
+    return;
+  }
+  if (method === "GET" && url.pathname === "/api/agent/schemas/artifacts") {
+    sendJson(request, response, 200, getArtifactSchema());
+    return;
+  }
+  const artifactSchemaType = routeId(url.pathname, "agent/schemas/artifacts");
+  if (method === "GET" && artifactSchemaType) {
+    const schema = getArtifactSchema(artifactSchemaType);
+    if (!schema) throw new WorkspaceError("Artifact schema not found.", { code: "not_found", status: 404 });
+    sendJson(request, response, 200, schema);
+    return;
+  }
+  if (method === "GET" && url.pathname === "/api/openapi.json") {
+    sendJson(request, response, 200, getAgentOpenApi({ serviceVersion: service.version }));
     return;
   }
 
