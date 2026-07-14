@@ -31,10 +31,11 @@ test("builds a local root-scoped interface instead of a hosted demo", async () =
 });
 
 test("makes captures immediate, durable, and visibly undoable", async () => {
-  const [page, css, standard] = await Promise.all([
+  const [page, css, standard, server] = await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("app/globals.css", root), "utf8"),
     readFile(new URL("docs/ADHD-USABILITY-STANDARD.md", root), "utf8"),
+    readFile(new URL("server/local-api.mjs", root), "utf8"),
   ]);
 
   assert.match(page, /event\.key === "\/"/);
@@ -62,7 +63,14 @@ test("makes captures immediate, durable, and visibly undoable", async () => {
   assert.match(page, /Confirm restart/);
   assert.match(page, /\/api\/service\/restart/);
   assert.match(page, /"x-work-restart": "confirm"/);
-  assert.match(page, /health\.service\.instanceId !== accepted\.serviceInstanceId/);
+  assert.match(page, /health\.service\.instanceId !== serviceInstanceId/);
+  assert.match(page, /Install & restart/);
+  assert.match(page, /Check now/);
+  assert.match(page, /6 \* 60 \* 60 \* 1000/);
+  assert.match(page, /"x-work-update": "confirm"/);
+  assert.match(page, /update-available-dot/);
+  assert.match(server, /\/api\/service\/update/);
+  assert.match(server, /update_confirmation_required/);
   assert.match(page, /Project pulse/);
   assert.match(page, /Current work/);
   assert.match(page, /Latest progress/);

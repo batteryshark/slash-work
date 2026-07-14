@@ -240,7 +240,21 @@ type ServiceRestartReceipt = {
 
 type ServiceHealth = {
   ok: boolean;
-  service?: { instanceId?: string; restartable?: boolean };
+  service?: { instanceId?: string; restartable?: boolean; version?: string; updatePending?: boolean };
+};
+
+type ServiceUpdateStatus = {
+  currentVersion: string;
+  latestVersion: string;
+  updateAvailable: boolean;
+  installable: boolean;
+  checkedAt: string;
+};
+
+type ServiceUpdateReceipt = {
+  updating: true;
+  installedVersion: string;
+  serviceInstanceId: string;
 };
 
 const emptyDraft: DecisionDraft = {
@@ -367,6 +381,11 @@ export default function Home() {
   const [restartArmed, setRestartArmed] = useState(false);
   const [restartingService, setRestartingService] = useState(false);
   const [serviceRestartError, setServiceRestartError] = useState<string | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<ServiceUpdateStatus | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
+  const [updateArmed, setUpdateArmed] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const [projectSearch, setProjectSearch] = useState("");
   const [expandedDecision, setExpandedDecision] = useState<string | null>(null);
   const [decisionDrafts, setDecisionDrafts] = useState<Record<string, DecisionDraft>>({});
@@ -414,6 +433,22 @@ export default function Home() {
       if (!quiet) {
         setLoadError(error instanceof Error ? error.message : "The local workspace is not available.");
       }
+    }
+  }, []);
+
+  const checkForUpdates = useCallback(async (quiet = false, force = false) => {
+    if (!quiet) setCheckingUpdate(true);
+    try {
+      const status = await requestJson<ServiceUpdateStatus>(`/api/service/update${force ? "?force=1" : ""}`, {
+        headers: { accept: "application/json" },
+      });
+      setUpdateStatus(status);
+      setUpdateError(null);
+      if (!status.updateAvailable) setUpdateArmed(false);
+    } catch (error) {
+      if (!quiet) setUpdateError(error instanceof Error ? error.message : "Work could not check npm for updates.");
+    } finally {
+      if (!quiet) setCheckingUpdate(false);
     }
   }, []);
 
@@ -483,6 +518,27 @@ export default function Home() {
     }
   }
 
+  async function waitForServiceRestart(serviceInstanceId: string) {
+    const deadline = Date.now() + 20_000;
+    await wait(400);
+    while (Date.now() < deadline) {
+      try {
+        const response = await fetch("/api/health", {
+          cache: "no-store",
+          headers: { accept: "application/json" },
+        });
+        if (response.ok) {
+          const health = await response.json() as ServiceHealth;
+          if (health.service?.instanceId && health.service.instanceId !== serviceInstanceId) return;
+        }
+      } catch {
+        // A brief connection failure is expected while the service is replaced.
+      }
+      await wait(500);
+    }
+    throw new Error("Work did not come back within 20 seconds.");
+  }
+
   async function restartLocalService() {
     if (restartingService) return;
     setRestartingService(true);
@@ -493,28 +549,7 @@ export default function Home() {
         headers: { "x-work-restart": "confirm" },
         body: JSON.stringify({ confirm: true }),
       });
-      const deadline = Date.now() + 20_000;
-      let reconnected = false;
-      await wait(400);
-      while (Date.now() < deadline) {
-        try {
-          const response = await fetch("/api/health", {
-            cache: "no-store",
-            headers: { accept: "application/json" },
-          });
-          if (response.ok) {
-            const health = await response.json() as ServiceHealth;
-            if (health.service?.instanceId && health.service.instanceId !== accepted.serviceInstanceId) {
-              reconnected = true;
-              break;
-            }
-          }
-        } catch {
-          // The brief connection failure is the expected middle of a restart.
-        }
-        await wait(500);
-      }
-      if (!reconnected) throw new Error("Work did not come back within 20 seconds.");
+      await waitForServiceRestart(accepted.serviceInstanceId);
       await loadWorkspace();
       setRestartArmed(false);
       setWorkspaceMenuOpen(false);
@@ -522,6 +557,24 @@ export default function Home() {
       setServiceRestartError(error instanceof Error ? error.message : "Work could not restart.");
     } finally {
       setRestartingService(false);
+    }
+  }
+
+  async function installServiceUpdate() {
+    if (installingUpdate || !updateStatus?.updateAvailable || !updateStatus.installable) return;
+    setInstallingUpdate(true);
+    setUpdateError(null);
+    try {
+      const accepted = await requestJson<ServiceUpdateReceipt>("/api/service/update", {
+        method: "POST",
+        headers: { "x-work-update": "confirm" },
+        body: JSON.stringify({ confirm: true }),
+      });
+      await waitForServiceRestart(accepted.serviceInstanceId);
+      window.location.reload();
+    } catch (error) {
+      setUpdateError(error instanceof Error ? error.message : "The Work update could not be installed.");
+      setInstallingUpdate(false);
     }
   }
 
@@ -535,6 +588,20 @@ export default function Home() {
       window.removeEventListener("focus", onFocus);
     };
   }, [loadWorkspace]);
+
+  useEffect(() => {
+    const check = () => {
+      if (navigator.onLine) void checkForUpdates(true);
+    };
+    const initial = window.setTimeout(check, 1_500);
+    const interval = window.setInterval(check, 6 * 60 * 60 * 1000);
+    window.addEventListener("online", check);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(interval);
+      window.removeEventListener("online", check);
+    };
+  }, [checkForUpdates]);
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
@@ -1283,6 +1350,7 @@ export default function Home() {
             title={`${data.workspace.name} · Switch workspace root`}
           >
             <span>{data.workspace.name}</span>
+            {updateStatus?.updateAvailable && <span className="update-available-dot" aria-label={`Work ${updateStatus.latestVersion} is available`} title={`Work ${updateStatus.latestVersion} is available`} />}
             <span aria-hidden="true">⌄</span>
           </button>
         </div>
@@ -1456,6 +1524,30 @@ export default function Home() {
                 </div>
               )}
               {serviceRestartError && <small className="service-restart-error" role="alert">{serviceRestartError}</small>}
+            </section>
+            <section className="update-control" aria-label="Work updates">
+              <div>
+                <strong>Updates {updateStatus?.updateAvailable && <span className="update-badge">Available</span>}</strong>
+                <small>{updateStatus
+                  ? updateStatus.updateAvailable
+                    ? `Version ${updateStatus.currentVersion} · ${updateStatus.latestVersion} is available${updateStatus.installable ? "" : " · Source checkout"}`
+                    : `Version ${updateStatus.currentVersion} · Up to date`
+                  : "Checks npm quietly every six hours while Work is open."}</small>
+              </div>
+              <div className="update-actions">
+                <button type="button" onClick={() => void checkForUpdates(false, true)} disabled={checkingUpdate || installingUpdate}>{checkingUpdate ? "Checking…" : "Check now"}</button>
+                {updateStatus?.updateAvailable && updateStatus.installable && !updateArmed && (
+                  <button type="button" className="update-install" onClick={() => setUpdateArmed(true)} disabled={installingUpdate}>Install & restart</button>
+                )}
+                {updateStatus?.updateAvailable && updateStatus.installable && updateArmed && (
+                  <div className="update-confirm">
+                    <button type="button" onClick={() => setUpdateArmed(false)} disabled={installingUpdate}>Cancel</button>
+                    <button type="button" className="primary-action" onClick={() => void installServiceUpdate()} disabled={installingUpdate}>{installingUpdate ? "Installing…" : `Install ${updateStatus.latestVersion}`}</button>
+                  </div>
+                )}
+              </div>
+              {updateStatus?.updateAvailable && !updateStatus.installable && <small className="update-source-note">This copy is running from source; update its Git checkout instead.</small>}
+              {updateError && <small className="update-error" role="alert">{updateError}</small>}
             </section>
           </div>
         )}

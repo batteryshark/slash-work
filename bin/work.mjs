@@ -27,6 +27,7 @@ import {
   workspaceRegistryPath,
 } from "../lib/workspace-registry.mjs";
 import { closeLocalApi, startLocalApi } from "../server/local-api.mjs";
+import { createServiceUpdater } from "../lib/service-updater.mjs";
 
 const APP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -381,12 +382,16 @@ async function runServer(options, positionals) {
   const root = activeWorkspace.root;
   const apiPort = parsePort(options.apiPort, 4317, "--api-port");
   const uiPort = parsePort(options.uiPort, 3000, "--ui-port");
+  const updater = await createServiceUpdater({ packageRoot: APP_ROOT });
   const localApi = await startLocalApi({
     root,
     roots: registered.map((workspace) => workspace.root),
     defaultWorkspaceId: activeWorkspace.id,
     port: apiPort,
     onRestart: restartService,
+    version: updater.currentVersion,
+    checkForUpdate: updater.checkForUpdate,
+    onUpdate: updater.installUpdate,
   });
   console.log(`[work] Workspace: ${localApi.workspace.root}`);
   console.log(`[work] Roots available: ${localApi.workspaces.length}`);
