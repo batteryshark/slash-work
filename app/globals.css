@@ -919,10 +919,15 @@ kbd { display: inline-grid; place-items: center; min-width: 23px; height: 23px; 
 .ai-settings-panel > header > button, .ai-proposal-panel > header > button { flex: 0 0 44px; width: 44px; height: 44px; border: 0; border-radius: 11px; background: var(--surface-muted); cursor: pointer; font-size: 23px; }
 .ai-settings-form { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 20px; }
 .ai-settings-form label:not(.ai-clear-key) { display: grid; gap: 7px; color: var(--muted); font-size: 11px; font-weight: 720; }
-.ai-settings-form label:nth-child(2), .ai-settings-form label:nth-child(4), .ai-secret-note, .ai-clear-key { grid-column: 1 / -1; }
+.ai-settings-form label:nth-child(2), .ai-settings-form label:nth-child(4), .ai-secret-note, .ai-clear-key, .ai-self-signed { grid-column: 1 / -1; }
 .ai-settings-form input, .ai-settings-form select { width: 100%; min-height: 48px; padding: 0 13px; border: 1px solid var(--line); border-radius: 11px; background: var(--canvas); color: var(--ink); }
 .ai-clear-key { display: flex; align-items: center; gap: 9px; color: var(--danger); font-size: 12px; }
 .ai-clear-key input { width: 18px; min-height: 18px; accent-color: var(--danger); }
+.ai-self-signed { display: grid; grid-template-columns: 20px 1fr; gap: 10px; align-items: start; padding: 12px 13px; border: 1px solid #e7c77f; border-radius: 10px; background: #fff8e8; color: var(--ink); }
+.ai-self-signed input { width: 18px; min-height: 18px; margin-top: 2px; accent-color: #9a6b00; }
+.ai-self-signed span { display: grid; gap: 3px; }
+.ai-self-signed strong { font-size: 12px; }
+.ai-self-signed small { color: var(--muted); font-size: 11px; font-weight: 500; line-height: 1.4; }
 .ai-secret-note, .ai-context-note { margin: 0; padding: 12px 13px; border-radius: 10px; background: var(--accent-softer); color: var(--muted); font-size: 12px; line-height: 1.5; }
 .ai-settings-panel > footer, .ai-proposal-panel > footer { display: flex; align-items: center; justify-content: flex-end; gap: 9px; margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
 .ai-settings-panel > footer button, .ai-proposal-panel > footer button { width: auto; }
@@ -1018,6 +1023,7 @@ html[data-theme="dark"] .ai-settings-form select,
 html[data-theme="dark"] .ai-proposal-fields > article > label,
 html[data-theme="dark"] .ai-questions { background: #191b21; }
 html[data-theme="dark"] .ai-proposal-fields > article.selected { border-color: #665ca0; }
+html[data-theme="dark"] .ai-self-signed { border-color: #705a28; background: #322a19; }
 
 @media (min-width: 1121px) and (max-width: 1360px) {
   .topbar { grid-template-columns: auto minmax(0, 1fr) auto auto auto; gap: 16px; padding-inline: 22px; }
@@ -1098,7 +1104,7 @@ html[data-theme="dark"] .ai-proposal-fields > article.selected { border-color: #
   .ai-panel-backdrop { align-items: end; padding: 0; }
   .ai-settings-panel, .ai-proposal-panel { width: 100%; max-height: calc(100vh - 20px); padding: 20px 16px; border-radius: 20px 20px 0 0; }
   .ai-settings-form { grid-template-columns: 1fr; }
-  .ai-settings-form label:nth-child(2), .ai-settings-form label:nth-child(4), .ai-secret-note, .ai-clear-key { grid-column: auto; }
+  .ai-settings-form label:nth-child(2), .ai-settings-form label:nth-child(4), .ai-secret-note, .ai-clear-key, .ai-self-signed { grid-column: auto; }
   .ai-proposal-fields > article > div { grid-template-columns: 1fr; }
   .ai-proposal-fields section + section { border-top: 1px solid var(--line); border-left: 0; }
   .ai-settings-panel > footer, .ai-proposal-panel > footer { align-items: stretch; flex-direction: column; }
