@@ -183,7 +183,10 @@ Do not commit `.work/` if the workspace contains private operational notes.
   Magic-wand actions can draft or review a task and expand or evaluate an idea.
   Work sends bounded context from the current project, shows a field-by-field
   proposal, and saves only the fields you explicitly select. It never lets the
-  model change lifecycle state or silently mutate a record.
+  model change lifecycle state or silently mutate a record. Self-hosted AI
+  endpoints may explicitly allow a self-signed HTTPS certificate; certificate
+  verification remains enabled by default and is disabled only for that
+  configured endpoint.
 - Open **Files** for a read-only, scope-bound tree and text preview. Language
   badges and Git markers make modified, added, and untracked files easy to
   spot. A project with linked worktrees gets an explicit checkout selector so

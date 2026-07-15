@@ -123,6 +123,7 @@ test("keeps provider credentials server-side and applies only confirmed proposal
     assert.equal(proposed.payload.fields.some((field) => field.field === "status"), false);
     const providerCall = calls.at(-1);
     assert.equal(providerCall.options.headers.authorization, "Bearer secret-key");
+    assert.equal(providerCall.options.dispatcher, undefined);
     assert.match(providerCall.request.messages.at(-1).content, /local-first project manager/);
     assert.match(providerCall.request.messages.at(-1).content, /Document the release/);
     assert.match(providerCall.request.messages.at(-1).content, /Choose context limits/);
@@ -202,7 +203,7 @@ test("speaks the Anthropic messages protocol when selected", async () => {
     await apiRequest(api.origin, "/api/ai/settings", {
       method: "PATCH",
       headers: { "x-work-ai-settings": "confirm" },
-      body: { provider: "anthropic-compatible", baseUrl: "https://api.minimax.io/anthropic", model: "MiniMax-M3", apiKey: "anthropic-secret" },
+      body: { provider: "anthropic-compatible", baseUrl: "https://api.minimax.io/anthropic", model: "MiniMax-M3", apiKey: "anthropic-secret", allowSelfSigned: true },
     });
     const idea = await apiRequest(api.origin, "/api/ideas", { method: "POST", body: { title: "Explore this", projectPath: "product" } });
     const proposal = await apiRequest(api.origin, "/api/ai/proposals", {
@@ -214,6 +215,7 @@ test("speaks the Anthropic messages protocol when selected", async () => {
     assert.equal(request.url, "https://api.minimax.io/anthropic/v1/messages");
     assert.equal(request.options.headers["x-api-key"], "anthropic-secret");
     assert.equal(request.options.headers["anthropic-version"], "2023-06-01");
+    assert.ok(request.options.dispatcher, "self-signed HTTPS opt-in should use a scoped dispatcher");
     assert.equal(typeof request.body.system, "string");
     assert.deepEqual(request.body.messages.map((message) => message.role), ["user"]);
   } finally {

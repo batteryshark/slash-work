@@ -291,6 +291,12 @@ model request. `WORK_AI_API_KEY` takes precedence for a headless service. API
 responses expose only configuration status, credential source, and the key's
 final four characters.
 
+Certificate verification is enabled by default. A self-hosted endpoint may opt
+into `allowSelfSigned` from AI settings. Work then uses a dedicated TLS
+dispatcher with certificate verification disabled only for that endpoint's AI
+requests. It never changes Node's global TLS settings and never retries a
+failed verified request by silently downgrading verification.
+
 When a service first reads the legacy version 1 settings written by Work
 0.2.9, it moves the plaintext key into the native credential store and
 atomically rewrites the JSON as version 2 without the key. If the credential

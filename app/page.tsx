@@ -277,6 +277,7 @@ type AiSettings = {
   provider: "openai-compatible" | "anthropic-compatible";
   baseUrl: string;
   model: string;
+  allowSelfSigned: boolean;
   hasApiKey: boolean;
   apiKeyHint: string | null;
   credentialSource: "system" | "environment" | "none";
@@ -574,7 +575,7 @@ export default function Home() {
     }
   }
 
-  async function saveAiSettings(input: { provider: AiSettings["provider"]; baseUrl: string; model: string; apiKey?: string; clearApiKey?: boolean }) {
+  async function saveAiSettings(input: { provider: AiSettings["provider"]; baseUrl: string; model: string; allowSelfSigned: boolean; apiKey?: string; clearApiKey?: boolean }) {
     setAiBusy(true);
     setAiError(null);
     try {
@@ -3439,12 +3440,13 @@ function AiSettingsPanel({ settings, busy, error, onClose, onSave, onTest }: {
   busy: boolean;
   error: string | null;
   onClose: () => void;
-  onSave: (input: { provider: AiSettings["provider"]; baseUrl: string; model: string; apiKey?: string; clearApiKey?: boolean }) => Promise<AiSettings>;
+  onSave: (input: { provider: AiSettings["provider"]; baseUrl: string; model: string; allowSelfSigned: boolean; apiKey?: string; clearApiKey?: boolean }) => Promise<AiSettings>;
   onTest: () => Promise<boolean>;
 }) {
   const [provider, setProvider] = useState<AiSettings["provider"]>(settings?.provider ?? "openai-compatible");
   const [baseUrl, setBaseUrl] = useState(settings?.baseUrl ?? "https://api.openai.com/v1");
   const [model, setModel] = useState(settings?.model ?? "");
+  const [allowSelfSigned, setAllowSelfSigned] = useState(settings?.allowSelfSigned ?? false);
   const [apiKey, setApiKey] = useState("");
   const [clearApiKey, setClearApiKey] = useState(false);
   const [receipt, setReceipt] = useState<string | null>(null);
@@ -3454,11 +3456,12 @@ function AiSettingsPanel({ settings, busy, error, onClose, onSave, onTest }: {
     setProvider(settings.provider);
     setBaseUrl(settings.baseUrl);
     setModel(settings.model);
-  }, [settings?.provider, settings?.baseUrl, settings?.model]);
+    setAllowSelfSigned(settings.allowSelfSigned);
+  }, [settings?.provider, settings?.baseUrl, settings?.model, settings?.allowSelfSigned]);
 
   async function save(testAfter = false) {
     setReceipt(null);
-    await onSave({ provider, baseUrl, model, apiKey: apiKey || undefined, clearApiKey });
+    await onSave({ provider, baseUrl, model, allowSelfSigned, apiKey: apiKey || undefined, clearApiKey });
     setApiKey("");
     setClearApiKey(false);
     if (testAfter) {
@@ -3482,6 +3485,7 @@ function AiSettingsPanel({ settings, busy, error, onClose, onSave, onTest }: {
           <label><span>Base URL</span><input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1" autoFocus /></label>
           <label><span>Model</span><input value={model} onChange={(event) => setModel(event.target.value)} placeholder="gpt-5-mini" /></label>
           <label><span>API key</span><input type="password" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setClearApiKey(false); }} placeholder={settings?.apiKeyHint ? `${settings.credentialSource === "environment" ? "Environment" : "Keychain"} ${settings.apiKeyHint} · leave blank to keep` : "Required"} autoComplete="off" /></label>
+          <label className="ai-self-signed"><input type="checkbox" checked={allowSelfSigned} onChange={(event) => setAllowSelfSigned(event.target.checked)} /><span><strong>Allow a self-signed HTTPS certificate</strong><small>Disables certificate verification only for requests to this AI endpoint. Use only for a server you control.</small></span></label>
           {settings?.credentialSource === "system" && <label className="ai-clear-key"><input type="checkbox" checked={clearApiKey} onChange={(event) => { setClearApiKey(event.target.checked); if (event.target.checked) setApiKey(""); }} /><span>Remove the saved API key from the system credential store</span></label>}
           <p className="ai-secret-note">The key is stored in this machine's native credential store—not in JSON, Markdown, or browser storage. Headless services can provide WORK_AI_API_KEY instead.</p>
         </div>
