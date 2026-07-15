@@ -279,6 +279,7 @@ type AiSettings = {
   model: string;
   hasApiKey: boolean;
   apiKeyHint: string | null;
+  credentialSource: "system" | "environment" | "none";
 };
 
 type AiProposalField = {
@@ -3480,9 +3481,9 @@ function AiSettingsPanel({ settings, busy, error, onClose, onSave, onTest }: {
           }}><option value="openai-compatible">OpenAI-compatible</option><option value="anthropic-compatible">Anthropic-compatible</option></select></label>
           <label><span>Base URL</span><input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1" autoFocus /></label>
           <label><span>Model</span><input value={model} onChange={(event) => setModel(event.target.value)} placeholder="gpt-5-mini" /></label>
-          <label><span>API key</span><input type="password" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setClearApiKey(false); }} placeholder={settings?.apiKeyHint ? `Saved ${settings.apiKeyHint} · leave blank to keep` : "Required"} autoComplete="off" /></label>
-          {settings?.hasApiKey && <label className="ai-clear-key"><input type="checkbox" checked={clearApiKey} onChange={(event) => { setClearApiKey(event.target.checked); if (event.target.checked) setApiKey(""); }} /><span>Remove the saved API key</span></label>}
-          <p className="ai-secret-note">The key is stored by the local service outside every workspace with owner-only file permissions. It is never returned to the browser or written into Markdown.</p>
+          <label><span>API key</span><input type="password" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setClearApiKey(false); }} placeholder={settings?.apiKeyHint ? `${settings.credentialSource === "environment" ? "Environment" : "Keychain"} ${settings.apiKeyHint} · leave blank to keep` : "Required"} autoComplete="off" /></label>
+          {settings?.credentialSource === "system" && <label className="ai-clear-key"><input type="checkbox" checked={clearApiKey} onChange={(event) => { setClearApiKey(event.target.checked); if (event.target.checked) setApiKey(""); }} /><span>Remove the saved API key from the system credential store</span></label>}
+          <p className="ai-secret-note">The key is stored in this machine's native credential store—not in JSON, Markdown, or browser storage. Headless services can provide WORK_AI_API_KEY instead.</p>
         </div>
         {error && <p className="task-error" role="alert">{error}</p>}
         {receipt && <p className="ai-receipt" role="status">{receipt}</p>}
