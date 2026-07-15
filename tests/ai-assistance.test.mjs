@@ -36,8 +36,19 @@ function modelEnvelope(content) {
   });
 }
 
+function memoryCredentialStore(initial = null) {
+  let value = initial;
+  return {
+    async get() { return value; },
+    async set(next) { value = next; },
+    async delete() { value = null; return true; },
+    peek() { return value; },
+  };
+}
+
 test("keeps provider credentials server-side and applies only confirmed proposal fields", async () => {
   const { root, configPath } = await fixture();
+  const aiCredentialStore = memoryCredentialStore();
   const calls = [];
   const aiFetch = async (url, options) => {
     calls.push({ url, options, request: JSON.parse(options.body) });
@@ -55,7 +66,7 @@ test("keeps provider credentials server-side and applies only confirmed proposal
       },
     });
   };
-  const api = await startLocalApi({ root, port: 0, aiConfigFile: configPath, aiFetch });
+  const api = await startLocalApi({ root, port: 0, aiConfigFile: configPath, aiFetch, aiCredentialStore });
 
   try {
     const rejectedSettings = await apiRequest(api.origin, "/api/ai/settings", {
@@ -72,7 +83,11 @@ test("keeps provider credentials server-side and applies only confirmed proposal
     assert.equal(settings.response.status, 200);
     assert.equal(settings.payload.configured, true);
     assert.equal("apiKey" in settings.payload, false);
-    assert.equal(JSON.parse(await readFile(configPath, "utf8")).apiKey, "secret-key");
+    const storedSettings = JSON.parse(await readFile(configPath, "utf8"));
+    assert.equal(storedSettings.version, 2);
+    assert.equal(storedSettings.credentialStorage, "system");
+    assert.equal("apiKey" in storedSettings, false);
+    assert.equal(aiCredentialStore.peek(), "secret-key");
     assert.equal((await stat(configPath)).mode & 0o777, 0o600);
 
     const connection = await apiRequest(api.origin, "/api/ai/settings/test", { method: "POST", body: {} });
@@ -143,10 +158,11 @@ test("keeps provider credentials server-side and applies only confirmed proposal
 test("reports malformed provider output and bounded request timeouts", async () => {
   for (const scenario of ["malformed", "timeout"]) {
     const { root, configPath } = await fixture();
+    const aiCredentialStore = memoryCredentialStore();
     const aiFetch = scenario === "malformed"
       ? async () => new Response(JSON.stringify({ choices: [{ message: { content: "not-json" } }] }), { status: 200 })
       : async (_url, { signal }) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" }))));
-    const api = await startLocalApi({ root, port: 0, aiConfigFile: configPath, aiFetch, aiRequestTimeoutMs: 5 });
+    const api = await startLocalApi({ root, port: 0, aiConfigFile: configPath, aiFetch, aiRequestTimeoutMs: 5, aiCredentialStore });
     try {
       await apiRequest(api.origin, "/api/ai/settings", {
         method: "PATCH",
@@ -173,6 +189,7 @@ test("reports malformed provider output and bounded request timeouts", async () 
 
 test("speaks the Anthropic messages protocol when selected", async () => {
   const { root, configPath } = await fixture();
+  const aiCredentialStore = memoryCredentialStore();
   let request;
   const aiFetch = async (url, options) => {
     request = { url, options, body: JSON.parse(options.body) };
@@ -180,7 +197,7 @@ test("speaks the Anthropic messages protocol when selected", async () => {
       content: [{ type: "text", text: JSON.stringify({ summary: "Expanded", explanation: "", questions: [], patch: { opportunity: "A clearer opportunity." } }) }],
     }), { status: 200 });
   };
-  const api = await startLocalApi({ root, port: 0, aiConfigFile: configPath, aiFetch });
+  const api = await startLocalApi({ root, port: 0, aiConfigFile: configPath, aiFetch, aiCredentialStore });
   try {
     await apiRequest(api.origin, "/api/ai/settings", {
       method: "PATCH",
@@ -199,6 +216,57 @@ test("speaks the Anthropic messages protocol when selected", async () => {
     assert.equal(request.options.headers["anthropic-version"], "2023-06-01");
     assert.equal(typeof request.body.system, "string");
     assert.deepEqual(request.body.messages.map((message) => message.role), ["user"]);
+  } finally {
+    await closeLocalApi(api.server);
+  }
+});
+
+test("migrates a 0.2.9 plaintext key into the credential store and scrubs JSON", async () => {
+  const { root, configPath } = await fixture();
+  const aiCredentialStore = memoryCredentialStore();
+  await mkdir(join(root, "private"), { recursive: true });
+  await writeFile(configPath, `${JSON.stringify({
+    version: 1,
+    provider: "openai-compatible",
+    baseUrl: "https://models.example/v1",
+    model: "draft-1",
+    apiKey: "legacy-plaintext-key",
+    updatedAt: "2026-07-15T00:00:00.000Z",
+  }, null, 2)}\n`, { mode: 0o600 });
+  const api = await startLocalApi({ root, port: 0, aiConfigFile: configPath, aiCredentialStore });
+  try {
+    const settings = await apiRequest(api.origin, "/api/ai/settings");
+    assert.equal(settings.response.status, 200);
+    assert.equal(settings.payload.configured, true);
+    assert.equal(settings.payload.credentialSource, "system");
+    assert.equal(aiCredentialStore.peek(), "legacy-plaintext-key");
+    const migrated = JSON.parse(await readFile(configPath, "utf8"));
+    assert.equal(migrated.version, 2);
+    assert.equal(migrated.credentialStorage, "system");
+    assert.equal("apiKey" in migrated, false);
+    assert.doesNotMatch(await readFile(configPath, "utf8"), /legacy-plaintext-key/);
+  } finally {
+    await closeLocalApi(api.server);
+  }
+});
+
+test("never falls back to plaintext when the credential store is unavailable", async () => {
+  const { root, configPath } = await fixture();
+  const aiCredentialStore = {
+    async get() { throw new Error("locked"); },
+    async set() { throw new Error("locked"); },
+    async delete() { throw new Error("locked"); },
+  };
+  const api = await startLocalApi({ root, port: 0, aiConfigFile: configPath, aiCredentialStore });
+  try {
+    const settings = await apiRequest(api.origin, "/api/ai/settings", {
+      method: "PATCH",
+      headers: { "x-work-ai-settings": "confirm" },
+      body: { baseUrl: "https://models.example/v1", model: "draft-1", apiKey: "must-not-land-on-disk" },
+    });
+    assert.equal(settings.response.status, 503);
+    assert.equal(settings.payload.error.code, "ai_credential_store_unavailable");
+    await assert.rejects(readFile(configPath, "utf8"), { code: "ENOENT" });
   } finally {
     await closeLocalApi(api.server);
   }

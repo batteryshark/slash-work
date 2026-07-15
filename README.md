@@ -149,13 +149,14 @@ refreshes, server restarts, and a different browser on the same computer.
 Browser storage may remember harmless interface preferences, but it is not the
 source of truth for work.
 
-AI credentials are the exception to the Markdown store: they stay on the
-machine running Work in `~/.work/ai.json`, outside every workspace, with an
-owner-only file mode. The browser can see whether a key is configured and its
-last four characters, but the service never returns the key itself. This
-one-shot assistant does not run tools or hold a conversation; use your normal
-agent harness when work needs repository access, iterative discussion, or
-execution.
+AI credentials are the exception to the Markdown store: the API key stays in
+the machine's native credential store (macOS Keychain, Windows Credential
+Manager, or Linux Secret Service). `~/.work/ai.json` contains only non-secret
+provider settings. A headless service can use `WORK_AI_API_KEY` instead. The
+browser sees whether a key is configured and its last four characters, but the
+service never returns the key itself. This one-shot assistant does not run
+tools or hold a conversation; use your normal agent harness when work needs
+repository access, iterative discussion, or execution.
 
 This means the workspace can be backed up, searched, inspected, and versioned
 with ordinary file tools. Deleting browser data does not delete the work log.

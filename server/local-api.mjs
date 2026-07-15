@@ -429,7 +429,7 @@ async function handleRequest(workspaces, service, request, response) {
   }
 
   if (method === "GET" && url.pathname === "/api/ai/settings") {
-    sendJson(request, response, 200, await getAiSettings(service.aiConfigFile));
+    sendJson(request, response, 200, await getAiSettings(service.aiConfigFile, service.aiCredentialStore));
     return;
   }
 
@@ -437,12 +437,12 @@ async function handleRequest(workspaces, service, request, response) {
     if (request.headers["x-work-ai-settings"] !== "confirm") {
       throw new WorkspaceError("Saving AI settings requires explicit local confirmation.", { code: "ai_settings_confirmation_required", status: 403 });
     }
-    sendJson(request, response, 200, await saveAiSettings(await readJsonBody(request), service.aiConfigFile));
+    sendJson(request, response, 200, await saveAiSettings(await readJsonBody(request), service.aiConfigFile, service.aiCredentialStore));
     return;
   }
 
   if (method === "POST" && url.pathname === "/api/ai/settings/test") {
-    sendJson(request, response, 200, await testAiSettings(service.aiConfigFile, service.aiFetch, service.aiRequestTimeoutMs));
+    sendJson(request, response, 200, await testAiSettings(service.aiConfigFile, service.aiFetch, service.aiRequestTimeoutMs, service.aiCredentialStore));
     return;
   }
 
@@ -474,6 +474,7 @@ async function handleRequest(workspaces, service, request, response) {
       configPath: service.aiConfigFile,
       fetchImpl: service.aiFetch,
       timeoutMs: service.aiRequestTimeoutMs,
+      credentialStore: service.aiCredentialStore,
     }));
     return;
   }
@@ -669,6 +670,7 @@ export async function startLocalApi({
   aiConfigFile = undefined,
   aiFetch = fetch,
   aiRequestTimeoutMs = 30_000,
+  aiCredentialStore = undefined,
 } = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
     throw new WorkspaceError("port must be an integer between 0 and 65535.", { code: "invalid_port" });
@@ -686,6 +688,9 @@ export async function startLocalApi({
     throw new WorkspaceError("pickWorkspaceDirectory must be a function.", { code: "invalid_folder_picker" });
   }
   if (typeof aiFetch !== "function") throw new WorkspaceError("aiFetch must be a function.", { code: "invalid_ai_fetch" });
+  if (aiCredentialStore != null && (!["get", "set", "delete"].every((method) => typeof aiCredentialStore[method] === "function"))) {
+    throw new WorkspaceError("aiCredentialStore must provide get, set, and delete methods.", { code: "invalid_ai_credential_store" });
+  }
   if (!Number.isInteger(aiRequestTimeoutMs) || aiRequestTimeoutMs < 1) throw new WorkspaceError("aiRequestTimeoutMs must be a positive integer.", { code: "invalid_ai_timeout" });
   const requestedDirectory = await realpath(root);
   const initialRoots = Array.isArray(roots) && roots.length > 0 ? roots : [root];
@@ -719,6 +724,7 @@ export async function startLocalApi({
     aiConfigFile,
     aiFetch,
     aiRequestTimeoutMs,
+    aiCredentialStore,
   };
   const server = createServer((request, response) => {
     handleRequest(workspaces, service, request, response).catch((error) => errorResponse(request, response, error));

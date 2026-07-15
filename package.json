@@ -1,6 +1,6 @@
 {
   "name": "slash-work",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "description": "A local, filesystem-backed project manager for humans and agent teams.",
   "license": "MIT",
   "repository": {
@@ -50,6 +50,7 @@
     "prepublishOnly": "npm test"
   },
   "dependencies": {
+    "@napi-rs/keyring": "1.3.0",
     "@vitejs/plugin-react": "6.0.2",
     "react": "19.2.6",
     "react-dom": "19.2.6",

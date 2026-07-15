@@ -284,8 +284,18 @@ mentioned inside the thought are treated only as text.
 The slash system menu can store an OpenAI-compatible or Anthropic-compatible
 provider format, base URL, model, and API key for magic-wand actions. Provider
 settings live in `~/.work/ai.json` (or `WORK_AI_CONFIG_FILE` when explicitly
-overridden), not in a workspace. Work writes the file with mode `0600`, and API
-responses expose only configuration status and the key's final four characters.
+overridden), not in a workspace. That JSON file contains no API key. Work saves
+the secret in macOS Keychain, Windows Credential Manager, or Linux Secret
+Service through the native keyring API and retrieves it only for an outbound
+model request. `WORK_AI_API_KEY` takes precedence for a headless service. API
+responses expose only configuration status, credential source, and the key's
+final four characters.
+
+When a service first reads the legacy version 1 settings written by Work
+0.2.9, it moves the plaintext key into the native credential store and
+atomically rewrites the JSON as version 2 without the key. If the credential
+store is unavailable, migration stops with an error rather than deleting the
+only copy or continuing to use plaintext storage.
 
 Draft/review actions on tasks and expand/evaluate actions on ideas use
 `POST /api/ai/proposals`. The request sent to the configured
