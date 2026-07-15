@@ -149,6 +149,14 @@ refreshes, server restarts, and a different browser on the same computer.
 Browser storage may remember harmless interface preferences, but it is not the
 source of truth for work.
 
+AI credentials are the exception to the Markdown store: they stay on the
+machine running Work in `~/.work/ai.json`, outside every workspace, with an
+owner-only file mode. The browser can see whether a key is configured and its
+last four characters, but the service never returns the key itself. This
+one-shot assistant does not run tools or hold a conversation; use your normal
+agent harness when work needs repository access, iterative discussion, or
+execution.
+
 This means the workspace can be backed up, searched, inspected, and versioned
 with ordinary file tools. Deleting browser data does not delete the work log.
 Do not commit `.work/` if the workspace contains private operational notes.
@@ -169,6 +177,12 @@ Do not commit `.work/` if the workspace contains private operational notes.
   decision, or task. **Ask agent to evaluate** authorizes analysis only—never
   implementation. Mark an idea **Not now** or **Closed** with a durable reason,
   or develop it toward a proposal and scoped work later.
+- Open the slash system menu and choose **AI assistance** to configure an
+  OpenAI-compatible or Anthropic-compatible base URL, model, and API key.
+  Magic-wand actions can draft or review a task and expand or evaluate an idea.
+  Work sends bounded context from the current project, shows a field-by-field
+  proposal, and saves only the fields you explicitly select. It never lets the
+  model change lifecycle state or silently mutate a record.
 - Open **Files** for a read-only, scope-bound tree and text preview. Language
   badges and Git markers make modified, added, and untracked files easy to
   spot. A project with linked worktrees gets an explicit checkout selector so

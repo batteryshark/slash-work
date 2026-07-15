@@ -279,6 +279,34 @@ invocation directory as the folder scope, but stays unassigned unless
 `--project` is given an exact discovered root-relative path; project names
 mentioned inside the thought are treated only as text.
 
+## One-shot AI assistance
+
+The slash system menu can store an OpenAI-compatible or Anthropic-compatible
+provider format, base URL, model, and API key for magic-wand actions. Provider
+settings live in `~/.work/ai.json` (or `WORK_AI_CONFIG_FILE` when explicitly
+overridden), not in a workspace. Work writes the file with mode `0600`, and API
+responses expose only configuration status and the key's final four characters.
+
+Draft/review actions on tasks and expand/evaluate actions on ideas use
+`POST /api/ai/proposals`. The request sent to the configured
+`/chat/completions` or `/messages` endpoint includes the selected artifact, the
+project's description, and compact lists of related or active tasks, open
+decisions, and active ideas. Text and item counts have explicit limits;
+progress logs, files, other projects, other workspace roots, and secrets are
+not included.
+
+The provider returns a typed, allowlisted field patch. Work displays current
+and proposed values side by side. `POST /api/ai/apply` requires an explicit
+confirmation header, `confirm: true`, selected field names, and the original
+artifact revision. If the Markdown record changed after generation, the
+proposal is rejected as stale. AI assistance cannot change lifecycle status,
+check completed work, execute tools, or apply a proposal without the human
+preview.
+
+This path is deliberately one-shot. Deeper discussion, repository inspection,
+tool use, and implementation belong in an external agent harness whose own
+credentials and safety boundary remain separate from Work.
+
 ## Recovery expectations
 
 After `Ctrl-C`, a crash, a browser refresh, or a computer restart, launching the

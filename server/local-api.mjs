@@ -42,6 +42,13 @@ import {
   getArtifactSchema,
   listAgentOperations,
 } from "../lib/agent-capabilities.mjs";
+import {
+  createAiProposal,
+  getAiSettings,
+  saveAiSettings,
+  selectedProposalPatch,
+  testAiSettings,
+} from "../lib/ai-assistance.mjs";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const DEFAULT_PORT = 4317;
@@ -193,7 +200,7 @@ async function handleRequest(workspaces, service, request, response) {
     response.writeHead(
       204,
       responseHeaders(request, {
-        "Access-Control-Allow-Headers": "Content-Type, X-Work-Folder-Picker, X-Work-Restart, X-Work-Unregister, X-Work-Workspace",
+        "Access-Control-Allow-Headers": "Content-Type, X-Work-AI-Apply, X-Work-AI-Settings, X-Work-Folder-Picker, X-Work-Restart, X-Work-Unregister, X-Work-Workspace",
         "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
         "Access-Control-Max-Age": "600",
       }),
@@ -421,6 +428,24 @@ async function handleRequest(workspaces, service, request, response) {
     return;
   }
 
+  if (method === "GET" && url.pathname === "/api/ai/settings") {
+    sendJson(request, response, 200, await getAiSettings(service.aiConfigFile));
+    return;
+  }
+
+  if (method === "PATCH" && url.pathname === "/api/ai/settings") {
+    if (request.headers["x-work-ai-settings"] !== "confirm") {
+      throw new WorkspaceError("Saving AI settings requires explicit local confirmation.", { code: "ai_settings_confirmation_required", status: 403 });
+    }
+    sendJson(request, response, 200, await saveAiSettings(await readJsonBody(request), service.aiConfigFile));
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/api/ai/settings/test") {
+    sendJson(request, response, 200, await testAiSettings(service.aiConfigFile, service.aiFetch, service.aiRequestTimeoutMs));
+    return;
+  }
+
   const workspace = selectedWorkspace(workspaces, defaultWorkspace, request);
 
   if (method === "GET" && url.pathname === "/api/health") {
@@ -443,6 +468,39 @@ async function handleRequest(workspaces, service, request, response) {
   if (method === "GET" && url.pathname === "/api/projects") {
     sendJson(request, response, 200, { projects: await discoverProjects(workspace.root) });
     return;
+  }
+  if (method === "POST" && url.pathname === "/api/ai/proposals") {
+    sendJson(request, response, 200, await createAiProposal(workspace, await readJsonBody(request), {
+      configPath: service.aiConfigFile,
+      fetchImpl: service.aiFetch,
+      timeoutMs: service.aiRequestTimeoutMs,
+    }));
+    return;
+  }
+  if (method === "POST" && url.pathname === "/api/ai/apply") {
+    if (request.headers["x-work-ai-apply"] !== "confirm") {
+      throw new WorkspaceError("Applying an AI proposal requires explicit confirmation.", { code: "ai_apply_confirmation_required", status: 403 });
+    }
+    const body = await readJsonBody(request);
+    if (body.confirm !== true || !body.proposal || typeof body.proposal !== "object") {
+      throw new WorkspaceError("Applying an AI proposal requires confirm: true and the proposal preview.", { code: "ai_apply_confirmation_required" });
+    }
+    const proposal = body.proposal;
+    const projects = await discoverProjects(workspace.root);
+    if (proposal.artifactType === "task") {
+      const task = await getTask(workspace, proposal.artifactId);
+      const patch = selectedProposalPatch(proposal, body.selectedFields, task);
+      sendJson(request, response, 200, await updateTask(workspace, task.id, patch, projects));
+      return;
+    }
+    if (proposal.artifactType === "idea") {
+      const idea = (await listIdeas(workspace)).find((item) => item.id === proposal.artifactId);
+      if (!idea) throw new WorkspaceError(`Idea not found: ${proposal.artifactId}`, { code: "idea_not_found", status: 404 });
+      const patch = selectedProposalPatch(proposal, body.selectedFields, idea);
+      sendJson(request, response, 200, await updateIdea(workspace, idea.id, patch, projects));
+      return;
+    }
+    throw new WorkspaceError("That AI proposal artifact is not supported.", { code: "invalid_ai_proposal" });
   }
   if (method === "PATCH" && url.pathname === "/api/projects/profile") {
     const body = await readJsonBody(request);
@@ -608,6 +666,9 @@ export async function startLocalApi({
   onUpdate = null,
   pickWorkspaceDirectory = chooseWorkspaceDirectory,
   registryPath = undefined,
+  aiConfigFile = undefined,
+  aiFetch = fetch,
+  aiRequestTimeoutMs = 30_000,
 } = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
     throw new WorkspaceError("port must be an integer between 0 and 65535.", { code: "invalid_port" });
@@ -624,6 +685,8 @@ export async function startLocalApi({
   if (typeof pickWorkspaceDirectory !== "function") {
     throw new WorkspaceError("pickWorkspaceDirectory must be a function.", { code: "invalid_folder_picker" });
   }
+  if (typeof aiFetch !== "function") throw new WorkspaceError("aiFetch must be a function.", { code: "invalid_ai_fetch" });
+  if (!Number.isInteger(aiRequestTimeoutMs) || aiRequestTimeoutMs < 1) throw new WorkspaceError("aiRequestTimeoutMs must be a positive integer.", { code: "invalid_ai_timeout" });
   const requestedDirectory = await realpath(root);
   const initialRoots = Array.isArray(roots) && roots.length > 0 ? roots : [root];
   const initialized = [];
@@ -653,6 +716,9 @@ export async function startLocalApi({
     updateStatus: null,
     pickWorkspaceDirectory,
     registryPath,
+    aiConfigFile,
+    aiFetch,
+    aiRequestTimeoutMs,
   };
   const server = createServer((request, response) => {
     handleRequest(workspaces, service, request, response).catch((error) => errorResponse(request, response, error));
