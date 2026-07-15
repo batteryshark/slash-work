@@ -141,7 +141,9 @@ Important behavior:
   retain a reason and may retain a revisit date;
 - decision actions are explicit: assign, keep unassigned, approve, reject,
   defer, cancel, and reopen as appropriate to that decision;
-- resolution records what was chosen and when;
+- decision options are rendered as the actual human choices; decisions without
+  options require a written response instead of substituting assignment;
+- resolution records what was chosen, any explanation, and when;
 - restarting reads the existing files instead of seeding example data;
 - unknown fields and Markdown body content are preserved when possible;
 - files remain useful with the app stopped.
@@ -156,6 +158,12 @@ The default active lifecycle is:
 the main board by default but can always be shown; cancellation never deletes
 history. The configured active statuses live in `.work/workspace.json` and
 define the board columns left to right.
+
+Moving a card into `review` is centrally rejected while any requirement or
+acceptance criterion remains unchecked. This applies equally to the UI, CLI,
+and every agent harness using the HTTP API, so adapters do not need their own
+hooks. A checklist item must only be checked after its result has been
+verified.
 
 Each card is a Markdown task with project and multi-agent fields:
 

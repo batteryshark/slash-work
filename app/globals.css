@@ -541,6 +541,12 @@ button.upcoming-item:hover { border-radius: 10px; background: var(--accent-softe
 .decision-choice input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); }
 .decision-choice > span { display: grid; gap: 4px; }
 .decision-choice small { color: var(--muted); line-height: 1.35; }
+.decision-response { display: grid; gap: 8px; margin-top: 12px; color: var(--ink); font-weight: 720; }
+.decision-response small { color: var(--muted); font-weight: 600; }
+.decision-response textarea { min-height: 108px; resize: vertical; }
+.decision-management { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
+.decision-management summary { min-height: 44px; color: var(--muted); font-weight: 720; cursor: pointer; }
+.decision-management fieldset { margin-top: 10px; }
 .inline-field { display: grid; gap: 8px; margin: 2px 12px 10px 46px; color: var(--muted); font-size: 13px; }
 .inline-field select { width: min(520px, 100%); min-height: 46px; padding: 0 12px; border: 1px solid var(--line); border-radius: 11px; background: white; color: var(--ink); }
 .decision-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }

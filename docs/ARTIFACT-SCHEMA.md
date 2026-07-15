@@ -229,7 +229,10 @@ also `resolution`. Event shape is:
 Allowed actions are `approve`, `reject`, `defer`, `cancel`, `assign`,
 `keep_unassigned`, and `reopen`. `assign` uses
 `{"projectPath":"exact/discovered/path"}` as its choice; `defer` uses
-`{"until":"<ISO timestamp>"}`; other choices are null. `reopen` sets
+`{"until":"<ISO timestamp>"}`. When the decision declares options, `approve`
+records the exact selected option as `{"option":"the recorded option"}`. A
+decision without options requires a non-empty written response in `note`.
+Other choices are null. `reopen` sets
 `resolution` to null but keeps the appended history event. Assignment and
 keeping unassigned also move the file to the corresponding physical store.
 
@@ -247,7 +250,9 @@ An automation must read `.work/workspace.json` and use its configured
 `task_type` is one of `task`, `bug`, `feature`, `research`, `admin`, `epic`, or
 `idea`. `priority` is one of `critical`, `high`, `medium`, `low`, or `none`.
 Task relationships contain valid task IDs. A task cannot become `done` while a
-`depends_on` ID is missing or not itself `done`.
+`depends_on` ID is missing or not itself `done`. A task cannot enter `review`
+while any requirement or acceptance criterion is unchecked; this invariant is
+enforced by the shared workspace API rather than by harness-specific hooks.
 
 ```markdown
 ---

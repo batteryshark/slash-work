@@ -234,6 +234,8 @@ type DecisionDraft = {
   action: Exclude<DecisionAction, "reopen"> | "";
   projectPath: string;
   deferFor: "today" | "tomorrow" | "week";
+  selectedOption: string;
+  response: string;
 };
 
 type CaptureReceipt = {
@@ -274,6 +276,8 @@ const emptyDraft: DecisionDraft = {
   action: "",
   projectPath: "",
   deferFor: "week",
+  selectedOption: "",
+  response: "",
 };
 
 function pathParts(path: string) {
@@ -471,6 +475,15 @@ export default function Home() {
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const loadRequestRef = useRef(0);
+
+  useEffect(() => {
+    if (!captureReceipt) return;
+    const captureId = captureReceipt.capture.id;
+    const timer = window.setTimeout(() => {
+      setCaptureReceipt((current) => current?.capture.id === captureId ? null : current);
+    }, 5_000);
+    return () => window.clearTimeout(timer);
+  }, [captureReceipt?.capture.id]);
 
   const loadWorkspace = useCallback(async (quiet = false) => {
     const requestNumber = ++loadRequestRef.current;
@@ -1366,6 +1379,8 @@ export default function Home() {
     let choice: Record<string, unknown> | null = null;
     if (draft.action === "assign") choice = { projectPath: draft.projectPath };
     if (draft.action === "defer") choice = { until: deferUntil(draft.deferFor) };
+    if (draft.action === "approve" && draft.selectedOption) choice = { option: draft.selectedOption };
+    const note = draft.response.trim() || null;
 
     setSavingDecision(decision.id);
     try {
@@ -1373,7 +1388,7 @@ export default function Home() {
         `/api/decisions/${encodeURIComponent(decision.id)}/actions`,
         {
           method: "POST",
-          body: JSON.stringify({ action: draft.action, choice }),
+          body: JSON.stringify({ action: draft.action, choice, note }),
         },
       );
       const updated = "decision" in response ? response.decision : response;
@@ -1385,7 +1400,7 @@ export default function Home() {
         ? data?.projects.find((project) => project.path === draft.projectPath)?.name
         : null;
       const labels: Record<Exclude<DecisionAction, "reopen">, string> = {
-        approve: "Approved as proposed",
+        approve: draft.selectedOption ? `Selected “${draft.selectedOption}”` : "Decision recorded",
         reject: "Rejected",
         defer: `Deferred until ${new Date(choice?.until as string).toLocaleDateString([], { month: "short", day: "numeric" })}`,
         cancel: "Cancelled and retained in history",
@@ -1850,8 +1865,13 @@ export default function Home() {
               {visibleDecisions.map((decision) => {
                 const open = expandedDecision === decision.id;
                 const draft = draftFor(decision.id);
-                const hasProposal = decision.options.some((option) => /approve|yes|accept/i.test(option));
-                const canConfirm = Boolean(draft.action && (draft.action !== "assign" || draft.projectPath));
+                const hasExplicitOptions = decision.options.length > 0;
+                const hasDecisionResponse = hasExplicitOptions ? Boolean(draft.selectedOption) : Boolean(draft.response.trim());
+                const canConfirm = Boolean(
+                  draft.action
+                  && (draft.action !== "assign" || draft.projectPath)
+                  && (draft.action !== "approve" || hasDecisionResponse),
+                );
                 return (
                   <article className={`attention-item ${open ? "open" : ""}`} key={decision.id}>
                     <button type="button" className="attention-summary" onClick={() => setExpandedDecision(open ? null : decision.id)} aria-expanded={open}>
@@ -1867,14 +1887,41 @@ export default function Home() {
                       <div className="decision-panel">
                         {decision.detail && <p className="decision-detail">{decision.detail}</p>}
                         <fieldset>
-                          <legend>What should happen?</legend>
-                          {hasProposal && (
-                            <DecisionChoice decisionId={decision.id} action="approve" label="Approve the proposal" detail="Record a clear approval." draft={draft} onChange={updateDraft} />
+                          <legend>{hasExplicitOptions ? "Choose one option" : "What is your decision?"}</legend>
+                          {hasExplicitOptions ? decision.options.map((option) => (
+                            <label className={`decision-choice ${draft.selectedOption === option ? "selected" : ""}`} key={option}>
+                              <input
+                                type="radio"
+                                name={`decision-option-${decision.id}`}
+                                value={option}
+                                checked={draft.selectedOption === option}
+                                onChange={() => updateDraft(decision.id, { action: "approve", selectedOption: option })}
+                              />
+                              <span><strong>{option}</strong></span>
+                            </label>
+                          )) : (
+                            <label className="decision-response">
+                              <span>Your answer</span>
+                              <textarea
+                                value={draft.response}
+                                onChange={(event) => updateDraft(decision.id, { action: "approve", response: event.target.value })}
+                                placeholder="Write the decision or direction that should be recorded…"
+                                autoFocus
+                              />
+                            </label>
                           )}
-                          {hasProposal && (
-                            <DecisionChoice decisionId={decision.id} action="reject" label="Reject the proposal" detail="Keep the reason in history instead of deleting it." draft={draft} onChange={updateDraft} />
+                          {hasExplicitOptions && (
+                            <label className="decision-response optional">
+                              <span>Reason or context <small>(optional)</small></span>
+                              <textarea value={draft.response} onChange={(event) => updateDraft(decision.id, { response: event.target.value })} placeholder="Why this option?" />
+                            </label>
                           )}
-                          <DecisionChoice decisionId={decision.id} action="assign" label="Assign to a project" detail="Choose one project from this root." draft={draft} onChange={updateDraft} />
+                        </fieldset>
+                        <details className="decision-management">
+                          <summary>Manage instead of deciding</summary>
+                          <fieldset>
+                            <legend>Administrative actions</legend>
+                          {!decision.projectPath && <DecisionChoice decisionId={decision.id} action="assign" label="Assign to a project" detail="Choose one project from this root." draft={draft} onChange={updateDraft} />}
                           {draft.action === "assign" && (
                             <label className="inline-field">
                               <span>Project</span>
@@ -1886,7 +1933,7 @@ export default function Home() {
                               </select>
                             </label>
                           )}
-                          <DecisionChoice decisionId={decision.id} action="keep_unassigned" label="Keep unassigned" detail="Make no ownership claim yet." draft={draft} onChange={updateDraft} />
+                          {!decision.projectPath && <DecisionChoice decisionId={decision.id} action="keep_unassigned" label="Keep unassigned" detail="Make no ownership claim yet." draft={draft} onChange={updateDraft} />}
                           <DecisionChoice decisionId={decision.id} action="defer" label="Decide later" detail="Return it to Needs you at a real time." draft={draft} onChange={updateDraft} />
                           {draft.action === "defer" && (
                             <label className="inline-field">
@@ -1899,7 +1946,8 @@ export default function Home() {
                             </label>
                           )}
                           <DecisionChoice decisionId={decision.id} action="cancel" label="Cancel this item" detail="Retain a cancelled record; do not erase history." draft={draft} onChange={updateDraft} />
-                        </fieldset>
+                          </fieldset>
+                        </details>
                         <div className="decision-actions">
                           <button type="button" className="secondary-action" onClick={() => setExpandedDecision(null)}>Close without changes</button>
                           <button type="button" className="primary-action" disabled={!canConfirm || savingDecision === decision.id} onClick={() => void confirmDecision(decision)}>
@@ -3368,7 +3416,8 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClo
   return (
     <aside className="task-panel" aria-labelledby="task-detail-heading">
       <div className="task-panel-header"><div><p className="eyebrow">{task.id} · {task.type} · {task.priority}</p><h2 id="task-detail-heading">{task.title}</h2></div><button type="button" onClick={onClose} aria-label="Close work item">×</button></div>
-      <div className="task-state-strip"><label><span>Status</span><select value={task.status} onChange={(event) => onMove(event.target.value)} disabled={saving}>{[...statuses, "cancelled", "archived"].map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}</select></label><span>{progress.complete}/{progress.total} checks complete</span><span>Updated {shortTime(task.updatedAt)}</span></div>
+      <div className="task-state-strip"><label><span>Status</span><select value={task.status} onChange={(event) => onMove(event.target.value)} disabled={saving}>{[...statuses, "cancelled", "archived"].map((status) => <option key={status} value={status} disabled={status === "review" && progress.complete < progress.total}>{status === "review" && progress.complete < progress.total ? "Review — complete checklist first" : statusLabel(status)}</option>)}</select></label><span>{progress.complete}/{progress.total} checks complete</span><span>Updated {shortTime(task.updatedAt)}</span></div>
+      {task.status === "review" && progress.complete < progress.total && <div className="task-error" role="status">This legacy review card has unchecked requirements or acceptance criteria. Verify its checklist before treating it as review-ready.</div>}
       {error && <div className="task-error" role="alert">{error}</div>}
       <form className="task-form" onSubmit={saveDetails}>
         <label className="field-wide"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} /></label>

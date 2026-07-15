@@ -45,6 +45,8 @@ test("makes captures immediate, durable, and visibly undoable", async () => {
   assert.match(page, /const isMultiline = text\.includes\("\\n"\)/);
   assert.match(page, /role="status"/);
   assert.match(page, /Saved: “\{captureReceipt\.capture\.text\}”/);
+  assert.match(page, /window\.setTimeout/);
+  assert.match(page, /5_000/);
   assert.match(page, /Available to agents in this root/);
   assert.match(page, /function openHomeSection/);
   assert.match(page, /setView\("home"\)/);
@@ -222,6 +224,11 @@ test("does not replace an active note draft with an autosave response", async ()
 test("requires an explicit recorded choice for every human decision", async () => {
   const page = await readFile(new URL("app/page.tsx", root), "utf8");
 
+  assert.match(page, /Choose one option/);
+  assert.match(page, /Your answer/);
+  assert.match(page, /selectedOption/);
+  assert.match(page, /choice = \{ option: draft\.selectedOption \}/);
+  assert.match(page, /Manage instead of deciding/);
   assert.match(page, /Assign to a project/);
   assert.match(page, /Keep unassigned/);
   assert.match(page, /Decide later/);
@@ -258,6 +265,8 @@ test("ships a scoped Kanban, complete cards, lifecycle history, and retained ter
   assert.match(page, /draggable/);
   assert.match(page, /\/api\/tasks/);
   assert.match(page, /\/checklist/);
+  assert.match(page, /Review — complete checklist first/);
+  assert.match(page, /legacy review card has unchecked/);
   assert.match(page, /\/log/);
   assert.match(page, /task\|todo/);
 

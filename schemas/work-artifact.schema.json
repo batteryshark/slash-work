@@ -82,6 +82,12 @@
               "additionalProperties": false,
               "required": ["until"],
               "properties": { "until": { "$ref": "#/$defs/isoDateTime" } }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["option"],
+              "properties": { "option": { "type": "string", "minLength": 1, "maxLength": 500 } }
             }
           ]
         },

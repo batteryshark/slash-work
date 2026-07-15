@@ -1208,6 +1208,32 @@ test("records explicit decision actions instead of treating an open card as appr
     );
     assert.equal(openDecision.status, "open");
 
+    const missingOption = await apiRequest(
+      first.origin,
+      `/api/decisions/${encodeURIComponent(decisionId)}/actions`,
+      { method: "POST", body: { action: "approve" } },
+    );
+    assert.equal(missingOption.response.status, 400);
+    assert.match(missingOption.payload.error.message, /recorded options/i);
+
+    const selected = await apiRequest(
+      first.origin,
+      `/api/decisions/${encodeURIComponent(decisionId)}/actions`,
+      {
+        method: "POST",
+        body: { action: "approve", choice: { option: "Keep unassigned" }, note: "No owner is ready yet." },
+      },
+    );
+    assert.equal(selected.response.status, 200);
+    assert.deepEqual(selected.payload.resolution.choice, { option: "Keep unassigned" });
+    assert.equal(selected.payload.resolution.note, "No owner is ready yet.");
+
+    await apiRequest(
+      first.origin,
+      `/api/decisions/${encodeURIComponent(decisionId)}/actions`,
+      { method: "POST", body: { action: "reopen" } },
+    );
+
     const invalidAssignment = await apiRequest(
       first.origin,
       `/api/decisions/${encodeURIComponent(decisionId)}/actions`,
@@ -1324,6 +1350,21 @@ test("persists a full Kanban lifecycle with fields, checklists, dependencies, an
     });
     assert.equal(checked.response.status, 200);
     assert.equal(checked.payload.requirements[0].checked, true);
+
+    const prematureReview = await apiRequest(first.origin, `/api/tasks/${foundation.payload.id}`, {
+      method: "PATCH",
+      body: { status: "review", priority: "critical", notes: "Ready for the dependency gate test." },
+    });
+    assert.equal(prematureReview.response.status, 409);
+    assert.match(prematureReview.payload.error.message, /unchecked checklist/i);
+
+    for (const [section, index] of [["requirements", 1], ["acceptance", 0], ["acceptance", 1]]) {
+      const completedCheck = await apiRequest(first.origin, `/api/tasks/${foundation.payload.id}/checklist`, {
+        method: "POST",
+        body: { section, index, checked: true },
+      });
+      assert.equal(completedCheck.response.status, 200);
+    }
 
     const updated = await apiRequest(first.origin, `/api/tasks/${foundation.payload.id}`, {
       method: "PATCH",
