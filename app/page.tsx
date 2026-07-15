@@ -272,6 +272,35 @@ type ServiceUpdateReceipt = {
   serviceInstanceId: string;
 };
 
+type AiSettings = {
+  configured: boolean;
+  provider: "openai-compatible" | "anthropic-compatible";
+  baseUrl: string;
+  model: string;
+  hasApiKey: boolean;
+  apiKeyHint: string | null;
+};
+
+type AiProposalField = {
+  field: string;
+  label: string;
+  current: unknown;
+  proposed: unknown;
+};
+
+type AiProposal = {
+  version: 1;
+  artifactType: "task" | "idea";
+  artifactId: string;
+  artifactUpdatedAt: string;
+  operation: "draft" | "review" | "expand" | "evaluate";
+  summary: string;
+  explanation: string;
+  questions: string[];
+  fields: AiProposalField[];
+  context: { project: { name: string; path: string; description: string } | null; truncation: Record<string, { included: number; total: number }> };
+};
+
 const emptyDraft: DecisionDraft = {
   action: "",
   projectPath: "",
@@ -453,6 +482,11 @@ export default function Home() {
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [updateArmed, setUpdateArmed] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const [aiSettings, setAiSettings] = useState<AiSettings | null>(null);
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
+  const [aiProposal, setAiProposal] = useState<AiProposal | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [projectSearch, setProjectSearch] = useState("");
   const [expandedDecision, setExpandedDecision] = useState<string | null>(null);
   const [decisionDrafts, setDecisionDrafts] = useState<Record<string, DecisionDraft>>({});
@@ -527,6 +561,87 @@ export default function Home() {
       if (!quiet) setCheckingUpdate(false);
     }
   }, []);
+
+  async function openAiSettings() {
+    setAiError(null);
+    setAiSettingsOpen(true);
+    setSystemMenuOpen(false);
+    try {
+      setAiSettings(await requestJson<AiSettings>("/api/ai/settings"));
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : "AI settings could not be loaded.");
+    }
+  }
+
+  async function saveAiSettings(input: { provider: AiSettings["provider"]; baseUrl: string; model: string; apiKey?: string; clearApiKey?: boolean }) {
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const settings = await requestJson<AiSettings>("/api/ai/settings", {
+        method: "PATCH",
+        headers: { "x-work-ai-settings": "confirm" },
+        body: JSON.stringify(input),
+      });
+      setAiSettings(settings);
+      return settings;
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : "AI settings could not be saved.");
+      throw error;
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  async function testAiSettings() {
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      await requestJson<{ ok: true }>("/api/ai/settings/test", { method: "POST", body: JSON.stringify({}) });
+      return true;
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : "The AI connection test failed.");
+      return false;
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  async function requestAiProposal(artifactType: "task" | "idea", artifactId: string, operation: AiProposal["operation"]) {
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      setAiProposal(await requestJson<AiProposal>("/api/ai/proposals", {
+        method: "POST",
+        body: JSON.stringify({ artifactType, artifactId, operation }),
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The AI proposal could not be created.";
+      setAiError(message);
+      if (/configure an ai/i.test(message)) await openAiSettings();
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  async function applyAiProposal(proposal: AiProposal, selectedFields: string[]) {
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const updated = await requestJson<WorkTask | ProjectIdea>("/api/ai/apply", {
+        method: "POST",
+        headers: { "x-work-ai-apply": "confirm" },
+        body: JSON.stringify({ proposal, selectedFields, confirm: true }),
+      });
+      if (proposal.artifactType === "task") replaceTask(updated as WorkTask);
+      else replaceIdea(updated as ProjectIdea);
+      setAiProposal(null);
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : "The AI proposal could not be applied.");
+      throw error;
+    } finally {
+      setAiBusy(false);
+    }
+  }
 
   async function switchWorkspace(workspaceId: string) {
     if (workspaceId === data?.workspace.id) {
@@ -669,6 +784,7 @@ export default function Home() {
 
   useEffect(() => {
     void loadWorkspace();
+    void requestJson<AiSettings>("/api/ai/settings").then(setAiSettings).catch(() => undefined);
     const interval = window.setInterval(() => void loadWorkspace(true), 12_000);
     const onFocus = () => void loadWorkspace(true);
     window.addEventListener("focus", onFocus);
@@ -1653,6 +1769,13 @@ export default function Home() {
               )}
               {serviceRestartError && <small className="service-restart-error" role="alert">{serviceRestartError}</small>}
             </section>
+            <section className="service-control ai-control" aria-label="AI assistance settings">
+              <div>
+                <strong>AI assistance {aiSettings?.configured && <span className="update-badge">Ready</span>}</strong>
+                <small>{aiSettings?.configured ? `${aiSettings.model} · ${aiSettings.baseUrl}` : "Configure one-shot drafting and review without enabling autonomous tools."}</small>
+              </div>
+              <button type="button" onClick={() => void openAiSettings()}>{aiSettings?.configured ? "Configure AI" : "Set up AI"}</button>
+            </section>
           </div>
         )}
 
@@ -1754,6 +1877,8 @@ export default function Home() {
             onUpdate={updateProjectIdea}
             onDelete={deleteProjectIdea}
             onScopeWork={scopeIdeaAsWork}
+            onAskAi={(ideaId, operation) => requestAiProposal("idea", ideaId, operation)}
+            aiBusy={aiBusy}
           />
         ) : view === "notes" ? (
           <NotesView
@@ -2042,7 +2167,17 @@ export default function Home() {
           onPatch={(patch) => void patchWorkTask(selectedTask.id, patch).catch(() => {})}
           onToggle={(section, index, checked) => void toggleWorkChecklist(selectedTask.id, section, index, checked)}
           onLog={(message) => logWorkProgress(selectedTask.id, message)}
+          onAskAi={(taskId, operation) => requestAiProposal("task", taskId, operation)}
+          aiBusy={aiBusy}
         />
+      )}
+
+      {aiSettingsOpen && (
+        <AiSettingsPanel settings={aiSettings} busy={aiBusy} error={aiError} onClose={() => { setAiSettingsOpen(false); setAiError(null); }} onSave={saveAiSettings} onTest={testAiSettings} />
+      )}
+
+      {aiProposal && (
+        <AiProposalPanel proposal={aiProposal} busy={aiBusy} error={aiError} onClose={() => { setAiProposal(null); setAiError(null); }} onApply={applyAiProposal} />
       )}
 
       <div className="capture-dock">
@@ -2534,6 +2669,8 @@ function IdeasView({
   onUpdate,
   onDelete,
   onScopeWork,
+  onAskAi,
+  aiBusy,
 }: {
   scopeLabel: string;
   scopeKind: "root" | "group" | "project";
@@ -2548,6 +2685,8 @@ function IdeasView({
   onUpdate: (ideaId: string, patch: Record<string, unknown>) => Promise<ProjectIdea>;
   onDelete: (ideaId: string) => Promise<void>;
   onScopeWork: (idea: ProjectIdea) => Promise<WorkTask>;
+  onAskAi: (ideaId: string, operation: "expand" | "evaluate") => void;
+  aiBusy: boolean;
 }) {
   const selectedIdea = ideas.find((idea) => idea.id === selectedIdeaId) ?? null;
   const [search, setSearch] = useState("");
@@ -2711,7 +2850,11 @@ function IdeasView({
             <form onSubmit={(event) => void saveIdea(event).catch(() => {})}>
               <div className={`idea-intent ${selectedIdea.agentIntent === "evaluation_requested" ? "evaluation-requested" : "consideration-only"}`}>
                 <div><strong>{selectedIdea.agentIntent === "evaluation_requested" ? "Evaluation requested" : "Consideration only"}</strong><span>{selectedIdea.agentIntent === "evaluation_requested" ? "An agent may assess feasibility, value, unknowns, and options. Implementation is not authorized." : "This preserves a possibility. It is not a task, decision, or approval to implement."}</span></div>
-                {(selectedIdea.status !== "adopted" || selectedIdea.agentIntent === "evaluation_requested") && <button type="button" disabled={saving} onClick={() => void toggleEvaluationRequest().catch(() => {})}>{selectedIdea.agentIntent === "evaluation_requested" ? "Clear request" : "Ask agent to evaluate"}</button>}
+                <div className="ai-action-group">
+                  <button type="button" className="magic-action" disabled={saving || aiBusy} onClick={() => onAskAi(selectedIdea.id, "expand")}><span aria-hidden="true">✦</span> Expand with AI</button>
+                  <button type="button" className="magic-action" disabled={saving || aiBusy} onClick={() => onAskAi(selectedIdea.id, "evaluate")}><span aria-hidden="true">✦</span> Evaluate with AI</button>
+                  {(selectedIdea.status !== "adopted" || selectedIdea.agentIntent === "evaluation_requested") && <button type="button" disabled={saving} onClick={() => void toggleEvaluationRequest().catch(() => {})}>{selectedIdea.agentIntent === "evaluation_requested" ? "Clear request" : "Ask agent to evaluate"}</button>}
+                </div>
               </div>
               <label className="idea-title"><span>Idea</span><input value={draft.title} maxLength={500} onChange={(event) => setField("title", event.target.value)} /></label>
               <div className="idea-state-fields">
@@ -3290,6 +3433,113 @@ function ActivityView({ scopeLabel, tasks, projects, onOpenTask }: { scopeLabel:
   );
 }
 
+function AiSettingsPanel({ settings, busy, error, onClose, onSave, onTest }: {
+  settings: AiSettings | null;
+  busy: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSave: (input: { provider: AiSettings["provider"]; baseUrl: string; model: string; apiKey?: string; clearApiKey?: boolean }) => Promise<AiSettings>;
+  onTest: () => Promise<boolean>;
+}) {
+  const [provider, setProvider] = useState<AiSettings["provider"]>(settings?.provider ?? "openai-compatible");
+  const [baseUrl, setBaseUrl] = useState(settings?.baseUrl ?? "https://api.openai.com/v1");
+  const [model, setModel] = useState(settings?.model ?? "");
+  const [apiKey, setApiKey] = useState("");
+  const [clearApiKey, setClearApiKey] = useState(false);
+  const [receipt, setReceipt] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!settings) return;
+    setProvider(settings.provider);
+    setBaseUrl(settings.baseUrl);
+    setModel(settings.model);
+  }, [settings?.provider, settings?.baseUrl, settings?.model]);
+
+  async function save(testAfter = false) {
+    setReceipt(null);
+    await onSave({ provider, baseUrl, model, apiKey: apiKey || undefined, clearApiKey });
+    setApiKey("");
+    setClearApiKey(false);
+    if (testAfter) {
+      const passed = await onTest();
+      if (passed) setReceipt("Connection verified.");
+    } else {
+      setReceipt("AI settings saved.");
+    }
+  }
+
+  return (
+    <div className="ai-panel-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="ai-settings-panel" role="dialog" aria-modal="true" aria-labelledby="ai-settings-heading">
+        <header><div><p className="eyebrow">One-shot assistance</p><h2 id="ai-settings-heading">AI settings</h2><p>Work sends bounded artifact context and receives proposed edits. It does not grant tools or autonomous execution.</p></div><button type="button" onClick={onClose} aria-label="Close AI settings">×</button></header>
+        <div className="ai-settings-form">
+          <label><span>Provider format</span><select value={provider} onChange={(event) => {
+            const next = event.target.value as AiSettings["provider"];
+            setProvider(next);
+            if (baseUrl === "https://api.openai.com/v1" || baseUrl === "https://api.anthropic.com/v1") setBaseUrl(next === "anthropic-compatible" ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1");
+          }}><option value="openai-compatible">OpenAI-compatible</option><option value="anthropic-compatible">Anthropic-compatible</option></select></label>
+          <label><span>Base URL</span><input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1" autoFocus /></label>
+          <label><span>Model</span><input value={model} onChange={(event) => setModel(event.target.value)} placeholder="gpt-5-mini" /></label>
+          <label><span>API key</span><input type="password" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setClearApiKey(false); }} placeholder={settings?.apiKeyHint ? `Saved ${settings.apiKeyHint} · leave blank to keep` : "Required"} autoComplete="off" /></label>
+          {settings?.hasApiKey && <label className="ai-clear-key"><input type="checkbox" checked={clearApiKey} onChange={(event) => { setClearApiKey(event.target.checked); if (event.target.checked) setApiKey(""); }} /><span>Remove the saved API key</span></label>}
+          <p className="ai-secret-note">The key is stored by the local service outside every workspace with owner-only file permissions. It is never returned to the browser or written into Markdown.</p>
+        </div>
+        {error && <p className="task-error" role="alert">{error}</p>}
+        {receipt && <p className="ai-receipt" role="status">{receipt}</p>}
+        <footer><button type="button" className="secondary-action" onClick={onClose}>Cancel</button><button type="button" className="secondary-action" disabled={busy || !baseUrl.trim() || !model.trim() || (!settings?.hasApiKey && !apiKey.trim())} onClick={() => void save(true).catch(() => {})}>{busy ? "Testing…" : "Save & test"}</button><button type="button" className="primary-action" disabled={busy || !baseUrl.trim() || !model.trim() || (!settings?.hasApiKey && !apiKey.trim())} onClick={() => void save(false).catch(() => {})}>{busy ? "Saving…" : "Save settings"}</button></footer>
+      </section>
+    </div>
+  );
+}
+
+function proposalValue(value: unknown) {
+  if (Array.isArray(value)) return value.map((item) => typeof item === "string" ? item : typeof item?.text === "string" ? `${item.checked ? "[x]" : "[ ]"} ${item.text}` : JSON.stringify(item)).join("\n");
+  if (value == null || value === "") return "Not set";
+  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+}
+
+function AiProposalPanel({ proposal, busy, error, onClose, onApply }: {
+  proposal: AiProposal;
+  busy: boolean;
+  error: string | null;
+  onClose: () => void;
+  onApply: (proposal: AiProposal, selectedFields: string[]) => Promise<void>;
+}) {
+  const [selected, setSelected] = useState(() => new Set(proposal.fields.map((field) => field.field)));
+
+  function toggle(field: string, checked: boolean) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (checked) next.add(field); else next.delete(field);
+      return next;
+    });
+  }
+
+  return (
+    <div className="ai-panel-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+      <section className="ai-proposal-panel" role="dialog" aria-modal="true" aria-labelledby="ai-proposal-heading">
+        <header><div><p className="eyebrow">AI proposal · {proposal.operation}</p><h2 id="ai-proposal-heading">{proposal.summary}</h2><p>{proposal.explanation || "Review every suggested field before applying it."}</p></div><button type="button" onClick={onClose} disabled={busy} aria-label="Close AI proposal">×</button></header>
+        {proposal.context.project && <p className="ai-context-note">Context: {proposal.context.project.name} · project description, active work, open decisions, and current ideas</p>}
+        {proposal.fields.length === 0 ? (
+          <div className="empty-panel"><strong>No field changes were proposed.</strong><span>The model may need clearer source material or a more specific artifact.</span></div>
+        ) : (
+          <div className="ai-proposal-fields">
+            {proposal.fields.map((field) => (
+              <article key={field.field} className={selected.has(field.field) ? "selected" : ""}>
+                <label><input type="checkbox" checked={selected.has(field.field)} onChange={(event) => toggle(field.field, event.target.checked)} /><strong>{field.label}</strong></label>
+                <div><section><small>Current</small><pre>{proposalValue(field.current)}</pre></section><section><small>Proposed</small><pre>{proposalValue(field.proposed)}</pre></section></div>
+              </article>
+            ))}
+          </div>
+        )}
+        {proposal.questions.length > 0 && <section className="ai-questions"><h3>Questions to consider</h3><ul>{proposal.questions.map((question) => <li key={question}>{question}</li>)}</ul></section>}
+        {error && <p className="task-error" role="alert">{error}</p>}
+        <footer><span>{selected.size} of {proposal.fields.length} fields selected</span><div><button type="button" className="secondary-action" onClick={onClose} disabled={busy}>Discard</button><button type="button" className="primary-action" disabled={busy || selected.size === 0} onClick={() => void onApply(proposal, [...selected]).catch(() => {})}>{busy ? "Applying…" : "Apply selected changes"}</button></div></footer>
+      </section>
+    </div>
+  );
+}
+
 function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error, onClose, onCreate }: {
   projects: Project[];
   statuses: string[];
@@ -3362,7 +3612,7 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
   );
 }
 
-function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClose, onMove, onPatch, onToggle, onLog }: {
+function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClose, onMove, onPatch, onToggle, onLog, onAskAi, aiBusy }: {
   task: WorkTask;
   tasks: WorkTask[];
   projects: Project[];
@@ -3374,6 +3624,8 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClo
   onPatch: (patch: Record<string, unknown>) => void;
   onToggle: (section: "requirements" | "acceptance", index: number, checked: boolean) => void;
   onLog: (message: string) => Promise<void>;
+  onAskAi: (taskId: string, operation: "draft" | "review") => void;
+  aiBusy: boolean;
 }) {
   const [title, setTitle] = useState(task.title);
   const [projectPath, setProjectPath] = useState(task.projectPath ?? "");
@@ -3415,7 +3667,7 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClo
 
   return (
     <aside className="task-panel" aria-labelledby="task-detail-heading">
-      <div className="task-panel-header"><div><p className="eyebrow">{task.id} · {task.type} · {task.priority}</p><h2 id="task-detail-heading">{task.title}</h2></div><button type="button" onClick={onClose} aria-label="Close work item">×</button></div>
+      <div className="task-panel-header"><div><p className="eyebrow">{task.id} · {task.type} · {task.priority}</p><h2 id="task-detail-heading">{task.title}</h2></div><div className="task-panel-header-actions"><button type="button" className="magic-action" disabled={saving || aiBusy} onClick={() => onAskAi(task.id, "draft")}><span aria-hidden="true">✦</span> Draft</button><button type="button" className="magic-action" disabled={saving || aiBusy} onClick={() => onAskAi(task.id, "review")}><span aria-hidden="true">✦</span> Review</button><button type="button" onClick={onClose} aria-label="Close work item">×</button></div></div>
       <div className="task-state-strip"><label><span>Status</span><select value={task.status} onChange={(event) => onMove(event.target.value)} disabled={saving}>{[...statuses, "cancelled", "archived"].map((status) => <option key={status} value={status} disabled={status === "review" && progress.complete < progress.total}>{status === "review" && progress.complete < progress.total ? "Review — complete checklist first" : statusLabel(status)}</option>)}</select></label><span>{progress.complete}/{progress.total} checks complete</span><span>Updated {shortTime(task.updatedAt)}</span></div>
       {task.status === "review" && progress.complete < progress.total && <div className="task-error" role="status">This legacy review card has unchecked requirements or acceptance criteria. Verify its checklist before treating it as review-ready.</div>}
       {error && <div className="task-error" role="alert">{error}</div>}
