@@ -3465,7 +3465,7 @@ function AiSettingsPanel({ settings, busy, error, onClose, onSave, onTest }: {
       const passed = await onTest();
       if (passed) setReceipt("Connection verified.");
     } else {
-      setReceipt("AI settings saved.");
+      onClose();
     }
   }
 

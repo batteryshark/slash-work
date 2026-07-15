@@ -202,7 +202,7 @@ test("speaks the Anthropic messages protocol when selected", async () => {
     await apiRequest(api.origin, "/api/ai/settings", {
       method: "PATCH",
       headers: { "x-work-ai-settings": "confirm" },
-      body: { provider: "anthropic-compatible", baseUrl: "https://api.anthropic.com/v1", model: "claude-example", apiKey: "anthropic-secret" },
+      body: { provider: "anthropic-compatible", baseUrl: "https://api.minimax.io/anthropic", model: "MiniMax-M3", apiKey: "anthropic-secret" },
     });
     const idea = await apiRequest(api.origin, "/api/ideas", { method: "POST", body: { title: "Explore this", projectPath: "product" } });
     const proposal = await apiRequest(api.origin, "/api/ai/proposals", {
@@ -211,7 +211,7 @@ test("speaks the Anthropic messages protocol when selected", async () => {
     });
     assert.equal(proposal.response.status, 200);
     assert.equal(proposal.payload.fields[0].field, "opportunity");
-    assert.equal(request.url, "https://api.anthropic.com/v1/messages");
+    assert.equal(request.url, "https://api.minimax.io/anthropic/v1/messages");
     assert.equal(request.options.headers["x-api-key"], "anthropic-secret");
     assert.equal(request.options.headers["anthropic-version"], "2023-06-01");
     assert.equal(typeof request.body.system, "string");
