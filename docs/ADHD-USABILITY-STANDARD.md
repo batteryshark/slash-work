@@ -19,6 +19,9 @@ recovery costs.
 - The exact original wording is preserved.
 - Success is confirmed in place without a modal or focus theft.
 - A success confirmation is shown only after the durable local write succeeds.
+- The capture dock may be collapsed to a small persistent restore control when
+  it obstructs the current view. Collapsing preserves an unsent draft, and the
+  `/` shortcut restores and focuses the dock.
 
 **Pass condition:** `/`, type, Enter records a thought, clears the input, shows
 where it went, and the thought remains after a server restart.

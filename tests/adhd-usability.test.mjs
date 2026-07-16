@@ -48,6 +48,10 @@ test("makes captures immediate, durable, and visibly undoable", async () => {
   assert.match(page, /window\.setTimeout/);
   assert.match(page, /5_000/);
   assert.match(page, /Available to agents in this root/);
+  assert.match(page, /Hide capture box/);
+  assert.match(page, /Show capture box/);
+  assert.match(page, /work\.captureDockCollapsed/);
+  assert.match(page, /setCaptureDockCollapsedPersisted/);
   assert.match(page, /function openHomeSection/);
   assert.match(page, /setView\("home"\)/);
   assert.match(page, /pendingHomeSection/);
@@ -105,6 +109,8 @@ test("makes captures immediate, durable, and visibly undoable", async () => {
   assert.doesNotMatch(page, /<dialog|window\.alert|window\.confirm|\brequired=/i);
 
   assert.match(css, /min-height:\s*44px/);
+  assert.match(css, /\.capture-dock-restore/);
+  assert.match(css, /\.app-shell\.capture-collapsed/);
   assert.match(css, /\.capture-list li strong[^}]*white-space:\s*pre-wrap/);
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
   assert.match(css, /focus-visible/);
