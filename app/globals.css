@@ -418,6 +418,13 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .continue-label { display: inline-flex; align-items: center; gap: 9px; margin: 0; color: var(--accent); font-size: 13px; font-weight: 800; letter-spacing: 0.09em; text-transform: uppercase; }
 .continue-label > span { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 7px var(--accent-soft); }
 .pulse-header h1 { overflow: hidden; margin: 14px 0 5px; font-size: clamp(32px, 3vw, 44px); line-height: 1; letter-spacing: -0.045em; text-overflow: ellipsis; white-space: nowrap; }
+.project-name-heading { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.project-name-edit { display: grid; place-items: center; flex: 0 0 44px; width: 44px; height: 44px; margin-top: 9px; border: 0; border-radius: 12px; background: transparent; color: var(--muted); cursor: pointer; font-size: 22px; }
+.project-name-edit:hover { background: var(--accent-soft); color: var(--accent-dark); }
+.project-name-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 10px 0 5px; }
+.project-name-editor input { min-width: min(420px, 70vw); min-height: 46px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--surface); color: var(--ink); font-family: inherit; font-size: 20px; font-weight: 750; }
+.project-name-editor button { min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--muted); cursor: pointer; font-weight: 700; }
+.project-name-editor .project-name-folder { color: var(--accent-dark); }
 .pulse-path { color: var(--muted); font: 12px var(--mono); }
 .project-purpose { margin-top: 22px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 16px; background: var(--accent-softer); }
 .project-purpose-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }

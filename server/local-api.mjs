@@ -27,7 +27,7 @@ import {
   updateCaptureDestination,
   updateIdea,
   updateNote,
-  updateProjectDescription,
+  updateProjectProfile,
   updateTask,
   validateProjectScopePath,
   workspaceSnapshot,
@@ -506,7 +506,7 @@ async function handleRequest(workspaces, service, request, response) {
   if (method === "PATCH" && url.pathname === "/api/projects/profile") {
     const body = await readJsonBody(request);
     const projects = await discoverProjects(workspace.root);
-    sendJson(request, response, 200, await updateProjectDescription(workspace, body?.projectPath, body, projects));
+    sendJson(request, response, 200, await updateProjectProfile(workspace, body?.projectPath, body, projects));
     return;
   }
   if (method === "GET" && url.pathname === "/api/files/directory") {

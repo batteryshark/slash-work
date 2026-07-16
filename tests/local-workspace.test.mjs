@@ -353,6 +353,16 @@ test("launches on loopback, discovers only explicit projects, and contains the r
     assert.equal(projectsAfterDescription.payload.projects.find((project) => project.path === "software/rekit").description, described.payload.description);
     assert.equal(JSON.parse(await readFile(join(root, "software", "rekit", ".work", "project.json"), "utf8")).description, described.payload.description);
 
+    const renamed = await apiRequest(first.origin, "/api/projects/profile", {
+      method: "PATCH",
+      body: { projectPath: "software/rekit", name: "ReKit Studio" },
+    });
+    assert.equal(renamed.response.status, 200);
+    assert.equal(renamed.payload.name, "ReKit Studio");
+    assert.equal(renamed.payload.path, "software/rekit");
+    assert.equal(renamed.payload.description, described.payload.description);
+    assert.equal(JSON.parse(await readFile(join(root, "software", "rekit", ".work", "project.json"), "utf8")).name, "ReKit Studio");
+
     const traversal = await apiRequest(first.origin, "/api/captures", {
       method: "POST",
       body: { text: "This must stay outside", scopePath: "../outside" },
