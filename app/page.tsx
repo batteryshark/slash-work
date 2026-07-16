@@ -662,10 +662,10 @@ export default function Home() {
     await loadWorkspace();
   }
 
-  async function updateProjectPurpose(projectPath: string, description: string) {
+  async function updateProjectProfile(projectPath: string, patch: { name?: string; description?: string }) {
     const project = await requestJson<Project>("/api/projects/profile", {
       method: "PATCH",
-      body: JSON.stringify({ projectPath, description }),
+      body: JSON.stringify({ projectPath, ...patch }),
     });
     setData((current) => current ? {
       ...current,
@@ -1915,7 +1915,7 @@ export default function Home() {
               tasks={scopedTasks.filter((task) => task.projectPath === selectedProject.path)}
               onOpenBoard={() => setView("board")}
               onOpenTask={(taskId) => { setView("board"); setSelectedTaskId(taskId); }}
-              onUpdatePurpose={updateProjectPurpose}
+              onUpdateProfile={updateProjectProfile}
             />
           ) : (
             <ScopeOverview
@@ -2301,14 +2301,18 @@ function ScopeOverview({
   );
 }
 
-function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpdatePurpose }: {
+function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpdateProfile }: {
   project: Project;
   captures: Capture[];
   tasks: WorkTask[];
   onOpenBoard: () => void;
   onOpenTask: (taskId: string) => void;
-  onUpdatePurpose: (projectPath: string, description: string) => Promise<Project>;
+  onUpdateProfile: (projectPath: string, patch: { name?: string; description?: string }) => Promise<Project>;
 }) {
+  const [editingName, setEditingName] = useState(false);
+  const [name, setName] = useState(project.name);
+  const [savingName, setSavingName] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
   const [editingPurpose, setEditingPurpose] = useState(false);
   const [purpose, setPurpose] = useState(project.description ?? "");
   const [savingPurpose, setSavingPurpose] = useState(false);
@@ -2328,16 +2332,33 @@ function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpd
       : "Waiting for the first update";
 
   useEffect(() => {
+    setName(project.name);
+    setEditingName(false);
+    setNameError(null);
     setPurpose(project.description ?? "");
     setEditingPurpose(false);
     setPurposeError(null);
-  }, [project.path, project.description]);
+  }, [project.path, project.name, project.description]);
+
+  async function saveName(event: FormEvent) {
+    event.preventDefault();
+    setSavingName(true);
+    setNameError(null);
+    try {
+      await onUpdateProfile(project.path, { name: name.trim() });
+      setEditingName(false);
+    } catch (error) {
+      setNameError(error instanceof Error ? error.message : "The project name could not be saved.");
+    } finally {
+      setSavingName(false);
+    }
+  }
 
   async function savePurpose() {
     setSavingPurpose(true);
     setPurposeError(null);
     try {
-      await onUpdatePurpose(project.path, purpose.trim());
+      await onUpdateProfile(project.path, { description: purpose.trim() });
       setEditingPurpose(false);
     } catch (error) {
       setPurposeError(error instanceof Error ? error.message : "The project purpose could not be saved.");
@@ -2351,8 +2372,21 @@ function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpd
       <header className="pulse-header">
         <div>
           <p className="continue-label"><span aria-hidden="true" /> Project pulse</p>
-          <h1>{project.name}</h1>
+          {editingName ? (
+            <form className="project-name-editor" onSubmit={(event) => void saveName(event)}>
+              <input autoFocus value={name} onChange={(event) => setName(event.target.value)} maxLength={120} aria-label="Project name" />
+              <button type="button" className="project-name-folder" onClick={() => setName(project.path.split("/").at(-1) ?? project.name)}>Use folder name</button>
+              <button type="button" onClick={() => { setName(project.name); setEditingName(false); setNameError(null); }}>Cancel</button>
+              <button type="submit" className="primary-action" disabled={savingName || !name.trim()}>{savingName ? "Saving…" : "Save"}</button>
+            </form>
+          ) : (
+            <div className="project-name-heading">
+              <h1>{project.name}</h1>
+              <button type="button" className="project-name-edit" aria-label="Edit project name" title="Edit project name" onClick={() => setEditingName(true)}><span aria-hidden="true">✎</span></button>
+            </div>
+          )}
           <span className="pulse-path">{project.path}</span>
+          {nameError && <p className="field-error" role="alert">{nameError}</p>}
         </div>
         <button type="button" className="primary-action" onClick={onOpenBoard}>Open board<span aria-hidden="true">→</span></button>
       </header>

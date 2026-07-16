@@ -87,6 +87,11 @@ test("exposes the same versioned capability catalog and canonical OpenAPI over H
     assert.equal(task.response.status, 200);
     assert.equal(task.payload.operation.inputSchema.properties.projectPath.description.includes("Never infer"), true);
 
+    const projectProfile = await requestJson(api.origin, "/api/agent/operations/projects.update-profile");
+    assert.equal(projectProfile.response.status, 200);
+    assert.equal(projectProfile.payload.operation.inputSchema.properties.name.maxLength, 120);
+    assert.deepEqual(projectProfile.payload.operation.inputSchema.anyOf, [{ required: ["name"] }, { required: ["description"] }]);
+
     const review = await requestJson(api.origin, "/api/agent/operations/notes.request-review");
     assert.equal(review.payload.operation.recipeFor, "notes.update");
     assert.equal(review.payload.operation.example.agentIntent, "review_requested");
@@ -105,6 +110,7 @@ test("exposes the same versioned capability catalog and canonical OpenAPI over H
     assert.equal(openapi.payload.paths["/api/notes/{id}"].patch.operationId, "notes.update");
     assert.equal(openapi.payload.paths["/api/ideas"].get.operationId, "ideas.list");
     assert.equal(openapi.payload.paths["/api/ideas/{id}"].patch.operationId, "ideas.update");
+    assert.equal(openapi.payload.paths["/api/projects/profile"].patch.operationId, "projects.update-profile");
 
     const missing = await requestJson(api.origin, "/api/agent/operations/unknown.operation");
     assert.equal(missing.response.status, 404);
