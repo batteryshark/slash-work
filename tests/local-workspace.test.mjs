@@ -62,13 +62,14 @@ async function apiRequest(origin, pathname, { body, ...options } = {}) {
   return { response, payload };
 }
 
-async function launchApiFromCli(root) {
+async function launchApiFromCli(root, { cwd = repositoryRoot, registryPath = root ? join(root, ".work-test-roots.json") : null } = {}) {
+  if (!registryPath) throw new Error("launchApiFromCli requires a registry path when no root is supplied.");
   const child = spawn(
     process.execPath,
-    [launcherPath.pathname, "serve", root, "--no-ui", "--api-port", "0"],
+    [launcherPath.pathname, "serve", ...(root ? [root] : []), "--no-ui", "--api-port", "0"],
     {
-      cwd: repositoryRoot,
-      env: { ...process.env, WORK_REGISTRY_FILE: join(root, ".work-test-roots.json") },
+      cwd,
+      env: { ...process.env, WORK_REGISTRY_FILE: registryPath },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
@@ -219,6 +220,48 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   try {
     const health = await apiRequest(launched.origin, "/api/health");
     assert.equal(health.response.status, 200);
+  } finally {
+    const exited = once(launched.child, "exit");
+    launched.child.kill("SIGTERM");
+    await exited;
+  }
+});
+
+test("register keeps an explicitly selected nested workspace root exact", async () => {
+  const parent = await temporaryDirectory("work-register-parent-");
+  const nested = join(parent, "data", "build", "project");
+  const registryPath = join(parent, "roots.json");
+  await mkdir(nested, { recursive: true });
+  const canonicalNested = await realpath(nested);
+  await execFile(process.execPath, [launcherPath.pathname, "init", parent], { cwd: repositoryRoot });
+
+  const registered = await execFile(process.execPath, [launcherPath.pathname, "register", nested], {
+    cwd: parent,
+    env: { ...process.env, WORK_REGISTRY_FILE: registryPath },
+  });
+
+  assert.match(registered.stdout, new RegExp(`Root: ${canonicalNested.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  assert.equal(JSON.parse(await readFile(join(nested, ".work", "workspace.json"), "utf8")).version, 1);
+  assert.deepEqual(JSON.parse(await readFile(registryPath, "utf8")).roots.map((entry) => entry.root), [canonicalNested]);
+});
+
+test("serve does not silently restore an unregistered workspace around the launch directory", async () => {
+  const parent = await temporaryDirectory("work-unregistered-parent-");
+  const selected = join(parent, "data", "build", "project");
+  const registryPath = join(parent, "roots.json");
+  await mkdir(selected, { recursive: true });
+  const canonicalSelected = await realpath(selected);
+  await execFile(process.execPath, [launcherPath.pathname, "init", parent], { cwd: repositoryRoot });
+  await execFile(process.execPath, [launcherPath.pathname, "register", selected], {
+    cwd: parent,
+    env: { ...process.env, WORK_REGISTRY_FILE: registryPath },
+  });
+
+  const launched = await launchApiFromCli(null, { cwd: parent, registryPath });
+  try {
+    const snapshot = await apiRequest(launched.origin, "/api/workspace");
+    assert.equal(snapshot.payload.workspace.root, canonicalSelected);
+    assert.deepEqual(JSON.parse(await readFile(registryPath, "utf8")).roots.map((entry) => entry.root), [canonicalSelected]);
   } finally {
     const exited = once(launched.child, "exit");
     launched.child.kill("SIGTERM");
