@@ -471,6 +471,10 @@ export default function Home() {
   const [captureMoveSearch, setCaptureMoveSearch] = useState("");
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [captureReceipt, setCaptureReceipt] = useState<CaptureReceipt | null>(null);
+  const [captureDockCollapsed, setCaptureDockCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("work.captureDockCollapsed") === "true";
+  });
   const [systemMenuOpen, setSystemMenuOpen] = useState(false);
   const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
@@ -848,12 +852,20 @@ export default function Home() {
       const isTyping = target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.isContentEditable;
       if (event.key === "/" && !isTyping) {
         event.preventDefault();
-        inputRef.current?.focus();
+        setCaptureDockCollapsed(false);
+        localStorage.setItem("work.captureDockCollapsed", "false");
+        window.requestAnimationFrame(() => inputRef.current?.focus());
       }
     };
     window.addEventListener("keydown", onGlobalKeyDown);
     return () => window.removeEventListener("keydown", onGlobalKeyDown);
   }, []);
+
+  function setCaptureDockCollapsedPersisted(collapsed: boolean, focus = false) {
+    setCaptureDockCollapsed(collapsed);
+    localStorage.setItem("work.captureDockCollapsed", String(collapsed));
+    if (!collapsed && focus) window.requestAnimationFrame(() => inputRef.current?.focus());
+  }
 
   useEffect(() => {
     const input = inputRef.current;
@@ -1589,7 +1601,7 @@ export default function Home() {
   const rootProject = data.projects.find((project) => project.path === ".");
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${captureDockCollapsed ? "capture-collapsed" : ""}`}>
       <a className="skip-link" href="#main-content">Skip to this scope</a>
 
       <header className="topbar">
@@ -2194,7 +2206,24 @@ export default function Home() {
         <AiProposalPanel proposal={aiProposal} busy={aiBusy} error={aiError} onClose={() => { setAiProposal(null); setAiError(null); }} onApply={applyAiProposal} />
       )}
 
-      <div className="capture-dock">
+      {captureDockCollapsed ? (
+        <button
+          type="button"
+          className="capture-dock-restore"
+          aria-label="Show capture box"
+          onClick={() => setCaptureDockCollapsedPersisted(false, true)}
+        >
+          <span aria-hidden="true">⌃</span><strong>Capture</strong>
+        </button>
+      ) : <div className="capture-dock" id="capture-dock">
+        <button
+          type="button"
+          className="capture-dock-collapse"
+          aria-label="Hide capture box"
+          aria-controls="capture-dock"
+          aria-expanded="true"
+          onClick={() => setCaptureDockCollapsedPersisted(true)}
+        ><span aria-hidden="true">⌄</span></button>
         {captureReceipt && (
           <div className="capture-receipt" role="status" aria-live="polite">
             <span className="receipt-check" aria-hidden="true">✓</span>
@@ -2239,7 +2268,7 @@ export default function Home() {
             <span>{lastSyncedAt ? `Synced ${shortTime(lastSyncedAt.toISOString())}` : "Connecting…"}</span>
           </div>
         </div>
-      </div>
+      </div>}
     </div>
   );
 }
