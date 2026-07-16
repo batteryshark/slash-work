@@ -83,7 +83,9 @@ can start `work` without a path and switch among recent roots from the root
 button in the web header—including from a narrow phone-sized browser. Use
 **Choose folder…** to open the operating system's folder picker. Selecting a
 directory registers it and creates its top-level `.work/` workspace when
-needed. The CLI remains available for scripted setup:
+needed. The CLI remains available for scripted setup. `work register` treats
+the supplied directory as the exact root even when an ancestor is already a
+Work workspace:
 
 ```bash
 work register ~/Home

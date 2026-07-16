@@ -47,7 +47,7 @@ Usage:
   work [root]                         Start the local UI and API
   work serve [root]                   Start the local UI and API
   work init [root]                    Create a workspace at this exact root
-  work register [root]                Approve a root for the web workspace picker
+  work register [root]                Register this exact root for the workspace picker
   work unregister <id|root>           Remove a root from the web workspace picker
   work roots                          List roots available to the web workspace picker
   work agent                          Print the agent capability bootstrap
@@ -207,7 +207,7 @@ async function runInit(options, positionals) {
 
 async function runRegister(options, positionals) {
   if (positionals.length > 1) throw new WorkspaceError("register accepts only one root path.");
-  const workspace = await registerWorkspace(await selectedRoot(options, positionals[0]), { force: options.forceInit === true });
+  const workspace = await registerWorkspace(await selectedRoot(options, positionals[0]), { force: true });
   console.log(`Registered ${workspace.name}`);
   console.log(`Root: ${workspace.root}`);
 }
@@ -423,14 +423,17 @@ async function stopUiServer(server) {
 async function runServer(options, positionals) {
   if (positionals.length > 1) throw new WorkspaceError("serve accepts only one root path.");
   const explicitRoot = options.root ?? positionals[0] ?? null;
+  let registered = await listRegisteredWorkspaces();
   let activeWorkspace;
   if (explicitRoot) {
     activeWorkspace = await registerWorkspace(explicitRoot, { force: options.forceInit === true });
   } else {
     const nearbyRoot = await findWorkspaceRoot(process.cwd());
-    if (nearbyRoot) activeWorkspace = await registerWorkspace(nearbyRoot);
+    activeWorkspace = registered.find((workspace) => workspace.root === nearbyRoot);
+    if (!activeWorkspace && nearbyRoot && registered.length === 0) {
+      activeWorkspace = await registerWorkspace(nearbyRoot);
+    }
   }
-  let registered = await listRegisteredWorkspaces();
   if (!activeWorkspace && registered.length === 0) {
     activeWorkspace = await registerWorkspace(process.cwd(), { force: options.forceInit === true });
     registered = [activeWorkspace];
