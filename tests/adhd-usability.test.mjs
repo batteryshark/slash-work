@@ -86,6 +86,9 @@ test("makes captures immediate, durable, and visibly undoable", async () => {
   assert.match(page, /Why this project exists/);
   assert.match(page, /\/api\/projects\/profile/);
   assert.match(server, /updateProjectProfile/);
+  assert.match(page, /Human notes stay protected/);
+  assert.match(page, /Agent: \$\{selectedNote\.createdBy\.name\}/);
+  assert.match(server, /X-Work-Agent/);
   assert.match(page, /Current work/);
   assert.match(page, /Latest progress/);
   assert.match(page, /\.slice\(0, 3\)/);
@@ -227,6 +230,10 @@ test("requires an explicit recorded choice for every human decision", async () =
   const page = await readFile(new URL("app/page.tsx", root), "utf8");
 
   assert.match(page, /Choose one option/);
+  assert.match(page, /Agent recommendation/);
+  assert.match(page, /\[\.\.\.decision\.options, "Other"\]/);
+  assert.match(page, /choosingOther/);
+  assert.match(page, /Write a different answer below/);
   assert.match(page, /Your answer/);
   assert.match(page, /selectedOption/);
   assert.match(page, /choice = \{ option: draft\.selectedOption \}/);

@@ -15,9 +15,13 @@ test("publishes a machine-readable schema for every Markdown artifact type", asy
   );
   assert.deepEqual(schema.$defs.capture.properties.kind.enum, ["idea", "question", "update"]);
   assert.deepEqual(schema.$defs.note.properties.agentIntent.enum, ["reference_only", "review_requested"]);
+  assert.ok(schema.$defs.note.required.includes("createdBy"));
+  assert.equal(schema.$defs.note.properties.createdBy.oneOf[1].properties.kind.const, "agent");
   assert.deepEqual(schema.$defs.idea.properties.status.enum, ["open", "exploring", "deferred", "proposed", "adopted", "declined"]);
   assert.deepEqual(schema.$defs.idea.properties.agentIntent.enum, ["consideration_only", "evaluation_requested"]);
   assert.ok(schema.$defs.decision.properties.status.enum.includes("kept_unassigned"));
+  assert.ok(schema.$defs.decision.required.includes("recommendedOption"));
+  assert.equal(schema.$defs.decision.properties.recommendedOption.oneOf[1].type, "null");
   assert.deepEqual(
     schema.$defs.task.properties.taskType.enum,
     ["task", "bug", "feature", "research", "admin", "epic", "idea"],

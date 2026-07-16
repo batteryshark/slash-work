@@ -72,6 +72,7 @@ Options:
   --kind <kind>       idea, question, or update
   --detail <text>     Decision context
   --option <text>     Decision option; may be repeated
+  --recommend <text>  Recommend one exact recorded decision option
   --type <type>       task, bug, feature, research, admin, epic, or idea
   --priority <level>  critical, high, medium, low, or none
   --assignee <name>   Human owner
@@ -116,6 +117,7 @@ function parseArguments(argv) {
     ["--kind", "kind"],
     ["--detail", "detail"],
     ["--option", "option"],
+    ["--recommend", "recommend"],
     ["--type", "type"],
     ["--priority", "priority"],
     ["--assignee", "assignee"],
@@ -309,6 +311,7 @@ async function runDecision(options, positionals) {
       detail: options.detail ?? "",
       projectPath: options.project ?? null,
       options: options.option,
+      recommendedOption: options.recommend ?? null,
     },
     projects,
   );

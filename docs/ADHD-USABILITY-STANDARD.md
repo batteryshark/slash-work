@@ -45,8 +45,10 @@ text.
 - Ordinary work, notifications, activity, and stale ideas do not enter this
   queue.
 - Details stay collapsed until requested.
-- A decision presents the actual alternatives, including **Decide later** when
-  deferral is safe. A lone action button may not masquerade as approval.
+- A decision presents the actual alternatives, an always-available **Other**
+  choice for a written answer, and an optional non-binding recommendation. It
+  includes **Decide later** when deferral is safe. A lone action button may not
+  masquerade as approval.
 - Expanding a decision does not resolve it. Choosing an option produces a
   visible, durable result.
 

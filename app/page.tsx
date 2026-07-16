@@ -38,6 +38,7 @@ type ProjectNote = {
   scopePath: string;
   projectPath: string | null;
   agentIntent: "reference_only" | "review_requested";
+  createdBy: { kind: "human"; name: null } | { kind: "agent"; name: string };
   createdAt: string;
   updatedAt: string;
 };
@@ -124,6 +125,7 @@ type Decision = {
   detail: string;
   projectPath: string | null;
   options: string[];
+  recommendedOption: string | null;
   status:
     | "open"
     | "approved"
@@ -1993,7 +1995,13 @@ export default function Home() {
                 const open = expandedDecision === decision.id;
                 const draft = draftFor(decision.id);
                 const hasExplicitOptions = decision.options.length > 0;
-                const hasDecisionResponse = hasExplicitOptions ? Boolean(draft.selectedOption) : Boolean(draft.response.trim());
+                const choosingOther = draft.selectedOption === "Other";
+                const hasDecisionResponse = hasExplicitOptions
+                  ? Boolean(draft.selectedOption) && (!choosingOther || Boolean(draft.response.trim()))
+                  : Boolean(draft.response.trim());
+                const displayedOptions = hasExplicitOptions && !decision.options.includes("Other")
+                  ? [...decision.options, "Other"]
+                  : decision.options;
                 const canConfirm = Boolean(
                   draft.action
                   && (draft.action !== "assign" || draft.projectPath)
@@ -2015,7 +2023,7 @@ export default function Home() {
                         {decision.detail && <p className="decision-detail">{decision.detail}</p>}
                         <fieldset>
                           <legend>{hasExplicitOptions ? "Choose one option" : "What is your decision?"}</legend>
-                          {hasExplicitOptions ? decision.options.map((option) => (
+                          {hasExplicitOptions ? displayedOptions.map((option) => (
                             <label className={`decision-choice ${draft.selectedOption === option ? "selected" : ""}`} key={option}>
                               <input
                                 type="radio"
@@ -2024,7 +2032,11 @@ export default function Home() {
                                 checked={draft.selectedOption === option}
                                 onChange={() => updateDraft(decision.id, { action: "approve", selectedOption: option })}
                               />
-                              <span><strong>{option}</strong></span>
+                              <span>
+                                <strong>{option}</strong>
+                                {option === decision.recommendedOption && <small className="decision-recommended">Agent recommendation</small>}
+                                {option === "Other" && <small>Write a different answer below.</small>}
+                              </span>
                             </label>
                           )) : (
                             <label className="decision-response">
@@ -2038,9 +2050,9 @@ export default function Home() {
                             </label>
                           )}
                           {hasExplicitOptions && (
-                            <label className="decision-response optional">
-                              <span>Reason or context <small>(optional)</small></span>
-                              <textarea value={draft.response} onChange={(event) => updateDraft(decision.id, { response: event.target.value })} placeholder="Why this option?" />
+                            <label className={`decision-response ${choosingOther ? "" : "optional"}`}>
+                              <span>{choosingOther ? "Your answer" : <>Reason or context <small>(optional)</small></>}</span>
+                              <textarea value={draft.response} onChange={(event) => updateDraft(decision.id, { response: event.target.value })} placeholder={choosingOther ? "Write the decision or direction that should be recorded…" : "Why this option?"} />
                             </label>
                           )}
                         </fieldset>
@@ -3105,7 +3117,7 @@ function NotesView({
         <div>
           <p className="eyebrow">{scopeKind === "project" ? "Project notebook" : scopeKind === "root" ? "Workspace notebook" : "Folder notebook"}</p>
           <h1 id="notes-heading">{scopeLabel} notes</h1>
-          <p>Plain-text working notes kept beside the project. They are personal reference unless you explicitly request an agent review.</p>
+          <p>Plain-text working notes kept beside the project. Human notes stay protected; agent-created notes show who contributed them.</p>
         </div>
         <button type="button" className="primary-action" disabled={creating} onClick={() => void createNote()}>
           {creating ? "Creating…" : "New note"}<span aria-hidden="true">＋</span>
@@ -3144,6 +3156,7 @@ function NotesView({
                   >
                     <span className="note-list-title">
                       <strong>{note.title}</strong>
+                      {note.createdBy.kind === "agent" && <em>Agent · {note.createdBy.name}</em>}
                       {note.agentIntent === "review_requested" && <em>Agent review</em>}
                     </span>
                     <span className="note-list-preview">{preview}</span>
@@ -3171,7 +3184,7 @@ function NotesView({
                     aria-label="Note title"
                   />
                 </label>
-                <span>{noteLocation(selectedNote)}</span>
+                <span>{noteLocation(selectedNote)}{selectedNote.createdBy.kind === "agent" ? ` · Agent: ${selectedNote.createdBy.name}` : " · Human note"}</span>
               </div>
               <div className={`note-agent-intent ${selectedNote.agentIntent === "review_requested" ? "review-requested" : "reference-only"}`}>
                 <div>

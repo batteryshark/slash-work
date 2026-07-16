@@ -92,9 +92,19 @@ test("exposes the same versioned capability catalog and canonical OpenAPI over H
     assert.equal(projectProfile.payload.operation.inputSchema.properties.name.maxLength, 120);
     assert.deepEqual(projectProfile.payload.operation.inputSchema.anyOf, [{ required: ["name"] }, { required: ["description"] }]);
 
+    const createDecision = await requestJson(api.origin, "/api/agent/operations/decisions.create");
+    assert.equal(createDecision.payload.operation.inputSchema.properties.recommendedOption.oneOf[1].type, "null");
+    assert.ok(createDecision.payload.operation.rules.some((rule) => /never preselects/i.test(rule)));
+
     const review = await requestJson(api.origin, "/api/agent/operations/notes.request-review");
     assert.equal(review.payload.operation.recipeFor, "notes.update");
     assert.equal(review.payload.operation.example.agentIntent, "review_requested");
+    assert.equal(review.payload.operation.transport.api.path, "/api/agent/notes/{id}");
+    assert.equal(review.payload.operation.headers["X-Work-Agent"].maxLength, 120);
+
+    const createNote = await requestJson(api.origin, "/api/agent/operations/notes.create");
+    assert.equal(createNote.payload.operation.transport.api.path, "/api/agent/notes");
+    assert.equal(createNote.payload.operation.inputSchema.properties.agentIntent.const, "reference_only");
 
     const schema = await requestJson(api.origin, "/api/agent/schemas/artifacts/idea");
     assert.equal(schema.response.status, 200);
@@ -107,7 +117,9 @@ test("exposes the same versioned capability catalog and canonical OpenAPI over H
     assert.equal(openapi.payload.paths["/api/tasks"].post.operationId, "tasks.create");
     assert.equal(openapi.payload.paths["/api/tasks"].post.parameters.some((parameter) => parameter.name === "X-Work-Workspace"), true);
     assert.equal(openapi.payload.paths["/api/notes"].get.operationId, "notes.list");
-    assert.equal(openapi.payload.paths["/api/notes/{id}"].patch.operationId, "notes.update");
+    assert.equal(openapi.payload.paths["/api/agent/notes/{id}"].patch.operationId, "notes.update");
+    assert.equal(openapi.payload.paths["/api/agent/notes"].post.operationId, "notes.create");
+    assert.equal(openapi.payload.paths["/api/agent/notes"].post.parameters.some((parameter) => parameter.name === "X-Work-Agent" && parameter.in === "header"), true);
     assert.equal(openapi.payload.paths["/api/ideas"].get.operationId, "ideas.list");
     assert.equal(openapi.payload.paths["/api/ideas/{id}"].patch.operationId, "ideas.update");
     assert.equal(openapi.payload.paths["/api/projects/profile"].patch.operationId, "projects.update-profile");
