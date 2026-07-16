@@ -101,6 +101,12 @@ inject headings. An empty body is valid.
 - `review_requested`: asks an agent to review promptly, but still does not
   authorize execution.
 
+`createdBy` records durable provenance. Existing and UI-created notes use
+`{"kind":"human","name":null}`. Agent note routes stamp
+`{"kind":"agent","name":"<harness name>"}` from `X-Work-Agent`. Agents may
+update or delete only notes bearing their own exact agent name; humans retain
+control of every note in the UI.
+
 ```markdown
 ---
 id: "note_mabc1234_ab12cd34ef56"
@@ -109,6 +115,7 @@ title: "Release context"
 scopePath: "software/rekit"
 projectPath: "software/rekit"
 agentIntent: "reference_only"
+createdBy: {"kind":"human","name":null}
 createdAt: "2026-07-13T14:30:00.000Z"
 updatedAt: "2026-07-13T14:30:00.000Z"
 ---
@@ -188,7 +195,9 @@ action.
 A decision records a question, its alternatives, and explicit resolution
 history. The title must be one line. Options are one-line strings, with at most
 50 entries. The header's `options` array is authoritative; mirror it in the
-body for people to read.
+body for people to read. `recommendedOption` is null or exactly matches one
+recorded option. A recommendation is context for the human; it never preselects
+or approves the option.
 
 Statuses are `open`, `approved`, `rejected`, `deferred`, `cancelled`,
 `assigned`, and `kept_unassigned`. A new decision starts `open`, with a null
@@ -202,6 +211,7 @@ type: "decision"
 title: "Where should the release task live?"
 projectPath: null
 options: ["Keep unassigned","Assign to software/rekit"]
+recommendedOption: "Keep unassigned"
 status: "open"
 resolution: null
 history: []
@@ -230,8 +240,10 @@ Allowed actions are `approve`, `reject`, `defer`, `cancel`, `assign`,
 `keep_unassigned`, and `reopen`. `assign` uses
 `{"projectPath":"exact/discovered/path"}` as its choice; `defer` uses
 `{"until":"<ISO timestamp>"}`. When the decision declares options, `approve`
-records the exact selected option as `{"option":"the recorded option"}`. A
-decision without options requires a non-empty written response in `note`.
+records the exact selected option as `{"option":"the recorded option"}`. The
+UI always adds an **Other** choice; it records `{"option":"Other"}` and requires
+the human's written answer in `note`. A decision without options also requires
+a non-empty written response in `note`.
 Other choices are null. `reopen` sets
 `resolution` to null but keeps the appended history event. Assignment and
 keeping unassigned also move the file to the corresponding physical store.

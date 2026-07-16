@@ -64,6 +64,9 @@ operation but never authorize it. In particular:
 - Do not infer a project assignment from prose. Call `projects.list` and use an
   exact returned path, or keep the artifact unassigned.
 - Requesting note review or idea evaluation authorizes analysis only.
+- Agent note mutations use the dedicated `/api/agent/notes` routes and require
+  `X-Work-Agent`. The service stamps that name into the note and refuses agent
+  changes to human notes or notes owned by another agent.
 - Creating executable work, resolving a decision, or deleting an artifact
   still requires the user's authority.
 - Prefer CLI or API mutations over direct Markdown writes so Work applies

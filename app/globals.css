@@ -549,6 +549,7 @@ button.upcoming-item:hover { border-radius: 10px; background: var(--accent-softe
 .decision-choice input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); }
 .decision-choice > span { display: grid; gap: 4px; }
 .decision-choice small { color: var(--muted); line-height: 1.35; }
+.decision-choice small.decision-recommended { width: fit-content; padding: 3px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-dark); font-size: 11px; font-weight: 800; }
 .decision-response { display: grid; gap: 8px; margin-top: 12px; color: var(--ink); font-weight: 720; }
 .decision-response small { color: var(--muted); font-weight: 600; }
 .decision-response textarea { min-height: 108px; resize: vertical; }

@@ -126,7 +126,7 @@
       "title": "Note",
       "type": "object",
       "additionalProperties": false,
-      "required": ["artifactType", "id", "title", "scopePath", "projectPath", "agentIntent", "createdAt", "updatedAt", "text"],
+      "required": ["artifactType", "id", "title", "scopePath", "projectPath", "agentIntent", "createdBy", "createdAt", "updatedAt", "text"],
       "properties": {
         "artifactType": { "const": "note" },
         "id": { "type": "string", "pattern": "^note_[a-z0-9][a-z0-9_-]{7,80}$" },
@@ -134,7 +134,14 @@
         "scopePath": { "$ref": "#/$defs/scopePath" },
         "projectPath": { "$ref": "#/$defs/projectPath" },
         "agentIntent": { "enum": ["reference_only", "review_requested"] },
+        "createdBy": {
+          "oneOf": [
+            { "type": "object", "additionalProperties": false, "required": ["kind", "name"], "properties": { "kind": { "const": "human" }, "name": { "type": "null" } } },
+            { "type": "object", "additionalProperties": false, "required": ["kind", "name"], "properties": { "kind": { "const": "agent" }, "name": { "type": "string", "minLength": 1, "maxLength": 120 } } }
+          ]
+        },
         "createdAt": { "$ref": "#/$defs/isoDateTime" },
+        "updatedAt": { "$ref": "#/$defs/isoDateTime" },
         "text": { "type": "string", "maxLength": 100000 }
       }
     },
@@ -173,7 +180,7 @@
       "title": "Decision",
       "type": "object",
       "additionalProperties": false,
-      "required": ["artifactType", "id", "title", "detail", "projectPath", "options", "status", "resolution", "history", "createdAt", "updatedAt"],
+      "required": ["artifactType", "id", "title", "detail", "projectPath", "options", "recommendedOption", "status", "resolution", "history", "createdAt", "updatedAt"],
       "properties": {
         "artifactType": { "const": "decision" },
         "id": { "type": "string", "pattern": "^decision_[a-z0-9][a-z0-9_-]{7,80}$" },
@@ -185,6 +192,7 @@
           "maxItems": 50,
           "items": { "type": "string", "minLength": 1, "maxLength": 500, "pattern": "^[^\\r\\n]+$" }
         },
+        "recommendedOption": { "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 500 }, { "type": "null" }] },
         "status": { "enum": ["open", "approved", "rejected", "deferred", "cancelled", "assigned", "kept_unassigned"] },
         "resolution": { "oneOf": [{ "$ref": "#/$defs/decisionEvent" }, { "type": "null" }] },
         "history": { "type": "array", "items": { "$ref": "#/$defs/decisionEvent" } },

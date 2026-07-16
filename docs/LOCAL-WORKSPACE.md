@@ -141,9 +141,14 @@ Important behavior:
   retain a reason and may retain a revisit date;
 - decision actions are explicit: assign, keep unassigned, approve, reject,
   defer, cancel, and reopen as appropriate to that decision;
-- decision options are rendered as the actual human choices; decisions without
-  options require a written response instead of substituting assignment;
+- decision options are rendered as the actual human choices, with an optional
+  non-binding agent recommendation and an always-available written **Other**
+  choice; decisions without options require a written response instead of
+  substituting assignment;
 - resolution records what was chosen, any explanation, and when;
+- note provenance distinguishes human notes from named agent-created notes;
+  agents may mutate only notes carrying their own exact creator name, while
+  humans retain control through the UI;
 - restarting reads the existing files instead of seeding example data;
 - unknown fields and Markdown body content are preserved when possible;
 - files remain useful with the app stopped.

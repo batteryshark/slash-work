@@ -166,6 +166,18 @@ function routeId(pathname, resource, suffix = "") {
   }
 }
 
+function requiredAgentName(request) {
+  const value = request.headers["x-work-agent"];
+  if (typeof value !== "string" || !value.trim()) {
+    throw new WorkspaceError("Agent note operations require X-Work-Agent.", { code: "agent_identity_required", status: 400 });
+  }
+  const name = value.trim();
+  if (name.length > 120 || /[\r\n]/.test(name)) {
+    throw new WorkspaceError("X-Work-Agent must be a one-line name of at most 120 characters.", { code: "invalid_agent_identity" });
+  }
+  return name;
+}
+
 function publicWorkspace(workspace) {
   return { id: workspace.id, name: workspace.name, root: workspace.root };
 }
@@ -200,7 +212,7 @@ async function handleRequest(workspaces, service, request, response) {
     response.writeHead(
       204,
       responseHeaders(request, {
-        "Access-Control-Allow-Headers": "Content-Type, X-Work-AI-Apply, X-Work-AI-Settings, X-Work-Folder-Picker, X-Work-Restart, X-Work-Unregister, X-Work-Workspace",
+        "Access-Control-Allow-Headers": "Content-Type, X-Work-Agent, X-Work-AI-Apply, X-Work-AI-Settings, X-Work-Folder-Picker, X-Work-Restart, X-Work-Unregister, X-Work-Workspace",
         "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
         "Access-Control-Max-Age": "600",
       }),
@@ -547,6 +559,27 @@ async function handleRequest(workspaces, service, request, response) {
   }
   if (method === "GET" && url.pathname === "/api/notes") {
     sendJson(request, response, 200, { notes: await listNotes(workspace) });
+    return;
+  }
+  if (method === "POST" && url.pathname === "/api/agent/notes") {
+    const agentName = requiredAgentName(request);
+    const body = await readJsonBody(request);
+    const projects = await discoverProjects(workspace.root);
+    sendJson(request, response, 201, await createNote(workspace, { ...body, agentIntent: "reference_only" }, projects, {
+      createdBy: { kind: "agent", name: agentName },
+    }));
+    return;
+  }
+  const agentNoteId = routeId(url.pathname, "agent/notes");
+  if (method === "PATCH" && agentNoteId) {
+    const agentName = requiredAgentName(request);
+    sendJson(request, response, 200, await updateNote(workspace, agentNoteId, await readJsonBody(request), { agentName }));
+    return;
+  }
+  if (method === "DELETE" && agentNoteId) {
+    const agentName = requiredAgentName(request);
+    await deleteNote(workspace, agentNoteId, { agentName });
+    sendEmpty(request, response);
     return;
   }
   if (method === "POST" && url.pathname === "/api/notes") {

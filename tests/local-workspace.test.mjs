@@ -179,6 +179,8 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
       "Keep unassigned",
       "--option",
       "Assign later",
+      "--recommend",
+      "Keep unassigned",
     ],
     { cwd: descendant },
   );
@@ -192,6 +194,8 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   );
   assert.ok(decisionMarkdown.includes("Where should the lab live?"));
   assert.ok(decisionMarkdown.includes("Keep unassigned"));
+  assert.match(decisionMarkdown, /recommendedOption: "Keep unassigned"/);
+  assert.match(decisionMarkdown, /Keep unassigned — Recommended/);
 
   const createdTask = await execFile(
     process.execPath,
@@ -1014,6 +1018,7 @@ test("keeps editable plain-text notes alongside their project", async () => {
     assert.equal(created.payload.title, "Strategy fragments");
     assert.equal(created.payload.projectPath, "software/rekit");
     assert.equal(created.payload.agentIntent, "reference_only");
+    assert.deepEqual(created.payload.createdBy, { kind: "human", name: null });
     noteId = created.payload.id;
 
     const pathname = join(root, "software", "rekit", ".work", "notes", `${noteId}.md`);
@@ -1021,6 +1026,7 @@ test("keeps editable plain-text notes alongside their project", async () => {
     assert.match(stored, /type: "note"/);
     assert.match(stored, /title: "Strategy fragments"/);
     assert.match(stored, /agentIntent: "reference_only"/);
+    assert.match(stored, /createdBy: \{"kind":"human","name":null\}/);
     assert.ok(stored.includes("Questions to revisit:\nKeep this as ordinary text."));
     assert.deepEqual(await readdir(join(root, ".work", "notes")), []);
 
@@ -1039,6 +1045,7 @@ Existing notes must remain passive by default.
 `);
     const listed = await apiRequest(first.origin, "/api/notes");
     assert.equal(listed.payload.notes.find((note) => note.id === legacyNoteId)?.agentIntent, "reference_only");
+    assert.deepEqual(listed.payload.notes.find((note) => note.id === legacyNoteId)?.createdBy, { kind: "human", name: null });
     assert.match(await readFile(join(root, "software", "rekit", ".work", "notes", `${legacyNoteId}.md`), "utf8"), /agentIntent: "reference_only"/);
     const removedLegacy = await apiRequest(first.origin, `/api/notes/${legacyNoteId}`, { method: "DELETE" });
     assert.equal(removedLegacy.response.status, 204);
@@ -1079,12 +1086,87 @@ Existing notes must remain passive by default.
     assert.equal(note.text, "A revised thought.\n\nA second paragraph.");
     assert.equal(note.projectPath, "software/rekit");
     assert.equal(note.agentIntent, "review_requested");
+    assert.deepEqual(note.createdBy, { kind: "human", name: null });
 
     const removed = await apiRequest(restarted.origin, `/api/notes/${encodeURIComponent(noteId)}`, { method: "DELETE" });
     assert.equal(removed.response.status, 204);
     assert.deepEqual(await readdir(join(root, "software", "rekit", ".work", "notes")), []);
   } finally {
     await closeLocalApi(restarted.server);
+  }
+});
+
+test("attributes agent-created notes and contains agent mutations to their own notes", async () => {
+  const { root } = await makeWorkspaceFixture();
+  const api = await startLocalApi({ root, port: 0 });
+
+  try {
+    const human = await apiRequest(api.origin, "/api/notes", {
+      method: "POST",
+      body: { title: "Human plan", text: "Do not rewrite this.", projectPath: "software/rekit" },
+    });
+    assert.equal(human.response.status, 201);
+
+    const missingIdentity = await apiRequest(api.origin, "/api/agent/notes", {
+      method: "POST",
+      body: { title: "Unattributed", text: "This must fail.", projectPath: "software/rekit" },
+    });
+    assert.equal(missingIdentity.response.status, 400);
+    assert.equal(missingIdentity.payload.error.code, "agent_identity_required");
+
+    const created = await apiRequest(api.origin, "/api/agent/notes", {
+      method: "POST",
+      headers: { "x-work-agent": "codex-cli" },
+      body: { title: "Investigation result", text: "The parser accepts the new envelope.", projectPath: "software/rekit", agentIntent: "review_requested" },
+    });
+    assert.equal(created.response.status, 201);
+    assert.deepEqual(created.payload.createdBy, { kind: "agent", name: "codex-cli" });
+    assert.equal(created.payload.agentIntent, "reference_only");
+
+    const agentEditsHuman = await apiRequest(api.origin, `/api/agent/notes/${human.payload.id}`, {
+      method: "PATCH",
+      headers: { "x-work-agent": "codex-cli" },
+      body: { text: "Agent overwrite" },
+    });
+    assert.equal(agentEditsHuman.response.status, 403);
+    assert.equal(agentEditsHuman.payload.error.code, "agent_note_forbidden");
+
+    const otherAgentEdits = await apiRequest(api.origin, `/api/agent/notes/${created.payload.id}`, {
+      method: "PATCH",
+      headers: { "x-work-agent": "claude-cli" },
+      body: { text: "Other agent overwrite" },
+    });
+    assert.equal(otherAgentEdits.response.status, 403);
+
+    const ownerEdits = await apiRequest(api.origin, `/api/agent/notes/${created.payload.id}`, {
+      method: "PATCH",
+      headers: { "x-work-agent": "codex-cli" },
+      body: { text: "The parser and restart checks accept the new envelope." },
+    });
+    assert.equal(ownerEdits.response.status, 200);
+    assert.equal(ownerEdits.payload.text, "The parser and restart checks accept the new envelope.");
+    assert.deepEqual(ownerEdits.payload.createdBy, { kind: "agent", name: "codex-cli" });
+
+    const humanEditsAgent = await apiRequest(api.origin, `/api/notes/${created.payload.id}`, {
+      method: "PATCH",
+      body: { title: "Reviewed investigation result" },
+    });
+    assert.equal(humanEditsAgent.response.status, 200);
+    assert.deepEqual(humanEditsAgent.payload.createdBy, { kind: "agent", name: "codex-cli" });
+
+    const otherAgentDeletes = await apiRequest(api.origin, `/api/agent/notes/${created.payload.id}`, {
+      method: "DELETE",
+      headers: { "x-work-agent": "claude-cli" },
+    });
+    assert.equal(otherAgentDeletes.response.status, 403);
+
+    const ownerDeletes = await apiRequest(api.origin, `/api/agent/notes/${created.payload.id}`, {
+      method: "DELETE",
+      headers: { "x-work-agent": "codex-cli" },
+    });
+    assert.equal(ownerDeletes.response.status, 204);
+  } finally {
+    await closeLocalApi(api.server);
   }
 });
 
@@ -1250,10 +1332,19 @@ test("records explicit decision actions instead of treating an open card as appr
         title: "IDA lab ownership",
         detail: "Choose its home only when the ownership boundary is clear.",
         options: ["Assign to a project", "Keep unassigned"],
+        recommendedOption: "Keep unassigned",
       },
     });
     assert.equal(created.response.status, 201);
     decisionId = created.payload.id;
+    assert.equal(created.payload.recommendedOption, "Keep unassigned");
+
+    const invalidRecommendation = await apiRequest(first.origin, "/api/decisions", {
+      method: "POST",
+      body: { title: "Invalid recommendation", options: ["A", "B"], recommendedOption: "C" },
+    });
+    assert.equal(invalidRecommendation.response.status, 400);
+    assert.match(invalidRecommendation.payload.error.message, /exactly match/i);
 
     const unchanged = await apiRequest(first.origin, "/api/workspace");
     const openDecision = unchanged.payload.decisions.find(
@@ -1280,6 +1371,29 @@ test("records explicit decision actions instead of treating an open card as appr
     assert.equal(selected.response.status, 200);
     assert.deepEqual(selected.payload.resolution.choice, { option: "Keep unassigned" });
     assert.equal(selected.payload.resolution.note, "No owner is ready yet.");
+
+    await apiRequest(
+      first.origin,
+      `/api/decisions/${encodeURIComponent(decisionId)}/actions`,
+      { method: "POST", body: { action: "reopen" } },
+    );
+
+    const otherWithoutAnswer = await apiRequest(
+      first.origin,
+      `/api/decisions/${encodeURIComponent(decisionId)}/actions`,
+      { method: "POST", body: { action: "approve", choice: { option: "Other" } } },
+    );
+    assert.equal(otherWithoutAnswer.response.status, 400);
+    assert.match(otherWithoutAnswer.payload.error.message, /write your answer/i);
+
+    const other = await apiRequest(
+      first.origin,
+      `/api/decisions/${encodeURIComponent(decisionId)}/actions`,
+      { method: "POST", body: { action: "approve", choice: { option: "Other" }, note: "Create a dedicated shared project." } },
+    );
+    assert.equal(other.response.status, 200);
+    assert.deepEqual(other.payload.resolution.choice, { option: "Other" });
+    assert.equal(other.payload.resolution.note, "Create a dedicated shared project.");
 
     await apiRequest(
       first.origin,
