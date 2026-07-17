@@ -68,9 +68,22 @@ Contributors can instead clone the repository, run `npm install`, and use
 `npm link` to test the current source checkout globally.
 
 Work opens the local address in your browser and also prints it in the terminal.
-Pass `--no-open` when you do not want that. Work listens on the loopback
-interface only; it is not published to the internet and does not require a
-hosted account.
+Pass `--no-open` when you do not want that. By default, Work listens on the
+loopback interface only; it is not published to the internet and does not
+require a hosted account.
+
+To use the full Work interface from another device on your tailnet, opt in with
+one flag:
+
+```bash
+work --tailscale
+```
+
+Work asks the local Tailscale CLI for this machine's IPv4 address, binds the UI
+and API only to that interface, and prints the resulting `http://100.x.y.z:3000/`
+URL. It never binds `0.0.0.0`. Tailnet mode relies on your Tailscale membership
+and ACLs rather than separate Work login credentials, so anyone those ACLs
+permit to reach the machine can use and modify the selected Work roots.
 
 On first launch, the selected directory becomes the workspace root. On later
 launches inside one of its descendants, Work finds the nearest ancestor
@@ -117,6 +130,35 @@ The selected workspace root is a hard visibility boundary. Work can discover
 projects below it, but it does not scan its parent or siblings. Switching the
 picker changes the boundary for that browser; records from different roots are
 never combined.
+
+### Connect another Work instance
+
+Work can use one local instance as a gateway to selected workspaces owned by
+another machine. Open the slash system menu and choose **Manage connections**.
+On the owning machine, create a labeled access key and select the roots it may
+expose. On the consuming machine, paste the owner's reachable Work URL and that
+key. Its workspaces then appear in the ordinary workspace picker with their
+instance name and online state.
+
+The owner must already be reachable through infrastructure you control, such
+as the tailnet API URL printed by `work --tailscale`. The connection panel on
+that instance also shows the exact URL to copy. Work never establishes a relay
+or binds a wildcard or ordinary LAN address. Connections are one-way; repeat
+the exchange in reverse when each machine should act as a gateway to the other.
+
+These are two related but different access boundaries. Tailscale membership
+and ACLs determine who can reach the full Work UI and API on that machine. The
+federation access key determines which selected roots another Work instance
+may import through its own gateway; it does not narrow direct access already
+permitted by your Tailscale ACLs.
+
+Remote files are never copied or synchronized. Browser and agent requests keep
+using the local Work origin and the exact workspace ID returned by
+`GET /api/workspaces`; the local service forwards each allowlisted operation to
+the owning instance. Access is limited to one hop, so a connected server never
+exposes its own peers. Keys are individually revocable and workspace-scoped.
+The owner stores only a key hash, while the consuming instance keeps the full
+outgoing key in the operating system credential store.
 
 Projects are explicit. The preferred marker is a project-owned `.work/`
 directory containing `project.json`. Initialize it by creating the directory;

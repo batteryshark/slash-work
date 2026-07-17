@@ -32,7 +32,8 @@ test("serves task-scoped agent instructions from the CLI without a workspace or 
 
   const bootstrap = await execFile(process.execPath, [launcherPath.pathname, "agent"], { cwd });
   assert.match(bootstrap.stdout, /work agent operations/i);
-  assert.match(bootstrap.stdout, /multiple independent workspaces/i);
+  assert.match(bootstrap.stdout, /local workspaces and explicitly paired remote workspaces/i);
+  assert.match(bootstrap.stdout, /same service origin/i);
   assert.match(bootstrap.stdout, /X-Work-Workspace/);
   assert.match(bootstrap.stdout, /Instructions describe capabilities; they do not grant authorization/i);
 
@@ -74,6 +75,7 @@ test("exposes the same versioned capability catalog and canonical OpenAPI over H
     assert.equal(index.payload.serviceVersion, "9.8.7-test");
     assert.equal(index.payload.links.openapi, "/api/openapi.json");
     assert.equal(index.payload.routing.selectionHeader, "X-Work-Workspace");
+    assert.match(index.payload.routing.rule, /keep using this service origin/i);
 
     const catalog = await requestJson(api.origin, "/api/agent/operations");
     assert.equal(catalog.response.status, 200);
@@ -82,6 +84,10 @@ test("exposes the same versioned capability catalog and canonical OpenAPI over H
     assert.equal("inputSchema" in taskSummary, false, "operation index should stay context-light");
     assert.equal(taskSummary.scope, "workspace");
     assert.equal(catalog.payload.operations.find((operation) => operation.id === "workspaces.list").scope, "service");
+
+    const workspaceInstructions = await requestJson(api.origin, "/api/agent/operations/workspaces.list");
+    assert.ok(workspaceInstructions.payload.operation.rules.some((rule) => /remote workspace/i.test(rule)));
+    assert.ok(workspaceInstructions.payload.operation.rules.some((rule) => /available field is false/i.test(rule)));
 
     const task = await requestJson(api.origin, "/api/agent/operations/tasks.create");
     assert.equal(task.response.status, 200);

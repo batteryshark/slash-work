@@ -40,12 +40,18 @@ The loopback service renders the same catalog:
 | `GET /api/agent/schemas/artifacts/{type}` | Schema for one artifact type |
 | `GET /api/openapi.json` | OpenAPI 3.1 description of canonical API operations |
 
-One service can expose multiple independent workspace roots. Call
+One service can expose local roots plus workspace roots owned by explicitly
+paired Work instances. Call
 `GET /api/workspaces`, select the exact ID, and send it as
 `X-Work-Workspace` on every workspace-scoped request. `defaultWorkspaceId` is
 only a fallback and may not match a browser tab's selection. Verify the
 selection with `GET /api/workspace`; workspace-scoped responses echo the
 resolved ID in the `X-Work-Workspace` response header.
+
+Remote entries carry `location: "remote"`, their owning `peer`, and an
+`available` flag. An agent continues calling its local service origin with the
+returned remote workspace ID; Work authenticates and forwards the request to
+the owner. The agent never receives or manages the peer access key.
 
 The catalog declares both `protocolVersion` and `serviceVersion`. Instructions
 therefore update atomically with the installed Work version. The protocol
@@ -77,17 +83,20 @@ The complete filesystem serialization remains documented in
 [`ARTIFACT-SCHEMA.md`](ARTIFACT-SCHEMA.md) for offline automations that cannot
 use the CLI or service.
 
-## Remote compatibility
+## Paired-instance federation
 
-The current HTTP server remains loopback-only. The capability representation
-uses relative links and transport-neutral operation IDs so a future remote Work
-service can expose the same protocol over authenticated HTTPS. A remote agent
-would discover the server, fetch only its needed operation, and perform that
-operation without requiring access to the server's filesystem.
+The normal UI and agent API remain loopback-only. A Work instance may be made
+reachable to another instance through a user-managed private network or HTTPS
+proxy, such as Tailscale. Its authenticated federation surface accepts only
+direct server-to-server discovery and the existing allowlisted workspace
+operations. Service settings, updates, local folder selection, peer management,
+and transitive routing are never proxied.
 
-Remote access must add authentication, workspace authorization, and secure
-service discovery before the loopback restriction is relaxed. Those concerns
-are deliberately separate from this discovery contract.
+Access grants are individually revocable and contain an explicit snapshot of
+permitted local workspace IDs. The granting instance stores only a token hash;
+the consuming instance stores the complete outgoing key in its operating
+system credential store. Files remain on their owning machine, and every write
+is validated and executed by that owner.
 
 ## Portable skill
 
