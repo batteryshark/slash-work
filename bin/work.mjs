@@ -28,6 +28,8 @@ import {
 } from "../lib/workspace-registry.mjs";
 import { closeLocalApi, startLocalApi } from "../server/local-api.mjs";
 import { createServiceUpdater } from "../lib/service-updater.mjs";
+import { federationConfigPath } from "../lib/instance-federation.mjs";
+import { discoverTailscaleIPv4 } from "../lib/tailscale-network.mjs";
 import { createServer as createViteServer } from "vite";
 import {
   getAgentIndex,
@@ -93,6 +95,7 @@ Options:
   --json              Shortcut for --format json
   --no-ui             Start only the local API
   --no-open           Do not open the local UI in your browser
+  --tailscale         Listen only on this machine's Tailscale IPv4 address
   --init              Force a new workspace at the selected root
   -h, --help          Show this help
 
@@ -149,6 +152,10 @@ function parseArguments(argv) {
     }
     if (token === "--no-open") {
       options.noOpen = true;
+      continue;
+    }
+    if (token === "--tailscale") {
+      options.tailscale = true;
       continue;
     }
     if (token === "--init") {
@@ -446,20 +453,26 @@ async function runServer(options, positionals) {
   const root = activeWorkspace.root;
   const apiPort = parsePort(options.apiPort, 4317, "--api-port");
   const uiPort = parsePort(options.uiPort, 3000, "--ui-port");
+  const listenHost = options.tailscale ? await discoverTailscaleIPv4() : "127.0.0.1";
   const updater = await createServiceUpdater({ packageRoot: APP_ROOT });
   const localApi = await startLocalApi({
     root,
     roots: registered.map((workspace) => workspace.root),
     defaultWorkspaceId: activeWorkspace.id,
     port: apiPort,
+    host: listenHost,
     onRestart: restartService,
     version: updater.currentVersion,
     checkForUpdate: updater.checkForUpdate,
     onUpdate: updater.installUpdate,
+    federationConfigFile: federationConfigPath(),
   });
   console.log(`[work] Workspace: ${localApi.workspace.root}`);
   console.log(`[work] Roots available: ${localApi.workspaces.length}`);
   console.log(`[work] API ready at ${localApi.origin}`);
+  if (options.tailscale) {
+    console.log("[work] Tailnet access is enabled. Anyone permitted by your Tailscale ACLs can use and modify this Work instance.");
+  }
 
   let uiServer = null;
   let shuttingDown = false;
@@ -497,8 +510,9 @@ async function runServer(options, positionals) {
       uiServer = await createViteServer({
         root: APP_ROOT,
         server: {
-          host: "127.0.0.1",
+          host: listenHost,
           port: uiPort,
+          allowedHosts: [listenHost],
           proxy: {
             "/api": {
               target: localApi.origin,
@@ -508,9 +522,9 @@ async function runServer(options, positionals) {
         },
       });
       await uiServer.listen();
-      const uiUrl = uiServer.resolvedUrls?.local.find((url) => url.includes("127.0.0.1"))
-        ?? uiServer.resolvedUrls?.local[0]
-        ?? `http://127.0.0.1:${uiPort}/`;
+      const address = uiServer.httpServer?.address();
+      const selectedUiPort = typeof address === "object" && address ? address.port : uiPort;
+      const uiUrl = `http://${listenHost}:${selectedUiPort}/`;
       console.log(`[work] UI ready at ${uiUrl}`);
       if (!options.noOpen) openLocalUrl(uiUrl);
     } catch (error) {

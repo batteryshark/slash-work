@@ -49,10 +49,13 @@ import {
   selectedProposalPatch,
   testAiSettings,
 } from "../lib/ai-assistance.mjs";
+import { FederationManager } from "../lib/instance-federation.mjs";
+import { isTailscaleIPv4 } from "../lib/tailscale-network.mjs";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const DEFAULT_PORT = 4317;
 const MAX_BODY_BYTES = 128 * 1024;
+const MAX_PROXY_RESPONSE_BYTES = 4 * 1024 * 1024;
 const UPDATE_CACHE_MS = 15 * 60 * 1000;
 const LOCAL_ORIGIN = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i;
 
@@ -73,7 +76,7 @@ function responseHeaders(request, extra = {}) {
     ...extra,
   };
   const origin = requestOrigin(request);
-  if (origin && LOCAL_ORIGIN.test(origin)) {
+  if (origin && (LOCAL_ORIGIN.test(origin) || request.workBrowserOrigin === origin)) {
     headers["Access-Control-Allow-Origin"] = origin;
     headers["Access-Control-Expose-Headers"] = "X-Work-Workspace";
     headers.Vary = "Origin";
@@ -102,24 +105,47 @@ function sendEmpty(request, response, status = 204) {
   response.end();
 }
 
-function assertLocalRequest(request) {
-  const host = request.headers.host;
-  if (typeof host !== "string") {
+function isAllowedBrowserOrigin(origin, host) {
+  if (LOCAL_ORIGIN.test(origin)) return true;
+  try {
+    const url = new URL(origin);
+    return new Set(["http:", "https:"]).has(url.protocol) && url.hostname === host;
+  } catch {
+    return false;
+  }
+}
+
+function assertLocalRequest(request, allowedHost) {
+  const requestHost = request.headers.host;
+  if (typeof requestHost !== "string") {
     throw new WorkspaceError("A local Host header is required.", { code: "invalid_host", status: 403 });
   }
   let hostname;
   try {
-    hostname = new URL(`http://${host}`).hostname;
+    hostname = new URL(`http://${requestHost}`).hostname;
   } catch {
     throw new WorkspaceError("Invalid Host header.", { code: "invalid_host", status: 403 });
   }
-  if (!isLocalHostname(hostname)) {
-    throw new WorkspaceError("This API only accepts loopback requests.", { code: "invalid_host", status: 403 });
+  if (!isLocalHostname(hostname) && hostname !== allowedHost) {
+    throw new WorkspaceError("This API only accepts requests for its configured interface.", { code: "invalid_host", status: 403 });
   }
   const origin = requestOrigin(request);
-  if (origin && !LOCAL_ORIGIN.test(origin)) {
-    throw new WorkspaceError("This API only accepts local browser origins.", { code: "invalid_origin", status: 403 });
+  if (origin && !isAllowedBrowserOrigin(origin, allowedHost)) {
+    throw new WorkspaceError("This API only accepts browser origins for its configured interface.", { code: "invalid_origin", status: 403 });
   }
+  if (origin) request.workBrowserOrigin = origin;
+}
+
+function isFederatedWorkspacePath(pathname) {
+  return [
+    /^\/api\/health$/,
+    /^\/api\/workspace$/,
+    /^\/api\/projects(?:\/profile)?$/,
+    /^\/api\/files\/(?:directory|content)$/,
+    /^\/api\/(?:captures|notes|ideas|decisions|tasks)(?:\/[^/]+(?:\/(?:actions|move|checklist|log))?)?$/,
+    /^\/api\/agent\/notes(?:\/[^/]+)?$/,
+    /^\/api\/ai\/(?:proposals|apply)$/,
+  ].some((pattern) => pattern.test(pathname));
 }
 
 async function readJsonBody(request) {
@@ -155,6 +181,21 @@ async function readJsonBody(request) {
   }
 }
 
+async function readRawBody(request) {
+  const declaredLength = Number(request.headers["content-length"] ?? 0);
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+    throw new WorkspaceError("Request body is too large.", { code: "body_too_large", status: 413 });
+  }
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of request) {
+    total += chunk.length;
+    if (total > MAX_BODY_BYTES) throw new WorkspaceError("Request body is too large.", { code: "body_too_large", status: 413 });
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
 function routeId(pathname, resource, suffix = "") {
   const pattern = new RegExp(`^/api/${resource}/([^/]+)${suffix}$`);
   const match = pathname.match(pattern);
@@ -179,7 +220,89 @@ function requiredAgentName(request) {
 }
 
 function publicWorkspace(workspace) {
-  return { id: workspace.id, name: workspace.name, root: workspace.root };
+  return { id: workspace.id, name: workspace.name, root: workspace.root, location: "local", available: true };
+}
+
+function publicFederationSettings(service) {
+  return {
+    ...service.federation.settings(),
+    network: {
+      mode: isTailscaleIPv4(service.host) ? "tailscale" : "loopback",
+      reachableUrl: isTailscaleIPv4(service.host) ? service.origin ?? null : null,
+    },
+  };
+}
+
+function proxyHeaders(request, remoteWorkspaceId, sourceName) {
+  const headers = {
+    authorization: null,
+    "x-work-federation-hop": "1",
+    "x-work-federation-source": sourceName,
+    "x-work-workspace": remoteWorkspaceId,
+  };
+  for (const [name, value] of Object.entries(request.headers)) {
+    if (typeof value !== "string") continue;
+    if (name === "content-type" || (name.startsWith("x-work-") && !new Set(["x-work-workspace", "x-work-federation-hop", "x-work-federation-source"]).has(name))) {
+      headers[name] = value;
+    }
+  }
+  return headers;
+}
+
+async function proxyFederatedRequest(service, remoteWorkspace, url, request, response) {
+  const token = await service.federation.peerToken(remoteWorkspace.peer.id);
+  const body = new Set(["GET", "HEAD"]).has(request.method ?? "GET") ? null : await readRawBody(request);
+  const headers = proxyHeaders(request, remoteWorkspace.remoteWorkspaceId, service.federation.config.name);
+  headers.authorization = `Bearer ${token}`;
+  let upstream;
+  try {
+    upstream = await service.federation.fetch(`${remoteWorkspace.peer.baseUrl}${url.pathname}${url.search}`, {
+      method: request.method,
+      headers,
+      ...(body?.length ? { body } : {}),
+      redirect: "manual",
+      signal: AbortSignal.timeout(service.federation.timeoutMs),
+    });
+  } catch (error) {
+    const timedOut = error?.name === "TimeoutError" || error?.name === "AbortError";
+    throw new WorkspaceError(
+      timedOut ? `${remoteWorkspace.peer.name} did not respond in time.` : `${remoteWorkspace.peer.name} is unavailable: ${error.message}`,
+      { code: timedOut ? "peer_timeout" : "peer_unavailable", status: timedOut ? 504 : 502 },
+    );
+  }
+  const declaredLength = Number(upstream.headers.get("content-length") ?? 0);
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_PROXY_RESPONSE_BYTES) {
+    throw new WorkspaceError("The remote Work response is too large.", { code: "peer_response_too_large", status: 502 });
+  }
+  let content = Buffer.from(await upstream.arrayBuffer());
+  if (content.length > MAX_PROXY_RESPONSE_BYTES) {
+    throw new WorkspaceError("The remote Work response is too large.", { code: "peer_response_too_large", status: 502 });
+  }
+  const contentType = upstream.headers.get("content-type") ?? "application/json; charset=utf-8";
+  if (upstream.ok && contentType.includes("application/json") && new Set(["/api/workspace", "/api/health"]).has(url.pathname)) {
+    try {
+      const payload = JSON.parse(content.toString("utf8"));
+      if (payload?.workspace && typeof payload.workspace === "object") {
+        payload.workspace = {
+          ...payload.workspace,
+          id: remoteWorkspace.id,
+          root: remoteWorkspace.root,
+          location: "remote",
+          available: true,
+          peer: remoteWorkspace.peer,
+        };
+      }
+      content = Buffer.from(`${JSON.stringify(payload)}\n`);
+    } catch {
+      throw new WorkspaceError("The remote Work instance returned invalid JSON.", { code: "invalid_peer_response", status: 502 });
+    }
+  }
+  request.workWorkspaceId = remoteWorkspace.id;
+  response.writeHead(upstream.status, responseHeaders(request, {
+    "Content-Type": contentType,
+    "Content-Length": content.length,
+  }));
+  response.end(content);
 }
 
 function selectedWorkspace(workspaces, defaultWorkspace, request) {
@@ -203,16 +326,32 @@ function selectedWorkspace(workspaces, defaultWorkspace, request) {
 }
 
 async function handleRequest(workspaces, service, request, response) {
-  assertLocalRequest(request);
   const url = new URL(request.url ?? "/", `http://${request.headers.host}`);
   const method = request.method ?? "GET";
   const defaultWorkspace = service.defaultWorkspace;
+  const federationHop = request.headers["x-work-federation-hop"];
+  let federationGrant = null;
+  if (federationHop != null) {
+    if (federationHop !== "1" || requestOrigin(request)) {
+      throw new WorkspaceError("Federation requests must be direct server-to-server calls.", { code: "invalid_federation_hop", status: 403 });
+    }
+    if (url.pathname !== "/api/federation/manifest" && !isFederatedWorkspacePath(url.pathname)) {
+      throw new WorkspaceError("That service operation is not available through federation.", { code: "federation_route_forbidden", status: 403 });
+    }
+    const requestedWorkspaceId = url.pathname === "/api/federation/manifest" ? null : request.headers["x-work-workspace"];
+    if (url.pathname !== "/api/federation/manifest" && (typeof requestedWorkspaceId !== "string" || !requestedWorkspaceId)) {
+      throw new WorkspaceError("Federated workspace requests require one exact workspace id.", { code: "invalid_workspace", status: 400 });
+    }
+    federationGrant = await service.federation.authorize(request.headers.authorization, requestedWorkspaceId);
+  } else {
+    assertLocalRequest(request, service.host);
+  }
 
   if (method === "OPTIONS") {
     response.writeHead(
       204,
       responseHeaders(request, {
-        "Access-Control-Allow-Headers": "Content-Type, X-Work-Agent, X-Work-AI-Apply, X-Work-AI-Settings, X-Work-Folder-Picker, X-Work-Restart, X-Work-Unregister, X-Work-Workspace",
+        "Access-Control-Allow-Headers": "Content-Type, X-Work-Agent, X-Work-AI-Apply, X-Work-AI-Settings, X-Work-Federation-Settings, X-Work-Folder-Picker, X-Work-Restart, X-Work-Unregister, X-Work-Workspace",
         "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
         "Access-Control-Max-Age": "600",
       }),
@@ -221,12 +360,66 @@ async function handleRequest(workspaces, service, request, response) {
     return;
   }
 
+  if (method === "GET" && url.pathname === "/api/federation/manifest") {
+    if (!federationGrant) throw new WorkspaceError("Federation discovery requires an authenticated peer request.", { code: "federation_unauthorized", status: 401 });
+    sendJson(request, response, 200, service.federation.manifest(federationGrant));
+    return;
+  }
+
   if (method === "GET" && url.pathname === "/api/workspaces") {
+    await service.federation.refreshPeers({ force: url.searchParams.get("refresh") === "1" });
     sendJson(request, response, 200, {
       defaultWorkspaceId: defaultWorkspace.id,
       activeWorkspaceId: defaultWorkspace.id,
-      workspaces: [...workspaces.values()].map(publicWorkspace),
+      workspaces: [...workspaces.values()].map(publicWorkspace).concat(service.federation.remoteWorkspaces()),
     });
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/api/federation") {
+    await service.federation.refreshPeers({ force: url.searchParams.get("refresh") === "1" });
+    sendJson(request, response, 200, publicFederationSettings(service));
+    return;
+  }
+  if (method === "PATCH" && url.pathname === "/api/federation") {
+    if (request.headers["x-work-federation-settings"] !== "confirm") {
+      throw new WorkspaceError("Changing federation settings requires explicit local confirmation.", { code: "federation_confirmation_required", status: 403 });
+    }
+    const body = await readJsonBody(request);
+    await service.federation.rename(body.name);
+    sendJson(request, response, 200, publicFederationSettings(service));
+    return;
+  }
+  if (method === "POST" && url.pathname === "/api/federation/grants") {
+    if (request.headers["x-work-federation-settings"] !== "confirm") {
+      throw new WorkspaceError("Creating an access key requires explicit local confirmation.", { code: "federation_confirmation_required", status: 403 });
+    }
+    sendJson(request, response, 201, await service.federation.createGrant(await readJsonBody(request)));
+    return;
+  }
+  const grantToRevoke = routeId(url.pathname, "federation/grants");
+  if (method === "DELETE" && grantToRevoke) {
+    if (request.headers["x-work-federation-settings"] !== "confirm") {
+      throw new WorkspaceError("Revoking an access key requires explicit local confirmation.", { code: "federation_confirmation_required", status: 403 });
+    }
+    await service.federation.revokeGrant(grantToRevoke);
+    sendEmpty(request, response);
+    return;
+  }
+  if (method === "POST" && url.pathname === "/api/federation/peers") {
+    if (request.headers["x-work-federation-settings"] !== "confirm") {
+      throw new WorkspaceError("Connecting a Work instance requires explicit local confirmation.", { code: "federation_confirmation_required", status: 403 });
+    }
+    sendJson(request, response, 201, await service.federation.addPeer(await readJsonBody(request)));
+    return;
+  }
+  const peerToRemove = routeId(url.pathname, "federation/peers");
+  if (method === "DELETE" && peerToRemove) {
+    if (request.headers["x-work-federation-settings"] !== "confirm") {
+      throw new WorkspaceError("Removing a connected instance requires explicit local confirmation.", { code: "federation_confirmation_required", status: 403 });
+    }
+    await service.federation.removePeer(peerToRemove);
+    sendEmpty(request, response);
     return;
   }
 
@@ -301,8 +494,10 @@ async function handleRequest(workspaces, service, request, response) {
         status: 403,
       });
     }
-    const currentWorkspace = selectedWorkspace(workspaces, defaultWorkspace, request);
-    if (workspaceToRemove === currentWorkspace.id) {
+    const currentWorkspaceId = typeof request.headers["x-work-workspace"] === "string"
+      ? request.headers["x-work-workspace"]
+      : defaultWorkspace.id;
+    if (workspaceToRemove === currentWorkspaceId) {
       throw new WorkspaceError("Switch to another workspace before removing this root from the list.", {
         code: "cannot_remove_current_workspace",
         status: 409,
@@ -314,10 +509,16 @@ async function handleRequest(workspaces, service, request, response) {
         status: 404,
       });
     }
+    if (workspaces.size === 1) {
+      throw new WorkspaceError("Keep at least one local workspace registered with this Work server.", {
+        code: "cannot_remove_last_local_workspace",
+        status: 409,
+      });
+    }
     await unregisterWorkspace(workspaceToRemove, { registryPath: service.registryPath });
     workspaces.delete(workspaceToRemove);
     if (service.defaultWorkspace.id === workspaceToRemove) {
-      service.defaultWorkspace = currentWorkspace;
+      service.defaultWorkspace = [...workspaces.values()][0];
     }
     sendJson(request, response, 200, {
       removedWorkspaceId: workspaceToRemove,
@@ -456,6 +657,15 @@ async function handleRequest(workspaces, service, request, response) {
   if (method === "POST" && url.pathname === "/api/ai/settings/test") {
     sendJson(request, response, 200, await testAiSettings(service.aiConfigFile, service.aiFetch, service.aiRequestTimeoutMs, service.aiCredentialStore));
     return;
+  }
+
+  const requestedWorkspaceId = request.headers["x-work-workspace"];
+  if (typeof requestedWorkspaceId === "string") {
+    const remoteWorkspace = service.federation.resolveRemoteWorkspace(requestedWorkspaceId);
+    if (remoteWorkspace) {
+      await proxyFederatedRequest(service, remoteWorkspace, url, request, response);
+      return;
+    }
   }
 
   const workspace = selectedWorkspace(workspaces, defaultWorkspace, request);
@@ -693,6 +903,7 @@ export async function startLocalApi({
   roots = null,
   defaultWorkspaceId = null,
   port = DEFAULT_PORT,
+  host = LOOPBACK_HOST,
   forceNewWorkspace = false,
   onRestart = null,
   version = null,
@@ -704,9 +915,16 @@ export async function startLocalApi({
   aiFetch = fetch,
   aiRequestTimeoutMs = 30_000,
   aiCredentialStore = undefined,
+  federationConfigFile = null,
+  federationCredentialStore = undefined,
+  federationFetch = fetch,
+  federationRequestTimeoutMs = 5_000,
 } = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
     throw new WorkspaceError("port must be an integer between 0 and 65535.", { code: "invalid_port" });
+  }
+  if (host !== LOOPBACK_HOST && !isTailscaleIPv4(host)) {
+    throw new WorkspaceError("host must be 127.0.0.1 or a Tailscale IPv4 address.", { code: "invalid_listen_host" });
   }
   if (onRestart != null && typeof onRestart !== "function") {
     throw new WorkspaceError("onRestart must be a function.", { code: "invalid_restart_handler" });
@@ -725,6 +943,13 @@ export async function startLocalApi({
     throw new WorkspaceError("aiCredentialStore must provide get, set, and delete methods.", { code: "invalid_ai_credential_store" });
   }
   if (!Number.isInteger(aiRequestTimeoutMs) || aiRequestTimeoutMs < 1) throw new WorkspaceError("aiRequestTimeoutMs must be a positive integer.", { code: "invalid_ai_timeout" });
+  if (typeof federationFetch !== "function") throw new WorkspaceError("federationFetch must be a function.", { code: "invalid_federation_fetch" });
+  if (federationCredentialStore != null && (!["get", "set", "delete"].every((method) => typeof federationCredentialStore[method] === "function"))) {
+    throw new WorkspaceError("federationCredentialStore must provide keyed get, set, and delete methods.", { code: "invalid_federation_credential_store" });
+  }
+  if (!Number.isInteger(federationRequestTimeoutMs) || federationRequestTimeoutMs < 1) {
+    throw new WorkspaceError("federationRequestTimeoutMs must be a positive integer.", { code: "invalid_federation_timeout" });
+  }
   const requestedDirectory = await realpath(root);
   const initialRoots = Array.isArray(roots) && roots.length > 0 ? roots : [root];
   const initialized = [];
@@ -742,8 +967,17 @@ export async function startLocalApi({
     : relativeStart !== ".." && !relativeStart.startsWith(`..${sep}`) && !isAbsolute(relativeStart)
       ? await validateProjectScopePath(workspace.root, relativeStart.split(sep).join("/"), projects)
       : ".";
+  const federation = await new FederationManager({
+    configPath: federationConfigFile,
+    ...(federationCredentialStore ? { credentialStore: federationCredentialStore } : {}),
+    fetchImpl: federationFetch,
+    timeoutMs: federationRequestTimeoutMs,
+    serviceVersion: version,
+    localWorkspaces: () => [...workspaces.values()],
+  }).initialize();
   const service = {
     instanceId: randomUUID(),
+    host,
     defaultWorkspace: workspace,
     onRestart,
     version,
@@ -758,6 +992,7 @@ export async function startLocalApi({
     aiFetch,
     aiRequestTimeoutMs,
     aiCredentialStore,
+    federation,
   };
   const server = createServer((request, response) => {
     handleRequest(workspaces, service, request, response).catch((error) => errorResponse(request, response, error));
@@ -777,14 +1012,16 @@ export async function startLocalApi({
     };
     server.once("error", onError);
     server.once("listening", onListening);
-    server.listen(port, LOOPBACK_HOST);
+    server.listen(port, host);
   });
 
   const address = server.address();
   const selectedPort = typeof address === "object" && address ? address.port : port;
+  const origin = `http://${host}:${selectedPort}`;
+  service.origin = origin;
   return {
     server,
-    origin: `http://${LOOPBACK_HOST}:${selectedPort}`,
+    origin,
     port: selectedPort,
     workspace,
     workspaces: [...workspaces.values()],

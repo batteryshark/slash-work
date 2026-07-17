@@ -15,13 +15,20 @@ the most recently registered root; only when the registry is empty does it
 initialize the current directory. An explicit path uses the same
 nearest-ancestor rule and registers the result.
 `--init` deliberately creates a new workspace at the exact target instead. The
-server binds only to a loopback address, prints the local URL it selected, and
-opens it in the default browser unless `--no-open` is supplied.
+server binds to a loopback address by default, prints the local URL it selected,
+and opens it in the default browser unless `--no-open` is supplied.
+`work --tailscale` is the only broader browser-listener mode: it discovers the
+machine's Tailscale IPv4 address and binds only to that interface. Wildcard and
+ordinary LAN bindings remain rejected. Requests must use the selected interface
+as their Host and browser Origin. Tailnet access relies on Tailscale membership
+and ACLs; Work does not add a second login layer.
 
-One process may expose several pre-registered canonical roots to its web
-picker, but every API request resolves to exactly one of them. Every discovered
-project, read, write, search result, and scope identifier must resolve inside
-the selected root.
+One process may expose several pre-registered canonical roots and explicitly
+paired remote roots to its web picker, but every API request resolves to
+exactly one of them. Every discovered project, read, write, search result, and
+scope identifier resolves inside the selected owning root. A remote root is a
+routing identity, not a local filesystem path; its files never move into the
+gateway instance.
 Paths containing `..`, absolute paths supplied through the API, and symbolic
 links that escape the root are rejected rather than normalized into another
 workspace.
@@ -37,6 +44,44 @@ registry and never deletes its directory or `.work/` data. The client sends the
 selected root's ID on every request, so switching one browser does not change
 the workspace selected in another browser and records from multiple roots are
 never merged into one response.
+
+## Connected Work instances
+
+The slash system menu can pair one Work instance with another. Pairing is
+deliberately directional: the consuming instance receives a URL and access key
+for the owner, then exposes the owner's permitted workspaces through its normal
+`GET /api/workspaces` response. Repeat the process in the other direction when
+both machines should browse each other.
+
+Start the owning instance with `work --tailscale` to make its API reachable on
+the tailnet. Work discovers that machine's Tailscale IPv4 address, binds only to
+it, prints the API and UI URLs, and surfaces the API URL in the connection
+panel. Paste that exact URL into the consuming instance. Work does not create a
+relay, discover peers automatically, or bind a wildcard or ordinary LAN
+address.
+
+Tailscale and federation enforce different boundaries. Tailscale membership
+and ACLs determine who can reach the full Work UI and API at the tailnet
+address; Work adds no separate login layer to that direct access. A federation
+key authorizes a paired Work gateway to import only its selected workspace IDs,
+and proxied requests additionally require a one-hop marker. The key does not
+restrict a tailnet user whom the ACL already permits to call the full service.
+Normal browser and agent traffic can remain on loopback by calling the local
+gateway even when that gateway reaches a peer over Tailscale.
+
+Each access key is scoped to the selected workspace IDs at creation time and
+can be revoked independently. The full key is shown once. The owner stores only
+its SHA-256 hash in `~/.work/federation.json`; the consuming instance stores the
+outgoing key in macOS Keychain, Windows Credential Manager, or Linux Secret
+Service. The JSON file contains stable instance identity, non-secret peer URLs,
+grant metadata, and cached workspace names so an offline machine remains
+visible without appearing usable.
+
+Federation is not replication. The gateway forwards allowlisted workspace API
+operations to the owner, which performs its usual validation and filesystem
+write. Service updates, restarts, AI provider settings, folder selection,
+connection management, and peer-of-peer workspaces cannot traverse a
+connection. A hop limit of one prevents loops and accidental transit.
 
 ## Recursive project discovery
 

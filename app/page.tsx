@@ -201,6 +201,9 @@ type WorkspacePayload = {
     dataDir: string;
     startScopePath?: string;
     statuses: string[];
+    location?: "local" | "remote";
+    available?: boolean;
+    peer?: { id: string; name: string; baseUrl: string };
   };
   projects: Project[];
   captures: Capture[];
@@ -214,6 +217,9 @@ type WorkspaceSummary = {
   id: string;
   name: string;
   root: string;
+  location?: "local" | "remote";
+  available?: boolean;
+  peer?: { id: string; name: string; baseUrl: string };
 };
 
 type WorkspaceDirectory = {
@@ -230,6 +236,38 @@ type WorkspacePickerReceipt = {
 
 type WorkspaceRemovalReceipt = WorkspaceDirectory & {
   removedWorkspaceId: string;
+};
+
+type FederationGrant = {
+  id: string;
+  label: string;
+  workspaceIds: string[];
+  createdAt: string;
+  lastUsedAt: string | null;
+};
+
+type FederationPeer = {
+  id: string;
+  name: string;
+  baseUrl: string;
+  version: string | null;
+  available: boolean;
+  lastSeenAt: string | null;
+  workspaceCount: number;
+  error: string | null;
+};
+
+type FederationSettings = {
+  protocolVersion: string;
+  instance: { id: string; name: string; version: string | null };
+  network: { mode: "loopback" | "tailscale"; reachableUrl: string | null };
+  grants: FederationGrant[];
+  peers: FederationPeer[];
+};
+
+type FederationGrantReceipt = {
+  grant: FederationGrant;
+  accessKey: string;
 };
 
 type DecisionDraft = {
@@ -495,6 +533,10 @@ export default function Home() {
   const [aiProposal, setAiProposal] = useState<AiProposal | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [federationSettings, setFederationSettings] = useState<FederationSettings | null>(null);
+  const [federationOpen, setFederationOpen] = useState(false);
+  const [federationBusy, setFederationBusy] = useState(false);
+  const [federationError, setFederationError] = useState<string | null>(null);
   const [projectSearch, setProjectSearch] = useState("");
   const [expandedDecision, setExpandedDecision] = useState<string | null>(null);
   const [decisionDrafts, setDecisionDrafts] = useState<Record<string, DecisionDraft>>({});
@@ -534,7 +576,7 @@ export default function Home() {
         headers: { accept: "application/json" },
       });
       const rememberedId = localStorage.getItem("work.workspace");
-      const selectedId = directory.workspaces.some((workspace) => workspace.id === rememberedId)
+      const selectedId = directory.workspaces.some((workspace) => workspace.id === rememberedId && workspace.available !== false)
         ? rememberedId
         : directory.activeWorkspaceId;
       if (selectedId) localStorage.setItem("work.workspace", selectedId);
@@ -578,6 +620,123 @@ export default function Home() {
       setAiSettings(await requestJson<AiSettings>("/api/ai/settings"));
     } catch (error) {
       setAiError(error instanceof Error ? error.message : "AI settings could not be loaded.");
+    }
+  }
+
+  async function openFederationSettings() {
+    setFederationError(null);
+    setFederationOpen(true);
+    setSystemMenuOpen(false);
+    try {
+      setFederationSettings(await requestJson<FederationSettings>("/api/federation?refresh=1"));
+    } catch (error) {
+      setFederationError(error instanceof Error ? error.message : "Connected instances could not be loaded.");
+    }
+  }
+
+  async function updateFederationName(name: string) {
+    setFederationBusy(true);
+    setFederationError(null);
+    try {
+      const settings = await requestJson<FederationSettings>("/api/federation", {
+        method: "PATCH",
+        headers: { "x-work-federation-settings": "confirm" },
+        body: JSON.stringify({ name }),
+      });
+      setFederationSettings(settings);
+      return settings;
+    } catch (error) {
+      setFederationError(error instanceof Error ? error.message : "The instance name could not be saved.");
+      throw error;
+    } finally {
+      setFederationBusy(false);
+    }
+  }
+
+  async function createFederationGrant(label: string, workspaceIds: string[]) {
+    setFederationBusy(true);
+    setFederationError(null);
+    try {
+      const receipt = await requestJson<FederationGrantReceipt>("/api/federation/grants", {
+        method: "POST",
+        headers: { "x-work-federation-settings": "confirm" },
+        body: JSON.stringify({ label, workspaceIds }),
+      });
+      setFederationSettings((current) => current ? { ...current, grants: [...current.grants, receipt.grant] } : current);
+      return receipt;
+    } catch (error) {
+      setFederationError(error instanceof Error ? error.message : "The access key could not be created.");
+      throw error;
+    } finally {
+      setFederationBusy(false);
+    }
+  }
+
+  async function revokeFederationGrant(id: string) {
+    setFederationBusy(true);
+    setFederationError(null);
+    try {
+      await requestJson<null>(`/api/federation/grants/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        headers: { "x-work-federation-settings": "confirm" },
+      });
+      setFederationSettings((current) => current ? { ...current, grants: current.grants.filter((grant) => grant.id !== id) } : current);
+    } catch (error) {
+      setFederationError(error instanceof Error ? error.message : "The access key could not be revoked.");
+      throw error;
+    } finally {
+      setFederationBusy(false);
+    }
+  }
+
+  async function connectFederationPeer(baseUrl: string, accessKey: string) {
+    setFederationBusy(true);
+    setFederationError(null);
+    try {
+      await requestJson<FederationPeer>("/api/federation/peers", {
+        method: "POST",
+        headers: { "x-work-federation-settings": "confirm" },
+        body: JSON.stringify({ baseUrl, accessKey }),
+      });
+      setFederationSettings(await requestJson<FederationSettings>("/api/federation?refresh=1"));
+      await loadWorkspace(true);
+    } catch (error) {
+      setFederationError(error instanceof Error ? error.message : "The Work instance could not be connected.");
+      throw error;
+    } finally {
+      setFederationBusy(false);
+    }
+  }
+
+  async function removeFederationPeer(id: string) {
+    setFederationBusy(true);
+    setFederationError(null);
+    try {
+      await requestJson<null>(`/api/federation/peers/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        headers: { "x-work-federation-settings": "confirm" },
+      });
+      setFederationSettings((current) => current ? { ...current, peers: current.peers.filter((peer) => peer.id !== id) } : current);
+      if (data?.workspace.peer?.id === id) localStorage.removeItem("work.workspace");
+      await loadWorkspace(true);
+    } catch (error) {
+      setFederationError(error instanceof Error ? error.message : "The connected instance could not be removed.");
+      throw error;
+    } finally {
+      setFederationBusy(false);
+    }
+  }
+
+  async function refreshFederation() {
+    setFederationBusy(true);
+    setFederationError(null);
+    try {
+      setFederationSettings(await requestJson<FederationSettings>("/api/federation?refresh=1"));
+      await loadWorkspace(true);
+    } catch (error) {
+      setFederationError(error instanceof Error ? error.message : "Connected instances could not be refreshed.");
+    } finally {
+      setFederationBusy(false);
     }
   }
 
@@ -793,6 +952,7 @@ export default function Home() {
   useEffect(() => {
     void loadWorkspace();
     void requestJson<AiSettings>("/api/ai/settings").then(setAiSettings).catch(() => undefined);
+    void requestJson<FederationSettings>("/api/federation").then(setFederationSettings).catch(() => undefined);
     const interval = window.setInterval(() => void loadWorkspace(true), 12_000);
     const onFocus = () => void loadWorkspace(true);
     window.addEventListener("focus", onFocus);
@@ -1599,6 +1759,9 @@ export default function Home() {
 
   const destination = destinationForCurrentScope();
   const rootProject = data.projects.find((project) => project.path === ".");
+  const workspaceLocationLabel = data.workspace.location === "remote"
+    ? `${data.workspace.peer?.name ?? "Remote instance"} · Remote workspace`
+    : data.workspace.root;
 
   return (
     <div className={`app-shell ${captureDockCollapsed ? "capture-collapsed" : ""}`}>
@@ -1693,7 +1856,7 @@ export default function Home() {
         {projectMenuOpen && (
           <div className="project-menu" aria-label="Choose a project in this root">
             <div className="project-menu-heading">
-              <div><p className="eyebrow">Only this root</p><strong>{data.workspace.name}</strong><small>{data.workspace.root}</small></div>
+              <div><p className="eyebrow">Only this root</p><strong>{data.workspace.name}</strong><small>{workspaceLocationLabel}</small></div>
               <button type="button" onClick={() => setProjectMenuOpen(false)} aria-label="Close project picker">×</button>
             </div>
             <p className="project-menu-note">Logical projects are listed once. Linked Git worktrees are grouped with their repository.</p>
@@ -1792,6 +1955,13 @@ export default function Home() {
               </div>
               <button type="button" onClick={() => void openAiSettings()}>{aiSettings?.configured ? "Configure AI" : "Set up AI"}</button>
             </section>
+            <section className="service-control federation-control" aria-label="Connected Work instances">
+              <div>
+                <strong>Connected instances {federationSettings?.peers.some((peer) => peer.available) && <span className="update-badge">Linked</span>}</strong>
+                <small>Browse another Work instance through this one without copying its files.</small>
+              </div>
+              <button type="button" onClick={() => void openFederationSettings()}>Manage connections</button>
+            </section>
           </div>
         )}
 
@@ -1809,20 +1979,22 @@ export default function Home() {
               {workspaceDirectory.workspaces.map((workspace) => {
                 const current = workspace.id === data.workspace.id;
                 const confirmingRemoval = workspaceRemovalTarget === workspace.id;
+                const remote = workspace.location === "remote";
                 return (
-                  <div className={`workspace-menu-item${current ? " selected" : ""}`} role="group" key={workspace.id}>
+                  <div className={`workspace-menu-item${current ? " selected" : ""}${remote ? " remote" : ""}${workspace.available === false ? " offline" : ""}`} role="group" key={workspace.id}>
                     <button
                       className="workspace-select"
                       type="button"
                       role="menuitemradio"
                       aria-checked={current}
+                      disabled={workspace.available === false}
                       onClick={() => void switchWorkspace(workspace.id)}
                     >
-                      <span className="workspace-icon" aria-hidden="true">{workspace.name.slice(0, 1).toUpperCase()}</span>
-                      <span><strong>{workspace.name}</strong><small>{workspace.root}</small></span>
+                      <span className="workspace-icon" aria-hidden="true">{remote ? "↗" : workspace.name.slice(0, 1).toUpperCase()}</span>
+                      <span><strong>{workspace.name}</strong><small>{remote ? `${workspace.peer?.name ?? "Remote instance"} · ${workspace.available === false ? "Offline" : "Remote"}` : workspace.root}</small></span>
                       {current && <span className="current-root">Current</span>}
                     </button>
-                    {!current && !confirmingRemoval && (
+                    {!remote && !current && !confirmingRemoval && (
                       <button
                         type="button"
                         className="workspace-remove"
@@ -1944,7 +2116,7 @@ export default function Home() {
               taskCount={scopedTasks.length}
               inFlightCount={scopedTasks.filter((task) => ["in_progress", "blocked", "review"].includes(task.status)).length}
               doneCount={scopedTasks.filter((task) => task.status === "done").length}
-              rootPath={data.workspace.root}
+              rootPath={workspaceLocationLabel}
             />
           )}
 
@@ -2200,6 +2372,22 @@ export default function Home() {
 
       {aiSettingsOpen && (
         <AiSettingsPanel settings={aiSettings} busy={aiBusy} error={aiError} onClose={() => { setAiSettingsOpen(false); setAiError(null); }} onSave={saveAiSettings} onTest={testAiSettings} />
+      )}
+
+      {federationOpen && (
+        <FederationPanel
+          settings={federationSettings}
+          localWorkspaces={workspaceDirectory?.workspaces.filter((workspace) => workspace.location !== "remote") ?? []}
+          busy={federationBusy}
+          error={federationError}
+          onClose={() => { setFederationOpen(false); setFederationError(null); }}
+          onRename={updateFederationName}
+          onCreateGrant={createFederationGrant}
+          onRevokeGrant={revokeFederationGrant}
+          onConnect={connectFederationPeer}
+          onRemovePeer={removeFederationPeer}
+          onRefresh={refreshFederation}
+        />
       )}
 
       {aiProposal && (
@@ -3508,6 +3696,132 @@ function ActivityView({ scopeLabel, tasks, projects, onOpenTask }: { scopeLabel:
         </ol>
       )}
     </section>
+  );
+}
+
+function FederationPanel({ settings, localWorkspaces, busy, error, onClose, onRename, onCreateGrant, onRevokeGrant, onConnect, onRemovePeer, onRefresh }: {
+  settings: FederationSettings | null;
+  localWorkspaces: WorkspaceSummary[];
+  busy: boolean;
+  error: string | null;
+  onClose: () => void;
+  onRename: (name: string) => Promise<FederationSettings>;
+  onCreateGrant: (label: string, workspaceIds: string[]) => Promise<FederationGrantReceipt>;
+  onRevokeGrant: (id: string) => Promise<void>;
+  onConnect: (baseUrl: string, accessKey: string) => Promise<void>;
+  onRemovePeer: (id: string) => Promise<void>;
+  onRefresh: () => Promise<void>;
+}) {
+  const [instanceName, setInstanceName] = useState(settings?.instance.name ?? "");
+  const [grantLabel, setGrantLabel] = useState("");
+  const [selectedWorkspaces, setSelectedWorkspaces] = useState(() => new Set(localWorkspaces.map((workspace) => workspace.id)));
+  const [newAccessKey, setNewAccessKey] = useState<string | null>(null);
+  const [peerUrl, setPeerUrl] = useState("");
+  const [peerKey, setPeerKey] = useState("");
+  const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  const [receipt, setReceipt] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (settings) setInstanceName(settings.instance.name);
+  }, [settings?.instance.name]);
+
+  useEffect(() => {
+    setSelectedWorkspaces((current) => current.size > 0 ? current : new Set(localWorkspaces.map((workspace) => workspace.id)));
+  }, [localWorkspaces.map((workspace) => workspace.id).join("|")]);
+
+  function toggleWorkspace(id: string, checked: boolean) {
+    setSelectedWorkspaces((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id); else next.delete(id);
+      return next;
+    });
+  }
+
+  async function createGrant() {
+    setReceipt(null);
+    const result = await onCreateGrant(grantLabel, [...selectedWorkspaces]);
+    setNewAccessKey(result.accessKey);
+    setGrantLabel("");
+  }
+
+  async function copyAccessKey() {
+    if (!newAccessKey) return;
+    try {
+      await navigator.clipboard.writeText(newAccessKey);
+      setReceipt("Access key copied.");
+    } catch {
+      setReceipt("Select and copy the access key manually.");
+    }
+  }
+
+  async function copyReachableUrl() {
+    if (!settings?.network.reachableUrl) return;
+    try {
+      await navigator.clipboard.writeText(settings.network.reachableUrl);
+      setReceipt("Tailnet API URL copied.");
+    } catch {
+      setReceipt("Select and copy the tailnet API URL manually.");
+    }
+  }
+
+  async function connect() {
+    setReceipt(null);
+    await onConnect(peerUrl, peerKey);
+    setPeerUrl("");
+    setPeerKey("");
+    setReceipt("Work instance connected.");
+  }
+
+  return (
+    <div className="ai-panel-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+      <section className="federation-panel" role="dialog" aria-modal="true" aria-labelledby="federation-heading">
+        <header>
+          <div><p className="eyebrow">Direct, paired federation</p><h2 id="federation-heading">Connected Work instances</h2><p>This Work server remains the only endpoint your browser and local agents need. It forwards selected workspace operations to the instance that owns the files.</p></div>
+          <button type="button" onClick={onClose} aria-label="Close connected instances">×</button>
+        </header>
+
+        {!settings ? <div className="federation-loading">Loading connection settings…</div> : <>
+          <section className="federation-section">
+            <div className="federation-section-heading"><div><h3>This instance</h3><p>The name appears beside its workspaces on connected machines.</p></div><code>{settings.instance.id}</code></div>
+            <div className="federation-inline-form">
+              <label><span>Instance name</span><input value={instanceName} onChange={(event) => setInstanceName(event.target.value)} /></label>
+              <button type="button" disabled={busy || !instanceName.trim() || instanceName.trim() === settings.instance.name} onClick={() => void onRename(instanceName).then(() => setReceipt("Instance name saved.")).catch(() => {})}>Save name</button>
+            </div>
+            {settings.network.mode === "tailscale" && settings.network.reachableUrl ? (
+              <div className="federation-network ready"><span className="peer-status" aria-hidden="true" /><div><strong>Ready for tailnet pairing</strong><small>Use this API URL when connecting from another Work instance.</small><code>{settings.network.reachableUrl}</code></div><button type="button" onClick={() => void copyReachableUrl()}>Copy URL</button></div>
+            ) : (
+              <div className="federation-network"><div><strong>Available on this machine only</strong><small>Restart with <code>work --tailscale</code> to get a tailnet API URL for direct instance pairing.</small></div></div>
+            )}
+          </section>
+
+          <section className="federation-section">
+            <div className="federation-section-heading"><div><h3>Let another instance browse this one</h3><p>Create a one-time access key. Only a hash stays here; the receiving Work instance stores the key in its operating system credential store.</p></div></div>
+            <div className="federation-grant-form">
+              <label><span>Key label</span><input value={grantLabel} onChange={(event) => setGrantLabel(event.target.value)} placeholder="Home server or MacBook" /></label>
+              <fieldset><legend>Workspace access</legend>{localWorkspaces.map((workspace) => <label key={workspace.id}><input type="checkbox" checked={selectedWorkspaces.has(workspace.id)} onChange={(event) => toggleWorkspace(workspace.id, event.target.checked)} /><span><strong>{workspace.name}</strong><small>{workspace.root}</small></span></label>)}</fieldset>
+              <button type="button" className="primary-action" disabled={busy || !grantLabel.trim() || selectedWorkspaces.size === 0} onClick={() => void createGrant().catch(() => {})}>Create access key</button>
+            </div>
+            {newAccessKey && <div className="federation-key-receipt" role="status"><strong>Copy this key now—it will not be shown again.</strong><div><input readOnly value={newAccessKey} onFocus={(event) => event.currentTarget.select()} aria-label="New federation access key" /><button type="button" onClick={() => void copyAccessKey()}>Copy</button></div><small>On the other machine, open this panel and use the key under “Browse another instance.”</small></div>}
+            {settings.grants.length > 0 && <div className="federation-list"><h4>Active access keys</h4>{settings.grants.map((grant) => <article key={grant.id}><div><strong>{grant.label}</strong><small>{grant.workspaceIds.length} workspace{grant.workspaceIds.length === 1 ? "" : "s"} · {grant.lastUsedAt ? `Used ${shortTime(grant.lastUsedAt)}` : "Not used yet"}</small></div>{confirmRevoke === grant.id ? <div className="federation-confirm"><button type="button" onClick={() => setConfirmRevoke(null)}>Cancel</button><button type="button" className="danger-action" disabled={busy} onClick={() => void onRevokeGrant(grant.id).then(() => setConfirmRevoke(null)).catch(() => {})}>Confirm revoke</button></div> : <button type="button" onClick={() => setConfirmRevoke(grant.id)}>Revoke</button>}</article>)}</div>}
+          </section>
+
+          <section className="federation-section">
+            <div className="federation-section-heading"><div><h3>Browse another instance here</h3><p>Paste the API URL printed by <code>work --tailscale</code> on that machine and an access key created by that instance.</p></div><button type="button" className="text-action" disabled={busy} onClick={() => void onRefresh()}>Refresh</button></div>
+            <div className="federation-connect-form">
+              <label><span>Reachable Work URL</span><input value={peerUrl} onChange={(event) => setPeerUrl(event.target.value)} placeholder="http://100.x.y.z:4317" /></label>
+              <label><span>Access key</span><input type="password" value={peerKey} onChange={(event) => setPeerKey(event.target.value)} placeholder="work_peer_…" autoComplete="off" /></label>
+              <button type="button" className="primary-action" disabled={busy || !peerUrl.trim() || !peerKey.trim()} onClick={() => void connect().catch(() => {})}>{busy ? "Connecting…" : "Connect instance"}</button>
+            </div>
+            {settings.peers.length > 0 && <div className="federation-list"><h4>Instances available through this server</h4>{settings.peers.map((peer) => <article key={peer.id} className={peer.available ? "online" : "offline"}><span className="peer-status" aria-label={peer.available ? "Available" : "Offline"} /><div><strong>{peer.name}</strong><small>{peer.available ? `${peer.workspaceCount} workspace${peer.workspaceCount === 1 ? "" : "s"} · Available` : `Offline${peer.lastSeenAt ? ` · Last seen ${shortTime(peer.lastSeenAt)}` : ""}`}</small><small>{peer.baseUrl}</small>{peer.error && !peer.available && <small className="peer-error">{peer.error}</small>}</div>{confirmRemove === peer.id ? <div className="federation-confirm"><button type="button" onClick={() => setConfirmRemove(null)}>Cancel</button><button type="button" className="danger-action" disabled={busy} onClick={() => void onRemovePeer(peer.id).then(() => setConfirmRemove(null)).catch(() => {})}>Confirm remove</button></div> : <button type="button" onClick={() => setConfirmRemove(peer.id)}>Remove</button>}</article>)}</div>}
+            <p className="federation-reverse-note">Connections are deliberately one-way. To browse this machine from the other instance too, create a key here and repeat the connection there.</p>
+          </section>
+        </>}
+        {error && <p className="task-error" role="alert">{error}</p>}
+        {receipt && <p className="ai-receipt" role="status">{receipt}</p>}
+        <footer><button type="button" className="secondary-action" onClick={onClose} disabled={busy}>Done</button></footer>
+      </section>
+    </div>
   );
 }
 
