@@ -1,0 +1,4 @@
+interface:
+  display_name: "Incubate Work Ideas"
+  short_description: "Keep possibilities without premature projects"
+  default_prompt: "Use $incubate-work-ideas to turn this possibility into a calm workspace idea without authorizing work."
