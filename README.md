@@ -72,6 +72,11 @@ Pass `--no-open` when you do not want that. By default, Work listens on the
 loopback interface only; it is not published to the internet and does not
 require a hosted account.
 
+The local API prefers port `43170` and automatically chooses another free port
+when that preference is occupied. Use the exact API URL printed at startup.
+Passing `--api-port` pins a port instead. Work deliberately avoids `4317`, the
+conventional OpenTelemetry OTLP-over-gRPC receiver port.
+
 To use the full Work interface from another device on your tailnet, opt in with
 one flag:
 
@@ -160,6 +165,11 @@ exposes its own peers. Keys are individually revocable and workspace-scoped.
 The owner stores only a key hash, while the consuming instance keeps the full
 outgoing key in the operating system credential store.
 
+Federation is never on the local startup path. Work opens with local roots and
+cached remote names immediately, refreshes peers in the background, and marks
+only the affected peer unavailable when its server or native credential store
+cannot respond within a bounded deadline.
+
 Projects are explicit. The preferred marker is a project-owned `.work/`
 directory containing `project.json`. Initialize it by creating the directory;
 Work writes the marker the next time it discovers the project. Existing empty
@@ -239,6 +249,8 @@ Do not commit `.work/` if the workspace contains private operational notes.
   files are not exposed as source previews.
 - Open **Board** to see Backlog, Ready, In flight, Blocked, Review, and
   Completed. Drag cards between columns or use the accessible status control.
+  Use **Focus by epic** to show one epic, its nested child work, and tasks
+  directly linked to that epic without changing the current project scope.
 - Open a project and add its **Project purpose**: a durable description of what
   it is, who it serves, and why it exists. Work returns this context to agents
   before they scope operational records.

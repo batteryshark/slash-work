@@ -8,7 +8,11 @@ Keep these identities separate:
 - A **project** is an explicit project inside one workspace.
 - A **scope** is the directory view used for queries and unassigned captures.
 
-The UI and API have different origins. The UI commonly starts near port 3000; the API commonly starts at port 4317. Either may be configured differently. Use the URLs printed by `work serve` or supplied by the user. Never send API requests to a port merely because it looks familiar.
+The UI and API have different origins. The UI commonly starts near port 3000;
+the API prefers port 43170 but automatically chooses another free port when
+that preference is occupied. Either may be configured differently. Use the
+URLs printed by `work serve` or supplied by the user. Never send API requests
+to a port merely because it looks familiar.
 
 When one Work instance is paired with another, `work --tailscale` on the owning
 machine prints the tailnet API URL used as the peer transport. Agents still call

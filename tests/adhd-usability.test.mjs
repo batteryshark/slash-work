@@ -281,11 +281,15 @@ test("ships a scoped Kanban, complete cards, lifecycle history, and retained ter
   assert.match(page, /\/api\/tasks/);
   assert.match(page, /\/checklist/);
   assert.match(page, /Review — complete checklist first/);
+  assert.match(page, /Focus by epic/);
+  assert.match(page, /filterTasksByEpic/);
+  assert.match(page, /nested children and direct epic links/);
   assert.match(page, /legacy review card has unchecked/);
   assert.match(page, /\/log/);
   assert.match(page, /task\|todo/);
 
   assert.match(css, /\.kanban-grid/);
+  assert.match(css, /\.board-epic-filter/);
   assert.match(css, /\.board-view\s*\{[^}]*width:\s*100%/);
   assert.match(css, /@container\s*\(max-width:\s*210px\)/);
   assert.match(page, /Select a card for full details/);

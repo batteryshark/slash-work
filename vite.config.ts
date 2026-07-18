@@ -7,7 +7,7 @@ export default defineConfig({
     host: "127.0.0.1",
     proxy: {
       "/api": {
-        target: process.env.WORK_API_ORIGIN ?? "http://127.0.0.1:4317",
+        target: process.env.WORK_API_ORIGIN ?? "http://127.0.0.1:43170",
         changeOrigin: false,
       },
     },

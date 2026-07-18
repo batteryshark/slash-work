@@ -17,6 +17,10 @@ nearest-ancestor rule and registers the result.
 `--init` deliberately creates a new workspace at the exact target instead. The
 server binds to a loopback address by default, prints the local URL it selected,
 and opens it in the default browser unless `--no-open` is supplied.
+The API prefers port 43170 and falls back to an operating-system-selected free
+port when that preference is occupied. An explicit `--api-port` remains pinned
+and fails clearly on a collision. Port 4317 is deliberately avoided because it
+is the conventional OpenTelemetry OTLP-over-gRPC receiver port.
 `work --tailscale` is the only broader browser-listener mode: it discovers the
 machine's Tailscale IPv4 address and binds only to that interface. Wildcard and
 ordinary LAN bindings remain rejected. Requests must use the selected interface
@@ -76,6 +80,13 @@ outgoing key in macOS Keychain, Windows Credential Manager, or Linux Secret
 Service. The JSON file contains stable instance identity, non-secret peer URLs,
 grant metadata, and cached workspace names so an offline machine remains
 visible without appearing usable.
+
+Local startup never waits for a peer or native credential service. Ordinary
+workspace discovery returns local roots and cached remote names immediately,
+then refreshes connected instances in the background. Credential-store and
+peer-network operations have bounded deadlines; a missing Secret Service,
+locked keychain, or offline server marks only that peer unavailable. An
+explicit refresh may wait for those bounded checks but cannot stall forever.
 
 Federation is not replication. The gateway forwards allowlisted workspace API
 operations to the owner, which performs its usual validation and filesystem
@@ -208,6 +219,13 @@ The default active lifecycle is:
 the main board by default but can always be shown; cancellation never deletes
 history. The configured active statuses live in `.work/workspace.json` and
 define the board columns left to right.
+
+The board can focus on one epic without changing stored records. `parent_id`
+is the canonical way to place a task, feature, research item, or nested body of
+work under an epic. For compatibility with existing boards, the focus also
+includes work whose `depends_on` or `blocked_by` list directly names the epic.
+Search is applied after the epic focus, and clearing the focus restores the
+complete current project or folder scope.
 
 Moving a card into `review` is centrally rejected while any requirement or
 acceptance criterion remains unchecked. This applies equally to the UI, CLI,
