@@ -274,18 +274,27 @@ Do not commit `.work/` if the workspace contains private operational notes.
 Agents and terminal users use the same records:
 
 ```bash
+work agent
+work projects
 work idea "Federate remote Work instances" --detail "Explore read-only project trees across servers"
 work task "Implement the board" --project software/rekit --priority high
+work task "Workspace-wide maintenance" --unassigned
 work move W-0001 in_progress --note "UI team started"
 work log W-0001 "Requirements and dependency gate pass"
 work list
 work show W-0001
 ```
 
-A fresh agent can discover the installed version's capabilities from any
-directory without initializing a workspace or starting the service:
+A fresh agent should begin with `work agent`. Inside an existing workspace it
+reports the exact workspace, folder scope, and marked current project; outside
+a workspace it remains read-only and reports that no local context resolved.
+The agent can then load the installed version's capabilities without starting
+the service:
 
 ```bash
+work agent
+work agent context --json
+work projects --json
 work agent operations
 work agent instructions tasks.create
 work agent instructions notes.request-review --json
@@ -300,6 +309,13 @@ version rather than copied into `.work/`, and describe capabilities without
 granting authority. See
 [`docs/AGENT-CAPABILITIES.md`](docs/AGENT-CAPABILITIES.md) for the complete
 contract.
+
+A root `.work/workspace.json` identifies the workspace. A descendant `.work`
+directory identifies a project, with `.work/project.json` adding its stable
+profile. Local create commands invoked inside that project target it by default,
+including from nested directories and linked worktrees. Use `--unassigned` only
+when the new record intentionally belongs to the workspace rather than the
+current project; `--project` selects a different exact discovered path.
 
 For agents that support portable Markdown skills, the repository and npm
 package also ship [`skills/slash-work/SKILL.md`](skills/slash-work/SKILL.md).

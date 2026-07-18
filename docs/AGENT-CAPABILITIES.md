@@ -12,6 +12,8 @@ initialize the current directory:
 
 ```bash
 work agent
+work agent context
+work projects --json
 work agent operations
 work agent instructions tasks.create
 work agent instructions notes.request-review
@@ -23,8 +25,17 @@ The default instruction format is concise Markdown. Use `--json` or
 `--format json` for a machine-readable response. Artifact schemas default to
 JSON and accept `--format markdown` when a fenced representation is useful.
 
-An agent should first list operations, then load only the operation relevant to
-the current request. The operation index intentionally omits input schemas,
+When invoked inside a workspace, plain `work agent` appends a read-only current
+context block with the workspace root, invocation scope, exact marked project,
+and default `--project` routing. `work agent context` returns only that block;
+`--json` makes either form machine-readable. A descendant `.work` directory is
+a project marker, while `.work/workspace.json` identifies the enclosing root.
+Context discovery does not initialize a directory or hydrate an empty project
+marker.
+
+An agent should verify this context, list projects with `work projects` when it
+needs other exact paths, then list operations and load only the operation
+relevant to the request. The operation index intentionally omits input schemas,
 examples, and detailed rules to keep discovery inexpensive.
 
 ## Discover through the service
@@ -67,8 +78,12 @@ not become a duplicate OpenAPI operation.
 Capability discovery is read-only. Instructions explain how to perform an
 operation but never authorize it. In particular:
 
-- Do not infer a project assignment from prose. Call `projects.list` and use an
-  exact returned path, or keep the artifact unassigned.
+- Do not infer a project assignment from prose. For local CLI work, the marked
+  project containing the invocation directory is exact filesystem context and
+  is the default destination. Use `work agent context` and `work projects` to
+  verify it. Pass `--unassigned` only when workspace-level work is intentional.
+  API callers use the exact path returned by `projects.list` or null for
+  intentionally unassigned work.
 - Requesting note review or idea evaluation authorizes analysis only.
 - Agent note mutations use the dedicated `/api/agent/notes` routes and require
   `X-Work-Agent`. The service stamps that name into the note and refuses agent

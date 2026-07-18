@@ -129,7 +129,10 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   assert.match(help.stdout, /--init/);
   assert.match(help.stdout, /work idea "title"/i);
   assert.match(help.stdout, /work ideas/i);
-  assert.match(help.stdout, /--project <path>.*never inferred/i);
+  assert.match(help.stdout, /work projects/i);
+  assert.match(help.stdout, /work agent context/i);
+  assert.match(help.stdout, /--project <path>.*exact discovered project/i);
+  assert.match(help.stdout, /--unassigned.*workspace scope/i);
   assert.match(help.stdout, /--tailscale.*Tailscale IPv4/i);
   assert.match(help.stdout, /--api-port <port>.*43170/i);
   assert.match(help.stdout, /--ui-port <port>.*43171/i);
@@ -233,6 +236,65 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
     launched.child.kill("SIGTERM");
     await exited;
   }
+});
+
+test("resolves a marked current project for agents and local artifact creation", async () => {
+  const root = await temporaryDirectory("work-current-project-");
+  const project = join(root, "piu-recomp");
+  const nested = join(project, "src", "runtime");
+  await execFile(process.execPath, [launcherPath.pathname, "init", root], { cwd: repositoryRoot });
+  await mkdir(join(project, ".work"), { recursive: true });
+  await mkdir(nested, { recursive: true });
+  const canonicalRoot = await realpath(root);
+
+  const bootstrap = await execFile(process.execPath, [launcherPath.pathname, "agent"], { cwd: nested });
+  assert.ok(bootstrap.stdout.includes(`Workspace: \`${canonicalRoot}\``));
+  assert.match(bootstrap.stdout, /Project: `piu-recomp`/);
+  assert.match(bootstrap.stdout, /marker: `\.work`/);
+  assert.match(bootstrap.stdout, /Default for new local artifacts: `--project piu-recomp`/);
+
+  const contextResult = await execFile(process.execPath, [launcherPath.pathname, "agent", "context", "--json"], { cwd: nested });
+  const context = JSON.parse(contextResult.stdout);
+  assert.equal(context.workspace.root, canonicalRoot);
+  assert.equal(context.scopePath, "piu-recomp/src/runtime");
+  assert.equal(context.project.path, "piu-recomp");
+  assert.equal(context.project.marker, ".work");
+  assert.equal(context.defaultProjectPath, "piu-recomp");
+  assert.deepEqual(await readdir(join(project, ".work")), [], "agent context must not hydrate or mutate an empty project marker");
+
+  const projectsResult = await execFile(process.execPath, [launcherPath.pathname, "projects", "--json"], { cwd: nested });
+  const projects = JSON.parse(projectsResult.stdout).projects;
+  assert.equal(projects.length, 1);
+  assert.equal(projects[0].path, "piu-recomp");
+  assert.deepEqual(await readdir(join(project, ".work")), [], "project listing must not hydrate or mutate an empty project marker");
+
+  const capture = await execFile(process.execPath, [launcherPath.pathname, "add", "Preserve current project context"], { cwd: nested });
+  assert.match(capture.stdout, /Project: piu-recomp/);
+  const idea = await execFile(process.execPath, [launcherPath.pathname, "idea", "Improve project routing"], { cwd: nested });
+  assert.match(idea.stdout, /piu-recomp/);
+  const decision = await execFile(process.execPath, [launcherPath.pathname, "decision", "Use exact current project?"], { cwd: nested });
+  assert.match(decision.stdout, /Project: piu-recomp/);
+  const task = await execFile(process.execPath, [launcherPath.pathname, "task", "Route work into this project"], { cwd: nested });
+  assert.match(task.stdout, /piu-recomp/);
+
+  assert.equal((await readdir(join(project, ".work", "captures"))).length, 1);
+  assert.equal((await readdir(join(project, ".work", "ideas"))).length, 1);
+  assert.equal((await readdir(join(project, ".work", "decisions"))).length, 1);
+  const projectTasks = await readdir(join(project, ".work", "tasks"));
+  assert.equal(projectTasks.length, 1);
+  assert.match(await readFile(join(project, ".work", "tasks", projectTasks[0]), "utf8"), /project_path: "piu-recomp"/);
+  assert.deepEqual(await readdir(join(root, ".work", "tasks")), []);
+
+  const unassigned = await execFile(process.execPath, [launcherPath.pathname, "task", "Keep this at workspace scope", "--unassigned"], { cwd: nested });
+  assert.match(unassigned.stdout, /Unassigned/);
+  const rootTasks = await readdir(join(root, ".work", "tasks"));
+  assert.equal(rootTasks.length, 1);
+  assert.match(await readFile(join(root, ".work", "tasks", rootTasks[0]), "utf8"), /project_path: null/);
+
+  await assert.rejects(
+    execFile(process.execPath, [launcherPath.pathname, "task", "Conflicting destination", "--project", "piu-recomp", "--unassigned"], { cwd: nested }),
+    (error) => /--project and --unassigned cannot be used together/.test(error.stderr),
+  );
 });
 
 test("register keeps an explicitly selected nested workspace root exact", async () => {
@@ -690,6 +752,17 @@ updatedAt: "2026-01-01T00:00:00.000Z"
 
 Migrate this older alias assignment safely.
 `);
+
+  const linkedContextResult = await execFile(
+    process.execPath,
+    [launcherPath.pathname, "agent", "context", "--json"],
+    { cwd: linked },
+  );
+  const linkedContext = JSON.parse(linkedContextResult.stdout);
+  assert.equal(linkedContext.scopePath, "rekit-factory-feature");
+  assert.equal(linkedContext.project.path, "rekit-factory");
+  assert.equal(linkedContext.project.matchedPath, "rekit-factory-feature");
+  assert.equal(linkedContext.defaultProjectPath, "rekit-factory");
 
   const api = await startLocalApi({ root, port: 0 });
   try {

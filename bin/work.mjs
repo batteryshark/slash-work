@@ -18,6 +18,8 @@ import {
   listTasks,
   listIdeas,
   moveTask,
+  projectForScope,
+  readWorkspace,
   updateTask,
 } from "../lib/local-workspace.mjs";
 import {
@@ -54,7 +56,9 @@ Usage:
   work register [root]                Register this exact root for the workspace picker
   work unregister <id|root>           Remove a root from the web workspace picker
   work roots                          List roots available to the web workspace picker
-  work agent                          Print the agent capability bootstrap
+  work projects                       List exact projects in the current workspace
+  work agent                          Print capabilities and resolved local context
+  work agent context                  Print only the resolved local context
   work agent operations               List available task-scoped operations
   work agent instructions <operation> Print instructions for one operation
   work agent schema <artifact>        Print one artifact's JSON Schema
@@ -72,7 +76,8 @@ Usage:
 Options:
   --root <path>       Select a root (otherwise search upward from the current directory)
   --scope <path>      Override the invocation directory's folder scope
-  --project <path>    Assign to this exact discovered project (never inferred)
+  --project <path>    Assign to this exact discovered project
+  --unassigned        Keep new work at workspace scope instead of the current project
   --kind <kind>       idea, question, or update
   --detail <text>     Decision context
   --option <text>     Decision option; may be repeated
@@ -103,6 +108,8 @@ Options:
 
 Examples:
   work ~/Projects
+  work agent
+  work projects
   work add "check whether the release needs a migration" --scope tools
   work add "validate the parser" --scope tools/parser --project tools/parser
   work idea "Federate remote Work instances" --detail "Explore read-only project trees across servers"
@@ -160,6 +167,10 @@ function parseArguments(argv) {
       options.tailscale = true;
       continue;
     }
+    if (token === "--unassigned") {
+      options.unassigned = true;
+      continue;
+    }
     if (token === "--init") {
       options.forceInit = true;
       continue;
@@ -208,6 +219,73 @@ async function invocationScope(workspace) {
   return rel.split(sep).join("/");
 }
 
+function markerForProject(project) {
+  if (project.markers.includes(".work/project.json")) return ".work/project.json";
+  if (project.markers.includes(".work")) return ".work";
+  return project.markers[0] ?? null;
+}
+
+async function resolveLocalContext(options) {
+  const invocationPath = await realpath(process.cwd());
+  const candidate = options.root ?? invocationPath;
+  const workspaceRoot = await findWorkspaceRoot(candidate);
+  if (!workspaceRoot) {
+    return {
+      available: false,
+      invocationPath,
+      reason: "No ancestor contains .work/workspace.json.",
+    };
+  }
+  const workspace = await readWorkspace(workspaceRoot);
+  const projects = await discoverProjects(workspace.root);
+  const scopePath = await invocationScope(workspace);
+  const match = projectForScope(projects, scopePath);
+  return {
+    available: true,
+    invocationPath,
+    workspace: { id: workspace.id, name: workspace.name, root: workspace.root },
+    scopePath,
+    project: match
+      ? {
+          id: match.project.projectId,
+          name: match.project.name,
+          path: match.project.path,
+          description: match.project.description,
+          marker: markerForProject(match.project),
+          matchedPath: match.matchedPath,
+        }
+      : null,
+    defaultProjectPath: match?.project.path ?? null,
+  };
+}
+
+async function existingWorkspace(options) {
+  const candidate = options.root ?? process.cwd();
+  const workspaceRoot = await findWorkspaceRoot(candidate);
+  if (!workspaceRoot) throw new WorkspaceError("No Work workspace was found. Run from a workspace or pass --root <path>.");
+  return readWorkspace(workspaceRoot);
+}
+
+function renderLocalContext(context) {
+  if (!context.available) {
+    return `## Current local context\n\nNo workspace resolved from \`${context.invocationPath}\`. ${context.reason}\n`;
+  }
+  const project = context.project
+    ? `- Project: \`${context.project.path}\` (${context.project.name}; marker: \`${context.project.marker}\`)\n- Default for new local artifacts: \`--project ${context.project.path}\``
+    : "- Project: none at this scope\n- Default for new local artifacts: workspace scope";
+  return `## Current local context\n\n- Invocation: \`${context.invocationPath}\`\n- Workspace: \`${context.workspace.root}\` (${context.workspace.name})\n- Scope: \`${context.scopePath}\`\n${project}\n\nUse \`--unassigned\` only when the user explicitly wants workspace-level work instead of the resolved current project.\n`;
+}
+
+async function defaultProjectPath(options, workspace, projects) {
+  if (options.project != null && options.unassigned) {
+    throw new WorkspaceError("--project and --unassigned cannot be used together.");
+  }
+  if (options.unassigned) return null;
+  if (options.project != null) return options.project;
+  const scopePath = options.scope ?? await invocationScope(workspace);
+  return projectForScope(projects, scopePath)?.project.path ?? null;
+}
+
 async function runInit(options, positionals) {
   if (positionals.length > 1) throw new WorkspaceError("init accepts only one root path.");
   const root = await selectedRoot(options, positionals[0]);
@@ -240,6 +318,24 @@ async function runRoots(options, positionals) {
   console.log(`Registry: ${workspaceRegistryPath()}`);
 }
 
+async function runProjects(options, positionals) {
+  if (positionals.length > 0) throw new WorkspaceError("projects does not accept positional arguments.");
+  const workspace = await existingWorkspace(options);
+  const projects = await discoverProjects(workspace.root);
+  if (options.json || options.format === "json") {
+    process.stdout.write(`${JSON.stringify({ workspace: { id: workspace.id, name: workspace.name, root: workspace.root }, projects }, null, 2)}\n`);
+    return;
+  }
+  if (options.format && options.format !== "markdown") throw new WorkspaceError("--format must be markdown or json.");
+  if (projects.length === 0) {
+    console.log("No projects discovered in this workspace.");
+    return;
+  }
+  for (const project of projects) {
+    console.log(`${project.path}\t${project.name}\t${markerForProject(project) ?? "unknown marker"}`);
+  }
+}
+
 function agentOutputFormat(options, fallback = "markdown") {
   const format = options.json ? "json" : options.format ?? fallback;
   if (!new Set(["markdown", "json"]).has(format)) {
@@ -255,7 +351,18 @@ async function runAgent(options, positionals) {
   if (command == null) {
     if (value != null) throw new WorkspaceError("Unexpected agent argument.");
     const format = agentOutputFormat(options);
-    process.stdout.write(format === "json" ? `${JSON.stringify(getAgentIndex(), null, 2)}\n` : renderAgentIndexMarkdown());
+    const context = await resolveLocalContext(options);
+    process.stdout.write(format === "json"
+      ? `${JSON.stringify({ ...getAgentIndex(), localContext: context }, null, 2)}\n`
+      : `${renderAgentIndexMarkdown()}\n${renderLocalContext(context)}`);
+    return;
+  }
+
+  if (command === "context") {
+    if (value != null) throw new WorkspaceError("agent context does not accept an operation name.");
+    const context = await resolveLocalContext(options);
+    const format = agentOutputFormat(options);
+    process.stdout.write(format === "json" ? `${JSON.stringify(context, null, 2)}\n` : renderLocalContext(context));
     return;
   }
 
@@ -285,7 +392,7 @@ async function runAgent(options, positionals) {
     return;
   }
 
-  throw new WorkspaceError(`Unknown agent command: ${command}. Use operations, instructions, or schema.`);
+  throw new WorkspaceError(`Unknown agent command: ${command}. Use context, operations, instructions, or schema.`);
 }
 
 async function runAdd(options, positionals) {
@@ -294,13 +401,14 @@ async function runAdd(options, positionals) {
   const workspace = await initializeWorkspace(await selectedRoot(options));
   const projects = await discoverProjects(workspace.root);
   const scopePath = options.scope ?? (await invocationScope(workspace));
+  const projectPath = await defaultProjectPath(options, workspace, projects);
   const capture = await createCapture(
     workspace,
     {
       text,
       kind: options.kind,
       scopePath,
-      projectPath: options.project ?? null,
+      projectPath,
     },
     projects,
   );
@@ -313,12 +421,13 @@ async function runDecision(options, positionals) {
   const title = positionals.join(" ");
   const workspace = await initializeWorkspace(await selectedRoot(options));
   const projects = await discoverProjects(workspace.root);
+  const projectPath = await defaultProjectPath(options, workspace, projects);
   const decision = await createDecision(
     workspace,
     {
       title,
       detail: options.detail ?? "",
-      projectPath: options.project ?? null,
+      projectPath,
       options: options.option,
       recommendedOption: options.recommend ?? null,
     },
@@ -333,11 +442,12 @@ async function runIdea(options, positionals) {
   const workspace = await initializeWorkspace(await selectedRoot(options));
   const projects = await discoverProjects(workspace.root);
   const scopePath = options.scope ?? (await invocationScope(workspace));
+  const projectPath = await defaultProjectPath(options, workspace, projects);
   const idea = await createIdea(workspace, {
     title: positionals.join(" "),
     opportunity: options.detail ?? "",
     scopePath,
-    projectPath: options.project ?? null,
+    projectPath,
     tags: options.tag,
   }, projects);
   console.log(`Created idea ${idea.id}: ${idea.title}`);
@@ -362,9 +472,10 @@ async function runTask(options, positionals) {
   if (positionals.length === 0) throw new WorkspaceError("task requires a title in quotes.");
   const workspace = await currentWorkspace(options);
   const projects = await discoverProjects(workspace.root);
+  const projectPath = await defaultProjectPath(options, workspace, projects);
   const task = await createTask(workspace, {
     title: positionals.join(" "),
-    projectPath: options.project ?? null,
+    projectPath,
     type: options.type,
     priority: options.priority,
     assignee: options.assignee,
@@ -542,7 +653,7 @@ async function runServer(options, positionals) {
 
 async function main() {
   const argv = process.argv.slice(2);
-  const knownCommands = new Set(["serve", "init", "register", "unregister", "roots", "agent", "add", "idea", "ideas", "decision", "task", "create", "list", "show", "move", "assign", "log"]);
+  const knownCommands = new Set(["serve", "init", "register", "unregister", "roots", "projects", "agent", "add", "idea", "ideas", "decision", "task", "create", "list", "show", "move", "assign", "log"]);
   const command = knownCommands.has(argv[0]) ? argv.shift() : "serve";
   const { options, positionals } = parseArguments(argv);
   if (options.help) {
@@ -553,6 +664,7 @@ async function main() {
   if (command === "register") return runRegister(options, positionals);
   if (command === "unregister") return runUnregister(options, positionals);
   if (command === "roots") return runRoots(options, positionals);
+  if (command === "projects") return runProjects(options, positionals);
   if (command === "agent") return runAgent(options, positionals);
   if (command === "add") return runAdd(options, positionals);
   if (command === "idea") return runIdea(options, positionals);
