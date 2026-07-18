@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { filterTasksByEpic } from "../lib/task-focus.mjs";
 
 type Project = {
   id: string;
@@ -554,6 +555,7 @@ export default function Home() {
   const [taskError, setTaskError] = useState<string | null>(null);
   const [savingTask, setSavingTask] = useState(false);
   const [taskSearch, setTaskSearch] = useState("");
+  const [taskEpicFilter, setTaskEpicFilter] = useState("");
   const [showTerminalTasks, setShowTerminalTasks] = useState(false);
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
@@ -2040,6 +2042,8 @@ export default function Home() {
             projects={data.projects}
             search={taskSearch}
             onSearch={setTaskSearch}
+            epicFilter={taskEpicFilter}
+            onEpicFilter={setTaskEpicFilter}
             showTerminal={showTerminalTasks}
             onToggleTerminal={() => setShowTerminalTasks((shown) => !shown)}
             draggingTaskId={draggingTaskId}
@@ -3539,6 +3543,8 @@ function KanbanBoard({
   projects,
   search,
   onSearch,
+  epicFilter,
+  onEpicFilter,
   showTerminal,
   onToggleTerminal,
   draggingTaskId,
@@ -3555,6 +3561,8 @@ function KanbanBoard({
   projects: Project[];
   search: string;
   onSearch: (value: string) => void;
+  epicFilter: string;
+  onEpicFilter: (value: string) => void;
   showTerminal: boolean;
   onToggleTerminal: () => void;
   draggingTaskId: string | null;
@@ -3566,10 +3574,14 @@ function KanbanBoard({
   error: string | null;
 }) {
   const boardStatuses = showTerminal ? [...statuses, "cancelled", "archived"] : statuses;
+  const epics = tasks.filter((task) => task.type === "epic").sort((left, right) => left.title.localeCompare(right.title));
+  const effectiveEpicId = epics.some((epic) => epic.id === epicFilter) ? epicFilter : "";
+  const selectedEpic = epics.find((epic) => epic.id === effectiveEpicId) ?? null;
+  const epicFocusedTasks = filterTasksByEpic(tasks, effectiveEpicId);
   const query = search.trim().toLowerCase();
-  const filtered = tasks.filter((task) => !query || [task.id, task.title, task.projectPath ?? "", task.assignee ?? "", task.type, task.priority, ...task.tags, ...task.agents].join(" ").toLowerCase().includes(query));
-  const activeCount = tasks.filter((task) => ["in_progress", "blocked", "review"].includes(task.status)).length;
-  const doneCount = tasks.filter((task) => task.status === "done").length;
+  const filtered = epicFocusedTasks.filter((task) => !query || [task.id, task.title, task.projectPath ?? "", task.assignee ?? "", task.type, task.priority, ...task.tags, ...task.agents].join(" ").toLowerCase().includes(query));
+  const activeCount = filtered.filter((task) => ["in_progress", "blocked", "review"].includes(task.status)).length;
+  const doneCount = filtered.filter((task) => task.status === "done").length;
 
   return (
     <section className="board-view" aria-labelledby="board-heading">
@@ -3577,17 +3589,27 @@ function KanbanBoard({
         <div>
           <p className="eyebrow">Present state · full lifecycle</p>
           <h1 id="board-heading">{scopeLabel} board</h1>
-          <p>{tasks.length} work items · {activeCount} in flight · {doneCount} completed <span className="board-detail-hint">Select a card for full details.</span></p>
+          <p>{filtered.length}{selectedEpic || query ? ` of ${tasks.length}` : ""} work items · {activeCount} in flight · {doneCount} completed <span className="board-detail-hint">Select a card for full details.</span></p>
         </div>
         <div className="board-actions">
           <button type="button" className="secondary-action" onClick={onToggleTerminal}>{showTerminal ? "Hide cancelled & archived" : "Show cancelled & archived"}</button>
           <button type="button" className="primary-action" onClick={onCreate}>New work item</button>
         </div>
       </div>
-      <label className="board-search">
-        <span className="sr-only">Search work items</span>
-        <input type="search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search title, ID, project, owner, agent, or tag…" />
-      </label>
+      <div className="board-filters" aria-label="Board filters">
+        <label className="board-search">
+          <span className="sr-only">Search work items</span>
+          <input type="search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search title, ID, project, owner, agent, or tag…" />
+        </label>
+        <label className="board-epic-filter">
+          <span>Focus by epic</span>
+          <select value={effectiveEpicId} onChange={(event) => onEpicFilter(event.target.value)} disabled={epics.length === 0}>
+            <option value="">{epics.length === 0 ? "No epics in this scope" : "All work in this scope"}</option>
+            {epics.map((epic) => <option value={epic.id} key={epic.id}>{epic.id} · {epic.title}</option>)}
+          </select>
+        </label>
+      </div>
+      {selectedEpic && <p className="board-focus-summary"><strong>{selectedEpic.id} · {selectedEpic.title}</strong><span>{epicFocusedTasks.length} connected item{epicFocusedTasks.length === 1 ? "" : "s"} · nested children and direct epic links</span><button type="button" onClick={() => onEpicFilter("")}>Clear focus</button></p>}
       {error && <div className="task-error" role="alert">{error}</div>}
       {tasks.length === 0 ? (
         <div className="board-empty">
@@ -3809,7 +3831,7 @@ function FederationPanel({ settings, localWorkspaces, busy, error, onClose, onRe
           <section className="federation-section">
             <div className="federation-section-heading"><div><h3>Browse another instance here</h3><p>Paste the API URL printed by <code>work --tailscale</code> on that machine and an access key created by that instance.</p></div><button type="button" className="text-action" disabled={busy} onClick={() => void onRefresh()}>Refresh</button></div>
             <div className="federation-connect-form">
-              <label><span>Reachable Work URL</span><input value={peerUrl} onChange={(event) => setPeerUrl(event.target.value)} placeholder="http://100.x.y.z:4317" /></label>
+              <label><span>Reachable Work URL</span><input value={peerUrl} onChange={(event) => setPeerUrl(event.target.value)} placeholder="Paste the API URL shown on that machine" /></label>
               <label><span>Access key</span><input type="password" value={peerKey} onChange={(event) => setPeerKey(event.target.value)} placeholder="work_peer_…" autoComplete="off" /></label>
               <button type="button" className="primary-action" disabled={busy || !peerUrl.trim() || !peerKey.trim()} onClick={() => void connect().catch(() => {})}>{busy ? "Connecting…" : "Connect instance"}</button>
             </div>

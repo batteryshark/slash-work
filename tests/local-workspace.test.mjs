@@ -326,6 +326,30 @@ test("reports the actual UI URL when the requested port is occupied", async () =
   }
 });
 
+test("falls back to a free API port unless the caller pins the occupied port", async () => {
+  const root = await temporaryDirectory("work-dynamic-api-port-");
+  const blocker = createServer((_request, response) => response.end("occupied"));
+  await new Promise((resolve, reject) => {
+    blocker.once("error", reject);
+    blocker.listen(0, "127.0.0.1", resolve);
+  });
+  const address = blocker.address();
+  assert.ok(address && typeof address === "object");
+
+  const api = await startLocalApi({ root, port: address.port, fallbackOnPortConflict: true });
+  try {
+    assert.notEqual(api.port, address.port);
+    assert.equal((await apiRequest(api.origin, "/api/health")).response.status, 200);
+    await assert.rejects(
+      startLocalApi({ root, port: address.port }),
+      (error) => error?.code === "EADDRINUSE" && error?.port === address.port,
+    );
+  } finally {
+    await closeLocalApi(api.server);
+    await new Promise((resolve, reject) => blocker.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
 test("launches on loopback, discovers only explicit projects, and contains the root", async () => {
   const { root } = await makeWorkspaceFixture();
   const first = await startLocalApi({ root, port: 0 });

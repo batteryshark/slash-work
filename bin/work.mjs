@@ -89,7 +89,7 @@ Options:
   --plan <text>       Plan section
   --notes <text>      Notes section
   --note <text>       Status-change note
-  --api-port <port>   Local API port (default: 4317)
+  --api-port <port>   Pin the local API port (default preference: 43170)
   --ui-port <port>    Local UI port (default: 3000)
   --format <format>   Agent output format: markdown or json
   --json              Shortcut for --format json
@@ -451,7 +451,7 @@ async function runServer(options, positionals) {
   activeWorkspace ??= registered.at(-1);
   if (!registered.some((workspace) => workspace.id === activeWorkspace.id)) registered.push(activeWorkspace);
   const root = activeWorkspace.root;
-  const apiPort = parsePort(options.apiPort, 4317, "--api-port");
+  const apiPort = parsePort(options.apiPort, 43170, "--api-port");
   const uiPort = parsePort(options.uiPort, 3000, "--ui-port");
   const listenHost = options.tailscale ? await discoverTailscaleIPv4() : "127.0.0.1";
   const updater = await createServiceUpdater({ packageRoot: APP_ROOT });
@@ -466,10 +466,14 @@ async function runServer(options, positionals) {
     checkForUpdate: updater.checkForUpdate,
     onUpdate: updater.installUpdate,
     federationConfigFile: federationConfigPath(),
+    fallbackOnPortConflict: options.apiPort == null,
   });
   console.log(`[work] Workspace: ${localApi.workspace.root}`);
   console.log(`[work] Roots available: ${localApi.workspaces.length}`);
   console.log(`[work] API ready at ${localApi.origin}`);
+  if (apiPort !== 0 && localApi.port !== apiPort) {
+    console.log(`[work] Preferred API port ${apiPort} was occupied; using ${localApi.port} instead.`);
+  }
   if (options.tailscale) {
     console.log("[work] Tailnet access is enabled. Anyone permitted by your Tailscale ACLs can use and modify this Work instance.");
   }
@@ -565,7 +569,9 @@ main().catch((error) => {
   if (error instanceof WorkspaceError) {
     console.error(`work: ${error.message}`);
   } else if (error?.code === "EADDRINUSE") {
-    console.error("work: The local API port is already in use. Pass --api-port with another port.");
+    const address = error.address ? ` on ${error.address}` : "";
+    const port = error.port ? ` ${error.port}` : "";
+    console.error(`work: The explicitly requested API port${port}${address} is already in use.`);
   } else {
     console.error(error);
   }

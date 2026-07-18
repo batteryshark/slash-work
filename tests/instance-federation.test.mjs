@@ -175,6 +175,81 @@ test("keeps cached remote workspaces visible but unavailable when their owner is
   }
 });
 
+test("keeps local startup responsive when a configured peer credential store hangs", async () => {
+  const gatewayRoot = await temporaryDirectory("work-federation-resilient-gateway-");
+  const ownerRoot = await temporaryDirectory("work-federation-resilient-owner-");
+  const gatewayConfig = join(await temporaryDirectory("work-federation-resilient-config-"), "federation.json");
+  const ownerConfig = join(await temporaryDirectory("work-federation-resilient-owner-config-"), "federation.json");
+  const gatewayCredentials = memoryCredentialStore();
+  const owner = await startLocalApi({ root: ownerRoot, port: 0, federationConfigFile: ownerConfig, federationCredentialStore: memoryCredentialStore() });
+  const gateway = await startLocalApi({ root: gatewayRoot, port: 0, federationConfigFile: gatewayConfig, federationCredentialStore: gatewayCredentials });
+
+  try {
+    const ownerDirectory = await apiRequest(owner.origin, "/api/workspaces");
+    const grant = await apiRequest(owner.origin, "/api/federation/grants", {
+      method: "POST",
+      headers: { "x-work-federation-settings": "confirm" },
+      body: { label: "Minimal gateway", workspaceIds: [ownerDirectory.payload.defaultWorkspaceId] },
+    });
+    await apiRequest(gateway.origin, "/api/federation/peers", {
+      method: "POST",
+      headers: { "x-work-federation-settings": "confirm" },
+      body: { baseUrl: owner.origin, accessKey: grant.payload.accessKey },
+    });
+  } finally {
+    await closeLocalApi(gateway.server);
+    await closeLocalApi(owner.server);
+  }
+
+  const hangingCredentials = {
+    async get() { return new Promise(() => {}); },
+    async set() { return new Promise(() => {}); },
+    async delete() { return new Promise(() => {}); },
+  };
+  const restarted = await startLocalApi({
+    root: gatewayRoot,
+    port: 0,
+    federationConfigFile: gatewayConfig,
+    federationCredentialStore: hangingCredentials,
+    federationRequestTimeoutMs: 1_000,
+  });
+
+  try {
+    const directory = await Promise.race([
+      apiRequest(restarted.origin, "/api/workspaces"),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Local workspace discovery waited for the credential store.")), 250)),
+    ]);
+    assert.equal(directory.response.status, 200);
+    assert.equal(directory.payload.workspaces.some((workspace) => workspace.location === "local"), true);
+    assert.equal(directory.payload.workspaces.some((workspace) => workspace.location === "remote" && workspace.available === false), true);
+
+    const refreshed = await apiRequest(restarted.origin, "/api/federation?refresh=1");
+    assert.equal(refreshed.response.status, 200);
+    assert.equal(refreshed.payload.peers[0].available, false);
+    assert.match(refreshed.payload.peers[0].error, /credential store timed out/i);
+  } finally {
+    await closeLocalApi(restarted.server);
+  }
+});
+
+test("does not consult a native credential store when no peers are configured", async () => {
+  const root = await temporaryDirectory("work-federation-minimal-os-");
+  const config = join(await temporaryDirectory("work-federation-minimal-os-config-"), "federation.json");
+  let credentialCalls = 0;
+  const unavailableCredentials = {
+    async get() { credentialCalls += 1; throw new Error("No Secret Service"); },
+    async set() { credentialCalls += 1; throw new Error("No Secret Service"); },
+    async delete() { credentialCalls += 1; throw new Error("No Secret Service"); },
+  };
+  const api = await startLocalApi({ root, port: 0, federationConfigFile: config, federationCredentialStore: unavailableCredentials });
+  try {
+    assert.equal((await apiRequest(api.origin, "/api/workspaces")).response.status, 200);
+    assert.equal(credentialCalls, 0);
+  } finally {
+    await closeLocalApi(api.server);
+  }
+});
+
 test("presents remote ownership and pairing as an explicit, understandable UI workflow", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");

@@ -53,7 +53,7 @@ import { FederationManager } from "../lib/instance-federation.mjs";
 import { isTailscaleIPv4 } from "../lib/tailscale-network.mjs";
 
 const LOOPBACK_HOST = "127.0.0.1";
-const DEFAULT_PORT = 4317;
+const DEFAULT_PORT = 43170;
 const MAX_BODY_BYTES = 128 * 1024;
 const MAX_PROXY_RESPONSE_BYTES = 4 * 1024 * 1024;
 const UPDATE_CACHE_MS = 15 * 60 * 1000;
@@ -367,7 +367,12 @@ async function handleRequest(workspaces, service, request, response) {
   }
 
   if (method === "GET" && url.pathname === "/api/workspaces") {
-    await service.federation.refreshPeers({ force: url.searchParams.get("refresh") === "1" });
+    const forceRefresh = url.searchParams.get("refresh") === "1";
+    if (forceRefresh) {
+      await service.federation.refreshPeers({ force: true });
+    } else {
+      void service.federation.refreshPeers().catch((error) => console.error("[work] Connected-instance refresh failed:", error));
+    }
     sendJson(request, response, 200, {
       defaultWorkspaceId: defaultWorkspace.id,
       activeWorkspaceId: defaultWorkspace.id,
@@ -919,6 +924,7 @@ export async function startLocalApi({
   federationCredentialStore = undefined,
   federationFetch = fetch,
   federationRequestTimeoutMs = 5_000,
+  fallbackOnPortConflict = false,
 } = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
     throw new WorkspaceError("port must be an integer between 0 and 65535.", { code: "invalid_port" });
@@ -949,6 +955,9 @@ export async function startLocalApi({
   }
   if (!Number.isInteger(federationRequestTimeoutMs) || federationRequestTimeoutMs < 1) {
     throw new WorkspaceError("federationRequestTimeoutMs must be a positive integer.", { code: "invalid_federation_timeout" });
+  }
+  if (typeof fallbackOnPortConflict !== "boolean") {
+    throw new WorkspaceError("fallbackOnPortConflict must be a boolean.", { code: "invalid_port_fallback" });
   }
   const requestedDirectory = await realpath(root);
   const initialRoots = Array.isArray(roots) && roots.length > 0 ? roots : [root];
@@ -1001,7 +1010,7 @@ export async function startLocalApi({
   server.headersTimeout = 10_000;
   server.keepAliveTimeout = 5_000;
 
-  await new Promise((resolve, reject) => {
+  const listen = (selectedPort) => new Promise((resolve, reject) => {
     const onError = (error) => {
       server.off("listening", onListening);
       reject(error);
@@ -1012,8 +1021,15 @@ export async function startLocalApi({
     };
     server.once("error", onError);
     server.once("listening", onListening);
-    server.listen(port, host);
+    server.listen(selectedPort, host);
   });
+
+  try {
+    await listen(port);
+  } catch (error) {
+    if (!fallbackOnPortConflict || port === 0 || error?.code !== "EADDRINUSE") throw error;
+    await listen(0);
+  }
 
   const address = server.address();
   const selectedPort = typeof address === "object" && address ? address.port : port;

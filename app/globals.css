@@ -826,7 +826,14 @@ kbd { display: inline-grid; place-items: center; min-width: 23px; height: 23px; 
 .board-detail-hint::before { content: "·"; margin-right: 5px; }
 .board-actions { display: flex; align-items: center; gap: 10px; }
 .board-actions .primary-action, .board-actions .secondary-action { width: auto; white-space: nowrap; }
-.board-search input { width: 100%; min-height: 50px; margin-bottom: 18px; padding: 0 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); font-size: 15px; }
+.board-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 340px); align-items: end; gap: 12px; margin-bottom: 12px; }
+.board-search input { width: 100%; min-height: 50px; padding: 0 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); font-size: 15px; }
+.board-epic-filter { display: grid; gap: 5px; color: var(--muted); font-size: 10px; font-weight: 760; letter-spacing: .05em; text-transform: uppercase; }
+.board-epic-filter select { width: 100%; min-height: 50px; padding: 0 36px 0 13px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); font-size: 13px; font-weight: 680; text-transform: none; }
+.board-focus-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 3px 12px; margin: 0 0 16px; padding: 11px 13px; border: 1px solid #d9d3ff; border-radius: 12px; background: var(--accent-softer); }
+.board-focus-summary strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.board-focus-summary span { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.board-focus-summary button { grid-column: 2; grid-row: 1 / 3; min-height: 36px; padding: 0 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 720; }
 .task-error { margin: 10px 0 16px; padding: 13px 15px; border: 1px solid #edc6c1; border-radius: 12px; background: var(--danger-soft); color: var(--danger); font-size: 14px; font-weight: 680; }
 .board-empty { display: grid; justify-items: start; gap: 10px; padding: 42px; border: 1px dashed #c9c2b8; border-radius: 20px; background: rgba(255, 254, 250, 0.45); }
 .board-empty strong { font-size: 21px; }
@@ -1164,6 +1171,9 @@ html[data-theme="dark"] .ai-self-signed { border-color: #705a28; background: #32
   .file-preview-meta { flex-wrap: wrap; }
   .board-actions { align-items: stretch; flex-direction: column-reverse; }
   .board-actions .primary-action, .board-actions .secondary-action { width: 100%; }
+  .board-filters { grid-template-columns: 1fr; }
+  .board-focus-summary { grid-template-columns: minmax(0, 1fr); }
+  .board-focus-summary button { grid-column: 1; grid-row: auto; justify-self: start; }
   .kanban-scroll { width: calc(100% + 14px); }
   .activity-list::before { left: 7px; }
   .activity-list li { grid-template-columns: 1fr; gap: 5px; padding-left: 25px; }
