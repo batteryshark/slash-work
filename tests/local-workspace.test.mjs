@@ -131,6 +131,9 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   assert.match(help.stdout, /work ideas/i);
   assert.match(help.stdout, /--project <path>.*never inferred/i);
   assert.match(help.stdout, /--tailscale.*Tailscale IPv4/i);
+  assert.match(help.stdout, /--api-port <port>.*43170/i);
+  assert.match(help.stdout, /--ui-port <port>.*43171/i);
+  assert.doesNotMatch(help.stdout, /--ui-port <port>.*3000/i);
 
   const root = await temporaryDirectory("work-cli-root-");
   const descendant = join(root, "projects", "one");

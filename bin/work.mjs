@@ -42,6 +42,8 @@ import {
 } from "../lib/agent-capabilities.mjs";
 
 const APP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const DEFAULT_API_PORT = 43170;
+const DEFAULT_UI_PORT = 43171;
 
 const HELP = `Work — local, root-scoped project memory
 
@@ -89,8 +91,8 @@ Options:
   --plan <text>       Plan section
   --notes <text>      Notes section
   --note <text>       Status-change note
-  --api-port <port>   Pin the local API port (default preference: 43170)
-  --ui-port <port>    Local UI port (default: 3000)
+  --api-port <port>   Pin the local API port (default preference: ${DEFAULT_API_PORT})
+  --ui-port <port>    Local UI port (default preference: ${DEFAULT_UI_PORT})
   --format <format>   Agent output format: markdown or json
   --json              Shortcut for --format json
   --no-ui             Start only the local API
@@ -451,8 +453,8 @@ async function runServer(options, positionals) {
   activeWorkspace ??= registered.at(-1);
   if (!registered.some((workspace) => workspace.id === activeWorkspace.id)) registered.push(activeWorkspace);
   const root = activeWorkspace.root;
-  const apiPort = parsePort(options.apiPort, 43170, "--api-port");
-  const uiPort = parsePort(options.uiPort, 3000, "--ui-port");
+  const apiPort = parsePort(options.apiPort, DEFAULT_API_PORT, "--api-port");
+  const uiPort = parsePort(options.uiPort, DEFAULT_UI_PORT, "--ui-port");
   const listenHost = options.tailscale ? await discoverTailscaleIPv4() : "127.0.0.1";
   const updater = await createServiceUpdater({ packageRoot: APP_ROOT });
   const localApi = await startLocalApi({
