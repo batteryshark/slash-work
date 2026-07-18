@@ -72,10 +72,13 @@ Pass `--no-open` when you do not want that. By default, Work listens on the
 loopback interface only; it is not published to the internet and does not
 require a hosted account.
 
-The local API prefers port `43170` and automatically chooses another free port
-when that preference is occupied. Use the exact API URL printed at startup.
-Passing `--api-port` pins a port instead. Work deliberately avoids `4317`, the
-conventional OpenTelemetry OTLP-over-gRPC receiver port.
+The local UI and API prefer ports `43171` and `43170`, respectively, and
+automatically choose other free ports when those preferences are occupied. Use
+the exact URLs printed at startup. Passing `--ui-port` or `--api-port` pins a
+port instead. Work deliberately avoids common development ports such as `3000`
+and the conventional OpenTelemetry OTLP-over-gRPC receiver port `4317`; common
+ports can collide on the host or in an SSH/IDE forwarding layer that the remote
+service cannot inspect.
 
 To use the full Work interface from another device on your tailnet, opt in with
 one flag:
@@ -85,7 +88,7 @@ work --tailscale
 ```
 
 Work asks the local Tailscale CLI for this machine's IPv4 address, binds the UI
-and API only to that interface, and prints the resulting `http://100.x.y.z:3000/`
+and API only to that interface, and prints the resulting `http://100.x.y.z:43171/`
 URL. It never binds `0.0.0.0`. Tailnet mode relies on your Tailscale membership
 and ACLs rather than separate Work login credentials, so anyone those ACLs
 permit to reach the machine can use and modify the selected Work roots.
