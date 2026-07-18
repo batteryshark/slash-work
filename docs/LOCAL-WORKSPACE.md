@@ -316,9 +316,14 @@ An agent can capture, inspect, or update records through the local interface,
 but it sees the same selected root and the same durable files as the human. No
 harness-specific hook or telemetry integration is required.
 
-A fresh agent should run `work agent operations` and then
-`work agent instructions <operation>` to load only the relevant rules. These
-commands work without a running server or workspace. The loopback service
+A fresh local agent should run `work agent` first. When an ancestor
+`.work/workspace.json` exists, the output identifies that workspace and treats
+a descendant `.work` directory as the exact current project marker. Use
+`work agent context --json` for only the routing result and `work projects
+--json` to list every exact path. Then run `work agent operations` and
+`work agent instructions <operation>` to load only the relevant rules. Agent
+discovery remains read-only and also works without a running server or
+workspace. The loopback service
 exposes the same versioned catalog under `/api/agent`; see
 [`AGENT-CAPABILITIES.md`](AGENT-CAPABILITIES.md). The catalog lives in the
 installed package, not `.work/`, so instructions stay aligned with upgrades.
@@ -335,6 +340,7 @@ work add "check whether the release needs a migration"
 work idea "Federate remote Work instances" --detail "Explore read-only project trees across servers"
 work decision "Where should the lab live?" --option "Keep unassigned" --option "Assign later"
 work task "Implement the board" --project software/rekit --priority high
+work task "Workspace-wide maintenance" --unassigned
 work move W-0001 in_progress --note "Agent team started"
 work assign W-0001 codex-team
 work log W-0001 "Dependency and restart tests pass"
@@ -342,10 +348,12 @@ work list
 work show W-0001
 ```
 
-These commands search upward for the nearest workspace. `work add` uses its
-invocation directory as the folder scope, but stays unassigned unless
-`--project` is given an exact discovered root-relative path; project names
-mentioned inside the thought are treated only as text.
+These commands search upward for the nearest workspace. When their invocation
+directory is inside an exact discovered project marker, create commands default
+to that canonical project and store the record in its `.work` directory. This
+filesystem context is distinct from guessing a project mentioned in prose.
+Pass `--unassigned` to keep new work at workspace scope or `--project` to select
+a different exact discovered root-relative path.
 
 ## One-shot AI assistance
 

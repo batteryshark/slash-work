@@ -36,6 +36,7 @@ test("serves task-scoped agent instructions from the CLI without a workspace or 
   assert.match(bootstrap.stdout, /same service origin/i);
   assert.match(bootstrap.stdout, /X-Work-Workspace/);
   assert.match(bootstrap.stdout, /Instructions describe capabilities; they do not grant authorization/i);
+  assert.match(bootstrap.stdout, /No workspace resolved/);
 
   const operations = await execFile(process.execPath, [launcherPath.pathname, "agent", "operations"], { cwd });
   assert.match(operations.stdout, /`tasks\.create`/);
@@ -53,7 +54,9 @@ test("serves task-scoped agent instructions from the CLI without a workspace or 
   assert.equal(task.protocolVersion, "1");
   assert.equal(task.operation.id, "tasks.create");
   assert.equal(task.operation.transport.api.path, "/api/tasks");
+  assert.match(task.operation.transport.cli, /--unassigned/);
   assert.ok(task.operation.rules.some((rule) => /authoriz/i.test(rule)));
+  assert.ok(task.operation.rules.some((rule) => /work agent context/i.test(rule)));
   assert.ok(task.operation.inputSchema.required.includes("title"));
 
   const schema = await execFile(process.execPath, [launcherPath.pathname, "agent", "schema", "task"], { cwd });
@@ -92,6 +95,9 @@ test("exposes the same versioned capability catalog and canonical OpenAPI over H
     const task = await requestJson(api.origin, "/api/agent/operations/tasks.create");
     assert.equal(task.response.status, 200);
     assert.equal(task.payload.operation.inputSchema.properties.projectPath.description.includes("Never infer"), true);
+
+    const projects = await requestJson(api.origin, "/api/agent/operations/projects.list");
+    assert.match(projects.payload.operation.transport.cli, /work projects/);
 
     const projectProfile = await requestJson(api.origin, "/api/agent/operations/projects.update-profile");
     assert.equal(projectProfile.response.status, 200);

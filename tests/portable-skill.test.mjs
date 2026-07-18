@@ -9,6 +9,9 @@ test("ships a vendor-neutral progressively disclosed Slash Work skill", async ()
   const skill = await readFile(new URL("SKILL.md", skillRoot), "utf8");
   assert.match(skill, /^---\nname: slash-work\ndescription: .+\n---/);
   assert.match(skill, /work agent operations/);
+  assert.match(skill, /work agent context --json/);
+  assert.match(skill, /work projects --json/);
+  assert.match(skill, /--unassigned/);
   assert.match(skill, /X-Work-Workspace/);
   assert.match(skill, /references\/service-routing\.md/);
   assert.match(skill, /references\/artifact-model\.md/);
