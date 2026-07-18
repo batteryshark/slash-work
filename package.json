@@ -1,6 +1,6 @@
 {
   "name": "slash-work",
-  "version": "0.2.19",
+  "version": "0.2.20",
   "description": "A local, filesystem-backed project manager for humans and agent teams.",
   "license": "MIT",
   "repository": {
