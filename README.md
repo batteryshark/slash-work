@@ -93,6 +93,21 @@ URL. It never binds `0.0.0.0`. Tailnet mode relies on your Tailscale membership
 and ACLs rather than separate Work login credentials, so anyone those ACLs
 permit to reach the machine can use and modify the selected Work roots.
 
+### Use the native iOS app
+
+The repository includes a first-class SwiftUI client in the
+[`ios/` source directory](https://github.com/batteryshark/slash-work/tree/main/ios).
+It connects to the API URL printed by `work --tailscale`, discovers local and
+federated workspaces, and provides native Home, Board, Capture, Ideas, Notes,
+Inbox, task, and decision experiences. The app remembers multiple Work
+instances, uses conditional snapshot refreshes, and retains the last snapshot
+for clearly marked read-only access when a machine is offline.
+
+Open `ios/Work.xcodeproj` in Xcode, select your development team, and install it
+on an iPhone or iPad connected to the same tailnet. The app relies on the same
+Tailscale membership and ACL boundary as the browser UI; it does not copy
+federation credentials or AI provider keys onto the phone.
+
 On first launch, the selected directory becomes the workspace root. On later
 launches inside one of its descendants, Work finds the nearest ancestor
 containing `.work/workspace.json`, resumes it, and opens at that descendant's
