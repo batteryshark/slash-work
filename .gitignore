@@ -6,6 +6,7 @@ coverage/
 .vinext/
 .wrangler/
 .DS_Store
+xcuserdata/
 *.log
 .env*
 !.env.example

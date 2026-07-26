@@ -128,6 +128,11 @@ at once. Discovery follows these rules:
 6. Refreshing discovery does not delete captures or rewrite project history.
 7. A descendant containing its own `.work/workspace.json` is a nested root and
    stops parent discovery at that boundary.
+8. Discovery has no arbitrary nesting-depth cutoff. It reads directories with
+   bounded concurrency, shares an in-flight scan across simultaneous requests,
+   and stops with an actionable error after 200,000 visited directories instead
+   of crawling without a limit. One workspace snapshot reuses one discovered
+   project inventory across every artifact type.
 
 Discovery is inventory, not authorization. Finding a repository does not let
 Work run its code, invoke an agent, change Git state, or publish anything.

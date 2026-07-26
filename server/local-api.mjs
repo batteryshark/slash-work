@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import {
@@ -57,6 +57,7 @@ const DEFAULT_PORT = 43170;
 const MAX_BODY_BYTES = 128 * 1024;
 const MAX_PROXY_RESPONSE_BYTES = 4 * 1024 * 1024;
 const UPDATE_CACHE_MS = 15 * 60 * 1000;
+const CLIENT_API_VERSION = 1;
 const LOCAL_ORIGIN = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i;
 
 function isLocalHostname(hostname) {
@@ -78,7 +79,7 @@ function responseHeaders(request, extra = {}) {
   const origin = requestOrigin(request);
   if (origin && (LOCAL_ORIGIN.test(origin) || request.workBrowserOrigin === origin)) {
     headers["Access-Control-Allow-Origin"] = origin;
-    headers["Access-Control-Expose-Headers"] = "X-Work-Workspace";
+    headers["Access-Control-Expose-Headers"] = "ETag, X-Work-Workspace";
     headers.Vary = "Origin";
   }
   if (request.workWorkspaceId) {
@@ -88,16 +89,33 @@ function responseHeaders(request, extra = {}) {
   return headers;
 }
 
-function sendJson(request, response, status, body) {
+function sendJson(request, response, status, body, extraHeaders = {}) {
   const content = `${JSON.stringify(body)}\n`;
   response.writeHead(
     status,
     responseHeaders(request, {
       "Content-Type": "application/json; charset=utf-8",
       "Content-Length": Buffer.byteLength(content),
+      ...extraHeaders,
     }),
   );
   response.end(content);
+}
+
+function entityTag(content, prefix) {
+  const digest = createHash("sha256").update(content).digest("base64url");
+  return `"${prefix}-${digest}"`;
+}
+
+function sendWorkspaceSnapshot(request, response, snapshot) {
+  const serialized = `${JSON.stringify(snapshot)}\n`;
+  const etag = entityTag(serialized, "workspace-v1");
+  if (request.headers["if-none-match"] === etag) {
+    response.writeHead(304, responseHeaders(request, { ETag: etag }));
+    response.end();
+    return;
+  }
+  sendJson(request, response, 200, snapshot, { ETag: etag });
 }
 
 function sendEmpty(request, response, status = 204) {
@@ -242,7 +260,8 @@ function proxyHeaders(request, remoteWorkspaceId, sourceName) {
   };
   for (const [name, value] of Object.entries(request.headers)) {
     if (typeof value !== "string") continue;
-    if (name === "content-type" || (name.startsWith("x-work-") && !new Set(["x-work-workspace", "x-work-federation-hop", "x-work-federation-source"]).has(name))) {
+    if (new Set(["accept", "content-type", "if-none-match"]).has(name)
+      || (name.startsWith("x-work-") && !new Set(["x-work-workspace", "x-work-federation-hop", "x-work-federation-source"]).has(name))) {
       headers[name] = value;
     }
   }
@@ -301,6 +320,7 @@ async function proxyFederatedRequest(service, remoteWorkspace, url, request, res
   response.writeHead(upstream.status, responseHeaders(request, {
     "Content-Type": contentType,
     "Content-Length": content.length,
+    ...(upstream.headers.get("etag") ? { ETag: upstream.headers.get("etag") } : {}),
   }));
   response.end(content);
 }
@@ -351,7 +371,7 @@ async function handleRequest(workspaces, service, request, response) {
     response.writeHead(
       204,
       responseHeaders(request, {
-        "Access-Control-Allow-Headers": "Content-Type, X-Work-Agent, X-Work-AI-Apply, X-Work-AI-Settings, X-Work-Federation-Settings, X-Work-Folder-Picker, X-Work-Restart, X-Work-Unregister, X-Work-Workspace",
+        "Access-Control-Allow-Headers": "Content-Type, If-None-Match, X-Work-Agent, X-Work-AI-Apply, X-Work-AI-Settings, X-Work-Federation-Settings, X-Work-Folder-Picker, X-Work-Restart, X-Work-Unregister, X-Work-Workspace",
         "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
         "Access-Control-Max-Age": "600",
       }),
@@ -678,6 +698,10 @@ async function handleRequest(workspaces, service, request, response) {
   if (method === "GET" && url.pathname === "/api/health") {
     sendJson(request, response, 200, {
       ok: true,
+      api: {
+        version: CLIENT_API_VERSION,
+        capabilities: ["workspace-directory", "workspace-snapshot", "workspace-etag", "artifact-mutations"],
+      },
       service: {
         instanceId: service.instanceId,
         restartable: typeof service.onRestart === "function",
@@ -689,7 +713,7 @@ async function handleRequest(workspaces, service, request, response) {
     return;
   }
   if (method === "GET" && url.pathname === "/api/workspace") {
-    sendJson(request, response, 200, await workspaceSnapshot(workspace));
+    sendWorkspaceSnapshot(request, response, await workspaceSnapshot(workspace));
     return;
   }
   if (method === "GET" && url.pathname === "/api/projects") {

@@ -604,6 +604,10 @@ test("restarts only after explicit local confirmation", async () => {
     const health = await apiRequest(api.origin, "/api/health");
     assert.equal(health.payload.service.restartable, true);
     assert.equal(typeof health.payload.service.instanceId, "string");
+    assert.deepEqual(health.payload.api, {
+      version: 1,
+      capabilities: ["workspace-directory", "workspace-snapshot", "workspace-etag", "artifact-mutations"],
+    });
 
     const rejected = await apiRequest(api.origin, "/api/service/restart", {
       method: "POST",
@@ -629,6 +633,28 @@ test("restarts only after explicit local confirmation", async () => {
       body: { confirm: true },
     });
     assert.equal(duplicate.response.status, 409);
+  } finally {
+    await closeLocalApi(api.server);
+  }
+});
+
+test("workspace snapshots support explicit conditional refreshes", async () => {
+  const root = await temporaryDirectory("work-snapshot-etag-");
+  const api = await startLocalApi({ root, port: 0 });
+
+  try {
+    const initial = await fetch(new URL("/api/workspace", api.origin));
+    assert.equal(initial.status, 200);
+    const etag = initial.headers.get("etag");
+    assert.match(etag, /^"workspace-v1-[A-Za-z0-9_-]+"$/);
+    await initial.arrayBuffer();
+
+    const unchanged = await fetch(new URL("/api/workspace", api.origin), {
+      headers: { "if-none-match": etag },
+    });
+    assert.equal(unchanged.status, 304);
+    assert.equal(unchanged.headers.get("etag"), etag);
+    assert.equal((await unchanged.arrayBuffer()).byteLength, 0);
   } finally {
     await closeLocalApi(api.server);
   }
@@ -851,6 +877,27 @@ test("groups linked worktrees when the primary checkout is outside the selected 
   const projects = await discoverProjects(root);
   assert.deepEqual(projects.map(projectPath), ["rekit-factory"]);
   assert.deepEqual(projects[0].aliasPaths, ["rekit-factory-mission-control"]);
+});
+
+test("discovers deeply nested projects without an arbitrary depth cutoff", async () => {
+  const root = await temporaryDirectory("work-deep-projects-");
+  const nested = join(root, "portfolios", "games", "preservation", "recomp", "engine");
+  await mkdir(join(nested, ".project"), { recursive: true });
+
+  const projects = await discoverProjects(root);
+  assert.deepEqual(projects.map(projectPath), ["portfolios/games/preservation/recomp/engine"]);
+});
+
+test("bounds pathological project discovery with an actionable directory limit", async () => {
+  const root = await temporaryDirectory("work-project-limit-");
+  await mkdir(join(root, "one", "two", "three", "four"), { recursive: true });
+
+  await assert.rejects(
+    discoverProjects(root, { maxDirectories: 3 }),
+    (error) => error.code === "project_discovery_limit"
+      && /3-directory safety limit/i.test(error.message)
+      && /nested \.work\/workspace\.json boundary/i.test(error.message),
+  );
 });
 
 test("offers registered roots and resolves every request inside the selected workspace", async () => {
