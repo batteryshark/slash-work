@@ -29,6 +29,7 @@ import {
   workspaceRegistryPath,
 } from "../lib/workspace-registry.mjs";
 import { closeLocalApi, startLocalApi } from "../server/local-api.mjs";
+import { startMcpSidecar } from "../lib/mcp-sidecar.mjs";
 import { createServiceUpdater } from "../lib/service-updater.mjs";
 import { federationConfigPath } from "../lib/instance-federation.mjs";
 import { discoverTailscaleIPv4 } from "../lib/tailscale-network.mjs";
@@ -103,6 +104,7 @@ Options:
   --no-ui             Start only the local API
   --no-open           Do not open the local UI in your browser
   --tailscale         Listen only on this machine's Tailscale IPv4 address
+  --mcp               Enable the optional Streamable HTTP MCP endpoint
   --init              Force a new workspace at the selected root
   -h, --help          Show this help
 
@@ -165,6 +167,10 @@ function parseArguments(argv) {
     }
     if (token === "--tailscale") {
       options.tailscale = true;
+      continue;
+    }
+    if (token === "--mcp") {
+      options.mcp = true;
       continue;
     }
     if (token === "--unassigned") {
@@ -591,6 +597,20 @@ async function runServer(options, positionals) {
     console.log("[work] Tailnet access is enabled. Anyone permitted by your Tailscale ACLs can use and modify this Work instance.");
   }
 
+  let mcpSidecar = null;
+  if (options.mcp) {
+    try {
+      mcpSidecar = await startMcpSidecar({ apiOrigin: localApi.origin, projectRoot: APP_ROOT });
+      localApi.configureMcp(mcpSidecar);
+      console.log(`[work] MCP ready at ${localApi.origin}/mcp`);
+      console.log(`[work] MCP configuration: { "url": "${localApi.origin}/mcp" }`);
+      if (options.tailscale) console.log("[work] Tailnet ACLs control who can invoke the exposed MCP tools.");
+    } catch (error) {
+      await closeLocalApi(localApi.server).catch(() => {});
+      throw new WorkspaceError(`Could not start MCP: ${error.message}`, { code: "mcp_start_failed" });
+    }
+  }
+
   let uiServer = null;
   let shuttingDown = false;
 
@@ -598,6 +618,7 @@ async function runServer(options, positionals) {
     if (shuttingDown) return;
     shuttingDown = true;
     await stopUiServer(uiServer);
+    await mcpSidecar?.stop().catch((error) => console.error(`[work:mcp] ${error.message}`));
     await closeLocalApi(localApi.server).catch((error) => console.error(`[work] ${error.message}`));
     if (restart) {
       console.log("[work] Restarting local service…");

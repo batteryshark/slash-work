@@ -27,6 +27,7 @@
     "docs/AGENT-CAPABILITIES.md",
     "docs/LOCAL-WORKSPACE.md",
     "lib",
+    "mcp",
     "public",
     "schemas",
     "skills/slash-work",

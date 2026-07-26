@@ -183,6 +183,35 @@ struct WorkAPIClient: @unchecked Sendable {
         return try await send("api/notes", method: "POST", workspaceID: workspaceID, body: body)
     }
 
+    func issues(workspaceID: String) async throws -> [WorkIssue] {
+        let response: IssueListResponse = try await get("api/issues", workspaceID: workspaceID)
+        return response.issues
+    }
+
+    func createIssue(body: String, projectPath: String?, workspaceID: String) async throws -> WorkIssue {
+        try await send("api/issues", method: "POST", workspaceID: workspaceID,
+                       body: CreateIssueRequest(body: body, scopePath: projectPath ?? ".",
+                                                projectPath: projectPath))
+    }
+
+    func replyToIssue(id: String, body: String, workspaceID: String) async throws -> WorkIssue {
+        try await send("api/issues/\(encoded(id))/replies", method: "POST", workspaceID: workspaceID,
+                       body: IssueReplyRequest(body: body))
+    }
+
+    func updateIssueState(id: String, state: WorkIssueState, workspaceID: String) async throws -> WorkIssue {
+        try await send("api/issues/\(encoded(id))/state", method: "POST", workspaceID: workspaceID,
+                       body: IssueStateRequest(state: state))
+    }
+
+    func reopenIssue(id: String, workspaceID: String) async throws -> WorkIssue {
+        try await updateIssueState(id: id, state: .queued, workspaceID: workspaceID)
+    }
+
+    func closeIssue(id: String, workspaceID: String) async throws -> WorkIssue {
+        try await updateIssueState(id: id, state: .closed, workspaceID: workspaceID)
+    }
+
     private func get<Response: Decodable>(_ path: String, workspaceID: String? = nil,
                                            query: [URLQueryItem] = []) async throws -> Response {
         let (data, response) = try await data(path: path, workspaceID: workspaceID, query: query)
@@ -313,3 +342,11 @@ private struct CreateNoteRequest: Encodable {
     let projectPath: String?
     let agentIntent: String
 }
+private struct CreateIssueRequest: Encodable {
+    let body: String
+    let scopePath: String
+    let projectPath: String?
+}
+private struct IssueListResponse: Decodable { let issues: [WorkIssue] }
+private struct IssueReplyRequest: Encodable { let body: String }
+private struct IssueStateRequest: Encodable { let state: WorkIssueState }

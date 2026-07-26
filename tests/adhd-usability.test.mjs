@@ -131,7 +131,7 @@ test("provides durable selectable plain-text notes without turning capture into 
     readFile(new URL("docs/ADHD-USABILITY-STANDARD.md", root), "utf8"),
   ]);
 
-  assert.match(page, /type AppView = "home" \| "board" \| "ideas" \| "notes" \| "files" \| "activity"/);
+  assert.match(page, /type AppView = "home" \| "board" \| "issues" \| "ideas" \| "notes" \| "files" \| "activity"/);
   assert.match(page, /function NotesView/);
   assert.match(page, /role="listbox"/);
   assert.match(page, /aria-label="Note title"/);
@@ -156,6 +156,57 @@ test("provides durable selectable plain-text notes without turning capture into 
   assert.match(server, /url\.pathname === "\/api\/notes"/);
   assert.match(standard, /plain-text notes autosave/i);
   assert.match(standard, /passive reference material/i);
+});
+
+test("provides free-form, reopenable issue conversations without turning submission into a form", async () => {
+  const [page, css] = await Promise.all([
+    readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+  const issuesView = page.slice(page.indexOf("function IssuesView"), page.indexOf("function IdeasView"));
+
+  assert.match(page, /type AppView = "home" \| "board" \| "issues"/);
+  assert.match(page, /<IssuesView/);
+  assert.match(page, />Issues<\/button>/);
+  assert.match(page, /\/api\/issues/);
+  assert.match(page, /\/replies/);
+  assert.match(page, /\/state/);
+  assert.match(page, /body: JSON\.stringify\(\{ state \}\)/);
+  assert.match(page, /issue\.state === "needs_human"/);
+  assert.match(page, /visibleHumanIssues = humanIssues\.slice\(0, 3\)/);
+  assert.match(page, /Math\.max\(0, 3 - visibleHumanIssues\.length\)/);
+  assert.match(issuesView, /File an issue/);
+  assert.match(issuesView, /No title or categorization required/);
+  assert.match(issuesView, /Exact scope:/);
+  assert.match(issuesView, /Submit issue/);
+  assert.match(issuesView, /const body = draft;/);
+  assert.match(issuesView, /await onCreate\(body\)/);
+  assert.match(issuesView, /await onReply\(selectedIssue\.id, reply\)/);
+  assert.doesNotMatch(issuesView, /on(?:Create|Reply)\([^)]*\.trim\(\)/);
+  assert.match(issuesView, /event\.metaKey \|\| event\.ctrlKey/);
+  assert.match(issuesView, /Enter adds a new line/);
+  assert.match(issuesView, /Markdown supported/);
+  assert.match(issuesView, /Queued/);
+  assert.match(page, /in_progress: "Agent working"/);
+  assert.match(issuesView, /Needs you/);
+  assert.match(issuesView, /Agent resolution — an opinion, not a final judgment/);
+  assert.match(issuesView, /State history/);
+  assert.match(issuesView, /Closed by a human/);
+  assert.match(issuesView, />Reopen<\/button>/);
+  assert.match(issuesView, /Replying automatically reopens this issue and returns it to Queued/);
+  assert.match(issuesView, /Reply and return to queue/);
+  assert.match(issuesView, /Only you can close this issue/);
+  assert.match(page, /function Markdown/);
+  assert.match(page, /safeLinkTarget/);
+  assert.match(page, /<pre key=/);
+  assert.doesNotMatch(page, /dangerouslySetInnerHTML/);
+  assert.doesNotMatch(issuesView, /\brequired=/i);
+  assert.match(css, /\.issues-workspace[^}]*grid-template-columns:\s*320px minmax\(0, 1fr\)/);
+  assert.match(css, /\.issue-composer textarea[^}]*min-height:\s*170px/);
+  assert.match(css, /\.issue-reply textarea/);
+  assert.match(css, /\.markdown-body pre/);
+  assert.match(css, /\.issue-composer \.primary-action[^}]*min-height:\s*44px/);
+  assert.match(css, /@media \(max-width:\s*760px\)[\s\S]*\.issues-workspace\s*\{\s*grid-template-columns:\s*1fr/);
 });
 
 test("keeps ideas explicitly evaluative and separate from executable work", async () => {
@@ -198,8 +249,11 @@ test("provides a scope-bound read-only file reference instead of an embedded edi
   ]);
 
   assert.match(page, /function FilesView/);
-  assert.match(page, /Read-only project reference/);
+  assert.match(page, /Read-only source reference/);
   assert.match(page, /Changed only/);
+  assert.match(page, /Start a Work project in/);
+  assert.match(page, /\+ Project/);
+  assert.match(page, /\/api\/projects/);
   assert.match(page, /Checkout or linked worktree/);
   assert.match(page, /primary checkout/);
   assert.match(page, /linked worktree/);
@@ -212,14 +266,16 @@ test("provides a scope-bound read-only file reference instead of an embedded edi
   assert.match(css, /data-language/);
   assert.match(server, /\/api\/files\/directory/);
   assert.match(server, /\/api\/files\/content/);
+  assert.match(server, /initializeProject/);
   assert.match(browser, /Symbolic links are not followed/);
   assert.match(browser, /validateScopePath/);
   assert.match(browser, /sensitiveReason/);
   assert.match(browser, /MAX_PREVIEW_FILE_BYTES/);
+  assert.match(browser, /canInitializeProject/);
   assert.match(browser, /readOnly:\s*true/);
   assert.match(browser, /import \{ lstat, readFile, readdir, realpath, stat \} from "node:fs\/promises"/);
   assert.match(contract, /Read-only file reference/i);
-  assert.match(contract, /no file-write route/i);
+  assert.match(contract, /no source-file write route/i);
 });
 
 test("does not replace an active note draft with an autosave response", async () => {

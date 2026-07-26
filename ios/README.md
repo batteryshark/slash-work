@@ -21,6 +21,8 @@ The initial build targets iOS 17 and uses the same development team configured b
 - Task creation, lifecycle moves, checklist confirmation, and progress updates
 - Due dates on task cards and an upcoming-date strip
 - Idea creation, state transitions, evaluation requests, and deletion
+- Free-form issue filing, Markdown conversation threads, state history, human
+  closure, and reopening after resolution or closure
 - Human note creation and a capture inbox
 - Conditional workspace refreshes using ETags
 - Last-snapshot caching with clearly marked read-only offline mode
@@ -30,6 +32,27 @@ The initial build targets iOS 17 and uses the same development team configured b
 The first release relies on Tailscale ACLs as the access boundary and does not store Work credentials. iOS App Transport Security is intentionally configured to permit a user-entered HTTP Tailnet endpoint. The app rejects embedded URL credentials and non-HTTP schemes. A future release should prefer valid HTTPS through Tailscale MagicDNS; it should never add a generic trust-all handler for self-signed certificates.
 
 Cached snapshots live in the app's Application Support container. Mutations are disabled while displaying cached data, so the app does not queue conflicting offline changes.
+
+Issues are included in the cached workspace snapshot and remain readable
+offline. Filing, replying, closing, and reopening require a live connection.
+Replying to an issue in **Needs you**, **Resolved**, or **Closed** atomically
+returns it to **Queued** on the server.
+
+## Issue API contract
+
+The native client expects `issues` in `GET /api/workspace` and also supports
+`GET /api/issues` (an `{issues: [...]}` response). It creates issues with `POST /api/issues` using
+`{body, scopePath, projectPath}`, replies with
+`POST /api/issues/:id/replies` using `{body}`, and changes state with
+`POST /api/issues/:id/state` using `{state}`. Reopen sends `queued`; human
+Close sends `closed`. The server is responsible for automatically returning an
+issue in `needs_human`, `resolved`, or `closed` to `queued` when accepting a
+human reply.
+
+Wire states are `queued`, `in_progress`, `needs_human`, `resolved`, and
+`closed`; the app presents the middle two as **Agent working** and
+**Needs you**. Older cached workspace responses without an `issues` member
+remain compatible and decode as an empty issue list.
 
 ## Command-line verification
 

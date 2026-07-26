@@ -4,9 +4,10 @@
 
 ![Work: capture anything and continue without reconstructing context](public/og.png)
 
-Work stores project tasks, captures, ideas, notes, and decisions as local files for
-people and agent teams managing many repositories. The home screen prioritizes
-capture and resumption; Ideas, Board, Files, and Activity expose possibilities,
+Work stores project tasks, captures, ideas, notes, issues, and decisions as local
+files for people and agent teams managing many repositories. The home screen
+prioritizes capture and resumption; Issues provide durable human-agent
+conversations, while Ideas, Board, Files, and Activity expose possibilities,
 current work, a read-only source reference, and durable history.
 
 Requires Node.js 22.13 or newer and npm.
@@ -99,7 +100,7 @@ The repository includes a first-class SwiftUI client in the
 [`ios/` source directory](https://github.com/batteryshark/slash-work/tree/main/ios).
 It connects to the API URL printed by `work --tailscale`, discovers local and
 federated workspaces, and provides native Home, Board, Capture, Ideas, Notes,
-Inbox, task, and decision experiences. The app remembers multiple Work
+Issues, Inbox, task, and decision experiences. The app remembers multiple Work
 instances, uses conditional snapshot refreshes, and retains the last snapshot
 for clearly marked read-only access when a machine is offline.
 
@@ -207,9 +208,9 @@ the CLI or UI is launched from a linked worktree.
 
 Work keeps human-readable Markdown beside the thing it describes. The selected
 root's `.work/` contains `workspace.json` plus unassigned captures, ideas,
-notes, tasks, and decisions. Every project has its own `.work/project.json`,
-`.work/tasks/`, `.work/captures/`, `.work/ideas/`, `.work/notes/`, and
-`.work/decisions/`.
+notes, issues, tasks, and decisions. Every project has its own
+`.work/project.json`, `.work/tasks/`, `.work/captures/`, `.work/ideas/`,
+`.work/notes/`, `.work/issues/`, and `.work/decisions/`.
 Notes use a plain-text body with a small metadata header so both people and
 agents can read them without a special editor. Every note records an explicit
 `agentIntent`: `reference_only` means context, never an instruction, while
@@ -250,6 +251,17 @@ Do not commit `.work/` if the workspace contains private operational notes.
   decision, or task. **Ask agent to evaluate** authorizes analysis only—never
   implementation. Mark an idea **Not now** or **Closed** with a durable reason,
   or develop it toward a proposal and scoped work later.
+- Open **Issues** when you want an agent to investigate a free-form problem and
+  reply asynchronously. A title, category, priority, and assignee are never
+  required. Issue messages support Markdown and code blocks, and the complete
+  conversation remains beside the project. Filing an issue authorizes
+  investigation and replies, not repository changes; create a task when you
+  authorize execution.
+- An agent may mark an issue **Resolved** with a resolution summary, but that is
+  its assessment rather than a permanent closure. Only a human can choose
+  **Close**. **Reopen** remains available after either state, and a human reply
+  to an issue needing input, a resolved issue, or a closed issue automatically
+  returns it to the queue without discarding any conversation or state history.
 - Open the slash system menu and choose **AI assistance** to configure an
   OpenAI-compatible or Anthropic-compatible base URL, model, and API key.
   Magic-wand actions can draft or review a task and expand or evaluate an idea.
@@ -313,6 +325,7 @@ work projects --json
 work agent operations
 work agent instructions tasks.create
 work agent instructions notes.request-review --json
+work agent instructions issues.reply --json
 work agent schema task
 ```
 

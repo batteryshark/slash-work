@@ -142,7 +142,15 @@ Work run its code, invoke an agent, change Git state, or publish anything.
 The **Files** view is a bounded observability surface, not an editor. It lists
 one directory at a time under the currently selected workspace scope and reads
 text only after the user selects a file. The API exposes `GET` routes for
-directory listings and text previews; it has no file-write route.
+directory listings and text previews; it has no source-file write route.
+
+The one narrow mutation in this view is **+ Project** on a directory that has
+no `.work` entry. It creates only that directory's project-local `.work/`
+metadata and empty record folders through `POST /api/projects`; it does not
+edit, run, stage, or commit source files. The server revalidates that the target
+is a real directory inside the active workspace, refuses an existing `.work`
+file or directory, and will not initialize through a nested
+`.work/workspace.json` boundary.
 
 The viewer never follows symbolic links and rejects absolute paths, `..`
 segments, and any canonical path outside the selected scope. It omits internal,
@@ -170,11 +178,12 @@ differ.
 There is one storage-folder shape: `.work/`. At the selected root it contains
 `workspace.json`, format metadata, Kanban column order, and records that are not
 assigned to a project. Inside a project it contains `project.json` and that
-project's `tasks/`, `captures/`, `ideas/`, `notes/`, and `decisions/`. For example, a
-ReKit card is stored at `software/rekit/.work/tasks/W-0001.md`, not centralized
-at the root. Record files use small machine-readable headers where stable
-identifiers or relationships are needed. Their bodies preserve the human's
-original wording; notes remain plain text.
+project's `tasks/`, `captures/`, `ideas/`, `notes/`, `issues/`, and
+`decisions/`. For example, a ReKit card is stored at
+`software/rekit/.work/tasks/W-0001.md`, not centralized at the root. Record
+files use small machine-readable headers where stable identifiers or
+relationships are needed. Their bodies preserve the human's original wording;
+notes remain plain text and issue threads remain readable Markdown.
 
 `project.json` keeps the project's stable identity, display name, and purpose
 description. The purpose is project context rather than an operational record:
@@ -210,6 +219,12 @@ Important behavior:
 - note provenance distinguishes human notes from named agent-created notes;
   agents may mutate only notes carrying their own exact creator name, while
   humans retain control through the UI;
+- issue provenance distinguishes human and named agent replies. Filing an issue
+  authorizes investigation and a reply, not executable changes. Agents may
+  claim an issue, request a human response, or resolve it with a summary, but
+  only a human may close it. Human replies to issues needing input, resolved
+  issues, or closed issues return them to the queue automatically, and prior
+  messages and state transitions remain append-only;
 - restarting reads the existing files instead of seeding example data;
 - unknown fields and Markdown body content are preserved when possible;
 - files remain useful with the app stopped.
@@ -407,8 +422,8 @@ credentials and safety boundary remain separate from Work.
 ## Recovery expectations
 
 After `Ctrl-C`, a crash, a browser refresh, or a computer restart, launching the
-same root restores the same work items, captures, ideas, decisions, checklists,
-and progress logs. Launching a different root
+same root restores the same work items, captures, ideas, issue conversations,
+decisions, checklists, and progress logs. Launching a different root
 shows none of them. If `.work/` cannot be read or written, Work reports the
 specific local filesystem problem and does not claim that a capture succeeded.
 

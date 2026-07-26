@@ -7,6 +7,7 @@
     { "$ref": "#/$defs/capture" },
     { "$ref": "#/$defs/note" },
     { "$ref": "#/$defs/idea" },
+    { "$ref": "#/$defs/issue" },
     { "$ref": "#/$defs/decision" },
     { "$ref": "#/$defs/task" }
   ],
@@ -37,7 +38,7 @@
     },
     "recordId": {
       "type": "string",
-      "pattern": "^(capture|decision|idea|note)_[a-z0-9][a-z0-9_-]{7,80}$"
+      "pattern": "^(capture|decision|idea|issue|note)_[a-z0-9][a-z0-9_-]{7,80}$"
     },
     "taskId": {
       "type": "string",
@@ -106,6 +107,57 @@
         "at": { "$ref": "#/$defs/isoDateTime" }
       }
     },
+    "issueActor": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "name"],
+          "properties": {
+            "kind": { "const": "human" },
+            "name": { "type": "null" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "name"],
+          "properties": {
+            "kind": { "const": "agent" },
+            "name": { "type": "string", "minLength": 1, "maxLength": 120, "pattern": "^[^\\r\\n]+$" }
+          }
+        }
+      ]
+    },
+    "issueMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "body", "author", "createdAt"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^message_[a-z0-9][a-z0-9_-]{7,80}$" },
+        "body": { "type": "string", "minLength": 1, "maxLength": 100000 },
+        "author": { "$ref": "#/$defs/issueActor" },
+        "createdAt": { "$ref": "#/$defs/isoDateTime" }
+      }
+    },
+    "issueStateEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "actor", "at", "reason", "resolutionSummary"],
+      "properties": {
+        "from": {
+          "oneOf": [
+            { "enum": ["queued", "in_progress", "needs_human", "resolved", "closed"] },
+            { "type": "null" }
+          ]
+        },
+        "to": { "enum": ["queued", "in_progress", "needs_human", "resolved", "closed"] },
+        "actor": { "$ref": "#/$defs/issueActor" },
+        "at": { "$ref": "#/$defs/isoDateTime" },
+        "reason": { "oneOf": [{ "type": "string", "maxLength": 20000 }, { "type": "null" }] },
+        "resolutionSummary": { "oneOf": [{ "type": "string", "maxLength": 100000 }, { "type": "null" }] }
+      }
+    },
     "capture": {
       "title": "Capture",
       "type": "object",
@@ -143,6 +195,41 @@
         "createdAt": { "$ref": "#/$defs/isoDateTime" },
         "updatedAt": { "$ref": "#/$defs/isoDateTime" },
         "text": { "type": "string", "maxLength": 100000 }
+      }
+    },
+    "issue": {
+      "title": "Issue",
+      "description": "A durable asynchronous Markdown conversation. Filing an issue authorizes investigation and replies, not implementation.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifactType", "id", "title", "body", "state", "scopePath", "projectPath", "claimedBy", "resolutionSummary", "messages", "stateHistory", "createdAt", "updatedAt"],
+      "properties": {
+        "artifactType": { "const": "issue" },
+        "id": { "type": "string", "pattern": "^issue_[a-z0-9][a-z0-9_-]{7,80}$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 300, "pattern": "^[^\\r\\n]+$" },
+        "body": { "type": "string", "minLength": 1, "maxLength": 100000 },
+        "state": { "enum": ["queued", "in_progress", "needs_human", "resolved", "closed"] },
+        "scopePath": { "$ref": "#/$defs/scopePath" },
+        "projectPath": { "$ref": "#/$defs/projectPath" },
+        "claimedBy": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "name"],
+              "properties": {
+                "kind": { "const": "agent" },
+                "name": { "type": "string", "minLength": 1, "maxLength": 120, "pattern": "^[^\\r\\n]+$" }
+              }
+            },
+            { "type": "null" }
+          ]
+        },
+        "resolutionSummary": { "oneOf": [{ "type": "string", "maxLength": 100000 }, { "type": "null" }] },
+        "messages": { "type": "array", "items": { "$ref": "#/$defs/issueMessage" } },
+        "stateHistory": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/issueStateEvent" } },
+        "createdAt": { "$ref": "#/$defs/isoDateTime" },
+        "updatedAt": { "$ref": "#/$defs/isoDateTime" }
       }
     },
     "idea": {

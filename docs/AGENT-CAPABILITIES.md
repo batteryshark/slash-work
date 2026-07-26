@@ -18,6 +18,7 @@ work agent operations
 work agent instructions tasks.create
 work agent instructions notes.request-review
 work agent instructions ideas.request-evaluation
+work agent instructions issues.reply
 work agent schema task
 ```
 
@@ -85,6 +86,14 @@ operation but never authorize it. In particular:
   API callers use the exact path returned by `projects.list` or null for
   intentionally unassigned work.
 - Requesting note review or idea evaluation authorizes analysis only.
+- Filing an issue authorizes investigation and replies only. It does not
+  authorize repository mutation or executable work. Dedicated agent issue
+  routes require `X-Work-Agent`; an agent may claim, reply, request a human
+  response, or mark an issue resolved with a summary.
+- Agents cannot close, delete, archive, lock, or prevent replies to an issue.
+  Only a human may close it, and a human may always reopen it. A human reply to
+  an issue needing input, a resolved issue, or a closed issue returns it to the
+  queue automatically while preserving history.
 - Agent note mutations use the dedicated `/api/agent/notes` routes and require
   `X-Work-Agent`. The service stamps that name into the note and refuses agent
   changes to human notes or notes owned by another agent.

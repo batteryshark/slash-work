@@ -13,6 +13,9 @@ recovery costs.
 - `Shift+Enter` adds a line without leaving capture; Enter saves the complete
   multiline thought.
 - Capturing never requires a title, project, type, priority, date, or owner.
+- Filing an issue likewise requires only free-form body text. Its title may be
+  derived for navigation, but title editing or other metadata cannot block
+  submission.
 - Ambiguity cannot block capture. The current scope supplies a safe default.
 - Project assignment is optional. An ambiguous root-level thought is preserved
   in the root inbox and can be triaged later.
@@ -47,6 +50,9 @@ text.
 - It is capped at three visible items in the default experience.
 - Ordinary work, notifications, activity, and stale ideas do not enter this
   queue.
+- An issue enters `Needs you` only when an agent has recorded a concrete
+  question or blocker that requires a human response. A routine agent reply or
+  resolution does not enter the queue.
 - Details stay collapsed until requested.
 - A decision presents the actual alternatives, an always-available **Other**
   choice for a written answer, and an optional non-binding recommendation. It
@@ -87,6 +93,10 @@ thought go?” without remembering prior navigation.
 - Ideas provide a durable middle state between capture and execution. Asking an
   agent to evaluate an idea authorizes analysis only; deferring or declining it
   records why without deleting the possibility or creating a task.
+- Issue bodies, replies, and state changes form durable append-only history.
+  Agent resolution never prevents a human from reopening the issue. Replying
+  to an issue that needs human input, is resolved, or is closed returns it to
+  the agent queue automatically, preserving the full conversation.
 - The last harmless interface scope may persist on the device.
 - Removing a non-current root from the recent list requires confirmation and
   never deletes its directory or `.work/` records.
@@ -104,6 +114,8 @@ capture does not force the user to rebuild context or lose work.
   and capture.
 - Project context, captured history, the note editor, decision details, and
   portfolio grids are disclosed only on request.
+- Issue conversations are disclosed in **Issues**. Ordinary replies and
+  resolutions do not create a competing home-screen feed.
 - The read-only file tree and source preview appear only in **Files**. The tree
   is contextual to that view rather than occupying permanent workspace width.
 - No full activity feed, telemetry wall, or equal-weight backlog is present.
@@ -173,6 +185,7 @@ scenario below, which remains a tagged-release check.
 | Sensory | Covered | Reduced motion and restrained non-color labels |
 | Language | Covered | Neutral, factual, non-punitive copy |
 | Operational state | Covered | Scoped Kanban, full cards, dependency gate, terminal states, durable activity |
+| Issue conversation | Covered | Free-form Markdown, durable attributed replies and state history, human-only closure, persistent reopen, reply-to-queue behavior |
 
 ## Five-Minute Local Workspace Scenario
 
@@ -208,20 +221,29 @@ the tester needs hidden syntax after launch.
 8. Promote an Inbox thought to an Idea. Ask an agent to evaluate it and confirm
    the record explicitly says implementation is not authorized. Move it to
    **Not now** and confirm a reason is required and survives refresh.
-9. Stop the server with `Ctrl-C`, launch the same root again, and explain what
+9. Open **Issues**, submit multiline Markdown containing a fenced code block,
+   and confirm no title or classification is required. Have an agent claim and
+   reply to it, then mark it resolved with a summary. Confirm **Reopen** remains
+   available, the thread renders the code block, and the issue did not authorize
+   repository changes.
+10. Reopen the resolved issue, close it as the human, and reply to it. Confirm
+    the reply automatically returns it to the queue and preserves both prior
+    state transitions. Confirm an agent cannot close, delete, archive, lock, or
+    prevent replies to the issue.
+11. Stop the server with `Ctrl-C`, launch the same root again, and explain what
    changed. Both thoughts, the note, the idea outcome, and the recorded decision
-   must remain.
-10. Launch against a different empty root. None of the first root's projects or
+   plus the issue conversation and reopen history must remain.
+12. Launch against a different empty root. None of the first root's projects or
    work may appear.
-11. Create two dependent cards. Confirm all card fields and both checklist
+13. Create two dependent cards. Confirm all card fields and both checklist
    sections are visible. Attempt to complete the dependent card first and
    confirm the dependency gate names the unfinished card.
-12. Move one card through In flight and Review, check a requirement, append a
-    progress note, and complete it. Confirm every event appears in Activity and
-    survives restart.
-13. Cancel another card. Confirm it leaves the active columns but remains
-    visible when **Show cancelled & archived** is enabled.
-14. Open **Files** in a Git-backed project. Expand a folder, select a text file,
+14. Move one card through In flight and Review, check a requirement, append a
+   progress note, and complete it. Confirm every event appears in Activity and
+   survives restart.
+15. Cancel another card. Confirm it leaves the active columns but remains
+   visible when **Show cancelled & archived** is enabled.
+16. Open **Files** in a Git-backed project. Expand a folder, select a text file,
     and confirm language and change hints are visible. Confirm **Changed only**
     reduces the tree, secret and binary files cannot be previewed, and no edit
     or save-file control exists.

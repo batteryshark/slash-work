@@ -5,9 +5,9 @@ filesystem artifacts. Validate the logical artifact against
 [`schemas/work-artifact.schema.json`](../schemas/work-artifact.schema.json),
 then serialize it using the rules and templates below.
 
-The schema covers five Markdown artifact types: `capture`, `note`, `idea`,
-`decision`, and `task`. The workspace and project marker files are JSON, not
-Markdown, and are outside this schema.
+The schema covers six Markdown artifact types: `capture`, `note`, `idea`,
+`issue`, `decision`, and `task`. The workspace and project marker files are
+JSON, not Markdown, and are outside this schema.
 
 ## Storage and ownership
 
@@ -16,6 +16,7 @@ Markdown, and are outside this schema.
 | Capture | `.work/captures/` | `<project>/.work/captures/` | `<capture id>.md` |
 | Note | `.work/notes/` | `<project>/.work/notes/` | `<note id>.md` |
 | Idea | `.work/ideas/` | `<project>/.work/ideas/` | `<idea id>.md` |
+| Issue | `.work/issues/` | `<project>/.work/issues/` | `<issue id>.md` |
 | Decision | `.work/decisions/` | `<project>/.work/decisions/` | `<decision id>.md` |
 | Task | `.work/tasks/` | `<project>/.work/tasks/` | `<task id>.md` |
 
@@ -24,13 +25,14 @@ non-null project path must exactly match a discovered, root-relative project
 path. Store project-owned records inside that project's `.work/` directory;
 do not merely set the metadata while leaving the file at the root.
 
-IDs and filenames must agree. Capture, note, idea, and decision IDs use these
-forms:
+IDs and filenames must agree. Capture, note, idea, issue, and decision IDs use
+these forms:
 
 ```text
 capture_<8-to-81 lowercase letters, digits, underscores, or hyphens>
 note_<8-to-81 lowercase letters, digits, underscores, or hyphens>
 idea_<8-to-81 lowercase letters, digits, underscores, or hyphens>
+issue_<8-to-81 lowercase letters, digits, underscores, or hyphens>
 decision_<8-to-81 lowercase letters, digits, underscores, or hyphens>
 ```
 
@@ -189,6 +191,74 @@ Emit all nine canonical sections in that order, even when empty. Preserve
 unrecognized metadata and extra sections on update. An adopted idea may lead to
 a decision, epic, or tasks, but that promotion must be an explicit separate
 action.
+
+## Issue
+
+An issue is a durable asynchronous conversation between a human and an agent.
+Its initial `body` is free-form Markdown and is the only required user input.
+Preserve that exact body. `title` is a one-line navigation label derived from
+the first meaningful line when the human does not provide one; title
+classification must never block submission.
+
+States are `queued`, `in_progress`, `needs_human`, `resolved`, and `closed`.
+The UI labels `in_progress` as **Agent working** and `needs_human` as
+**Needs you**. Filing an issue authorizes investigation and replies only, not
+repository changes or other executable work.
+
+`claimedBy` is null or an agent actor. An agent may claim a queued issue, reply,
+move it to `needs_human` with a concrete question or blocker, and move it to
+`resolved` only with a non-empty `resolutionSummary`. Only a human may move an
+issue to `closed`. A human may always move a resolved or closed issue back to
+`queued`; appending a human reply while the issue needs human input, is
+resolved, or is closed performs that transition automatically. Agents cannot
+delete, archive, lock, or prevent replies.
+
+Every reply is appended to `messages` as
+`{id,body,author,createdAt}`. Every state transition is appended to
+`stateHistory` as
+`{from,to,actor,at,reason,resolutionSummary}`. Never discard or rewrite prior
+messages or transitions. Human actors have `name: null`; agent actors carry the
+stable name supplied through `X-Work-Agent`.
+
+The header is canonical. Mirror it as readable Markdown in the body: one
+`## Issue` section followed by the exact initial body, then an optional
+`## Replies` section whose `###` headings identify each author and timestamp.
+Keep the header and rendered transcript synchronized.
+
+````markdown
+---
+id: "issue_mabc1234_ab12cd34ef56"
+type: "issue"
+title: "The save indicator disappears too early"
+body: "The save indicator disappears too early.\n\n```text\nExpected: Saved\nActual: blank\n```"
+state: "resolved"
+scopePath: "software/rekit"
+projectPath: "software/rekit"
+claimedBy: {"kind":"agent","name":"codex-team"}
+resolutionSummary: "The indicator now remains visible after the durable write."
+messages: [{"id":"message_mabc1235_ab12cd34ef56","body":"I reproduced the race and traced it to the optimistic state reset.","author":{"kind":"agent","name":"codex-team"},"createdAt":"2026-07-14T14:35:00.000Z"}]
+stateHistory: [{"from":null,"to":"queued","actor":{"kind":"human","name":null},"at":"2026-07-14T14:30:00.000Z","reason":"Issue filed.","resolutionSummary":null},{"from":"queued","to":"in_progress","actor":{"kind":"agent","name":"codex-team"},"at":"2026-07-14T14:32:00.000Z","reason":"Issue claimed.","resolutionSummary":null},{"from":"in_progress","to":"resolved","actor":{"kind":"agent","name":"codex-team"},"at":"2026-07-14T14:40:00.000Z","reason":null,"resolutionSummary":"The indicator now remains visible after the durable write."}]
+createdAt: "2026-07-14T14:30:00.000Z"
+updatedAt: "2026-07-14T14:40:00.000Z"
+---
+
+# The save indicator disappears too early
+
+## Issue
+
+The save indicator disappears too early.
+
+```text
+Expected: Saved
+Actual: blank
+```
+
+## Replies
+
+### Agent: codex-team · 2026-07-14T14:35:00.000Z
+
+I reproduced the race and traced it to the optimistic state reset.
+````
 
 ## Decision
 

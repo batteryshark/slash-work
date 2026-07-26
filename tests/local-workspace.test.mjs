@@ -586,6 +586,70 @@ test("browses project files without exposing writes, secrets, binaries, or paths
   }
 });
 
+test("starts a project from an eligible file-tree folder without crossing workspace boundaries", async () => {
+  const { root } = await makeWorkspaceFixture();
+  await mkdir(join(root, "nested-workspace", "candidate"), { recursive: true });
+  await mkdir(join(root, "nested-workspace", ".work"), { recursive: true });
+  await writeFile(
+    join(root, "nested-workspace", ".work", "workspace.json"),
+    `${JSON.stringify({ version: 1, id: "nested-workspace" })}\n`,
+  );
+
+  const api = await startLocalApi({ root, port: 0 });
+  try {
+    const before = await apiRequest(api.origin, "/api/files/directory?scopePath=.&path=scratch");
+    assert.equal(before.response.status, 200);
+    assert.equal(
+      before.payload.entries.find((entry) => entry.path === "scratch/package-only")?.canInitializeProject,
+      true,
+    );
+
+    const created = await apiRequest(api.origin, "/api/projects", {
+      method: "POST",
+      body: { projectPath: "scratch/package-only" },
+    });
+    assert.equal(created.response.status, 201);
+    assert.equal(created.payload.path, "scratch/package-only");
+    assert.equal(created.payload.name, "package-only");
+    assert.equal(typeof created.payload.projectId, "string");
+
+    const projectDirectory = join(root, "scratch", "package-only", ".work");
+    assert.deepEqual(
+      (await readdir(projectDirectory)).sort(),
+      ["captures", "decisions", "ideas", "issues", "notes", "project.json", "tasks"],
+    );
+    assert.equal(JSON.parse(await readFile(join(projectDirectory, "project.json"), "utf8")).name, "package-only");
+
+    const after = await apiRequest(api.origin, "/api/files/directory?scopePath=.&path=scratch");
+    assert.equal(
+      after.payload.entries.find((entry) => entry.path === "scratch/package-only")?.canInitializeProject,
+      false,
+    );
+
+    const duplicate = await apiRequest(api.origin, "/api/projects", {
+      method: "POST",
+      body: { projectPath: "scratch/package-only" },
+    });
+    assert.equal(duplicate.response.status, 409);
+    assert.equal(duplicate.payload.error.code, "project_already_initialized");
+
+    const nested = await apiRequest(api.origin, "/api/projects", {
+      method: "POST",
+      body: { projectPath: "nested-workspace/candidate" },
+    });
+    assert.equal(nested.response.status, 409);
+    assert.equal(nested.payload.error.code, "nested_workspace_boundary");
+
+    const traversal = await apiRequest(api.origin, "/api/projects", {
+      method: "POST",
+      body: { projectPath: "../outside" },
+    });
+    assert.equal(traversal.response.status, 403);
+  } finally {
+    await closeLocalApi(api.server);
+  }
+});
+
 test("restarts only after explicit local confirmation", async () => {
   const root = await temporaryDirectory("work-restart-");
   let restartCalls = 0;

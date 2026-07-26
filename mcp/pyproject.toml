@@ -1,0 +1,17 @@
+[project]
+name = "slash-work-mcp"
+version = "0.2.22"
+description = "Private FastMCP sidecar for slash-work"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+  "fastmcp==3.4.4",
+  "httpx==0.28.1",
+  "uvicorn==0.51.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/slash_work_mcp"]

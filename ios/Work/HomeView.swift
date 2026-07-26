@@ -12,14 +12,20 @@ struct HomeView: View {
 
                     HStack(spacing: 12) {
                         MetricCard(value: model.unfinishedTaskCount, label: "Open work", icon: "rectangle.stack")
-                        MetricCard(value: model.openDecisions.count, label: "Needs you", icon: "hand.raised.fill")
+                        MetricCard(value: attentionCount, label: "Needs you", icon: "hand.raised.fill")
                         MetricCard(value: model.scopedCaptures.count, label: "Inbox", icon: "tray.fill")
                     }
 
-                    if !model.openDecisions.isEmpty {
-                        sectionHeader("Needs You", subtitle: "Decisions waiting for a human")
+                    if attentionCount > 0 {
+                        sectionHeader("Needs You", subtitle: "Questions and decisions waiting for you")
                         VStack(spacing: 10) {
-                            ForEach(model.openDecisions) { decision in
+                            ForEach(visibleNeedsHumanIssues) { issue in
+                                NavigationLink { IssueDetailView(issueID: issue.id) } label: {
+                                    NeedsHumanIssueCard(issue: issue)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            ForEach(visibleDecisions) { decision in
                                 Button { selectedDecision = decision } label: {
                                     DecisionCard(decision: decision)
                                 }
@@ -73,6 +79,19 @@ struct HomeView: View {
             .prefix(8))
     }
 
+    private var attentionCount: Int {
+        model.openDecisions.count + model.needsHumanIssueCount
+    }
+
+    private var visibleNeedsHumanIssues: [WorkIssue] {
+        Array(model.needsHumanIssues.prefix(3))
+    }
+
+    private var visibleDecisions: [WorkDecision] {
+        let remaining = max(0, 3 - visibleNeedsHumanIssues.count)
+        return Array(model.openDecisions.sorted { $0.updatedAt > $1.updatedAt }.prefix(remaining))
+    }
+
     private var upcoming: [UpcomingItem] {
         guard model.snapshot != nil else { return [] }
         let tasks = model.scopedTasks.compactMap { task -> UpcomingItem? in
@@ -101,6 +120,44 @@ struct HomeView: View {
             Text(title).font(.title2.bold())
             Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
         }
+    }
+}
+
+private struct NeedsHumanIssueCard: View {
+    let issue: WorkIssue
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "questionmark.bubble.fill")
+                .foregroundStyle(.orange)
+                .frame(width: 28, height: 28)
+                .background(.orange.opacity(0.12), in: Circle())
+            VStack(alignment: .leading, spacing: 6) {
+                Text(issue.title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                if let latestAgentMessage = issue.messages.last(where: { $0.author.kind == "agent" }) {
+                    Text(latestAgentMessage.body)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                } else {
+                    Text(issue.body)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Label("Agent needs your reply", systemImage: "questionmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+        }
+        .padding(14)
+        .background(.background, in: RoundedRectangle(cornerRadius: 16))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(issue.title), agent needs your reply")
     }
 }
 

@@ -75,10 +75,19 @@ final class AppModel: ObservableObject {
     var scopedTasks: [WorkTask] { snapshot?.tasks.filter { includes($0.projectPath) } ?? [] }
     var scopedCaptures: [WorkCapture] { snapshot?.captures.filter { includes($0.projectPath) } ?? [] }
     var scopedIdeas: [WorkIdea] { snapshot?.ideas.filter { includes($0.projectPath) } ?? [] }
+    var scopedIssues: [WorkIssue] { snapshot?.issues.filter { includes($0.projectPath) } ?? [] }
     var scopedNotes: [WorkNote] { snapshot?.notes.filter { includes($0.projectPath) } ?? [] }
     var scopedDecisions: [WorkDecision] { snapshot?.decisions.filter { includes($0.projectPath) } ?? [] }
     var openDecisions: [WorkDecision] {
         scopedDecisions.filter(\.isOpen)
+    }
+    var needsHumanIssues: [WorkIssue] {
+        scopedIssues
+            .filter { $0.state == .needsHuman }
+            .sorted { $0.updatedAt > $1.updatedAt }
+    }
+    var needsHumanIssueCount: Int {
+        needsHumanIssues.count
     }
 
     var unfinishedTaskCount: Int { scopedTasks.filter { !$0.isFinished }.count }
@@ -326,6 +335,35 @@ final class AppModel: ObservableObject {
             guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
             _ = try await client.createNote(title: title, text: text,
                                             projectPath: self.selectedProjectPath, workspaceID: workspaceID)
+        }
+    }
+
+    func createIssue(body: String) async -> Bool {
+        await mutate {
+            guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
+            _ = try await client.createIssue(body: body, projectPath: self.selectedProjectPath,
+                                             workspaceID: workspaceID)
+        }
+    }
+
+    func reply(to issue: WorkIssue, body: String) async -> Bool {
+        await mutate {
+            guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
+            _ = try await client.replyToIssue(id: issue.id, body: body, workspaceID: workspaceID)
+        }
+    }
+
+    func reopen(_ issue: WorkIssue) async -> Bool {
+        await mutate {
+            guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
+            _ = try await client.reopenIssue(id: issue.id, workspaceID: workspaceID)
+        }
+    }
+
+    func close(_ issue: WorkIssue) async -> Bool {
+        await mutate {
+            guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
+            _ = try await client.closeIssue(id: issue.id, workspaceID: workspaceID)
         }
     }
 

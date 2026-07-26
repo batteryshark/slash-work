@@ -3,6 +3,7 @@
 import {
   FormEvent,
   KeyboardEvent,
+  ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -44,6 +45,37 @@ type ProjectNote = {
   updatedAt: string;
 };
 
+type IssueState = "queued" | "in_progress" | "needs_human" | "resolved" | "closed";
+
+type IssueMessage = {
+  id: string;
+  body: string;
+  author: { kind: "human" | "agent"; name: string | null };
+  createdAt: string;
+};
+
+type Issue = {
+  id: string;
+  title: string;
+  body: string;
+  state: IssueState;
+  scopePath: string;
+  projectPath: string | null;
+  claimedBy: { kind: "agent"; name: string } | null;
+  resolutionSummary: string | null;
+  messages: IssueMessage[];
+  stateHistory: Array<{
+    from: IssueState | null;
+    to: IssueState;
+    actor: { kind: "human" | "agent"; name: string | null };
+    reason: string | null;
+    resolutionSummary: string | null;
+    at: string;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type IdeaStatus = "open" | "exploring" | "deferred" | "proposed" | "adopted" | "declined";
 
 type ProjectIdea = {
@@ -80,6 +112,7 @@ type FileEntry = {
   kind: "directory" | "file" | "symlink" | "other";
   language: { id: string; label: string; short: string } | null;
   gitStatus: GitFileStatus | null;
+  canInitializeProject: boolean;
   previewable: boolean;
   blockedReason: string | null;
 };
@@ -190,7 +223,7 @@ type ScheduledItem = {
   detail: string;
 };
 
-type AppView = "home" | "board" | "ideas" | "notes" | "files" | "activity";
+type AppView = "home" | "board" | "issues" | "ideas" | "notes" | "files" | "activity";
 type ThemePreference = "system" | "light" | "dark";
 
 type WorkspacePayload = {
@@ -209,6 +242,7 @@ type WorkspacePayload = {
   projects: Project[];
   captures: Capture[];
   decisions: Decision[];
+  issues: Issue[];
   ideas: ProjectIdea[];
   notes: ProjectNote[];
   tasks: WorkTask[];
@@ -396,6 +430,138 @@ function shortTime(iso: string) {
     : date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+const ISSUE_STATE_LABELS: Record<IssueState, string> = {
+  queued: "Queued",
+  in_progress: "Agent working",
+  needs_human: "Needs you",
+  resolved: "Resolved",
+  closed: "Closed",
+};
+
+function issueStateLabel(state: IssueState) {
+  return ISSUE_STATE_LABELS[state];
+}
+
+function safeLinkTarget(target: string) {
+  return /^(https?:\/\/|mailto:)/i.test(target) ? target : null;
+}
+
+function InlineMarkdown({ text }: { text: string }) {
+  const parts: ReactNode[] = [];
+  const token = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*|\[[^\]\n]+\]\([^\s)]+\))/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = token.exec(text))) {
+    if (match.index > cursor) parts.push(text.slice(cursor, match.index));
+    const value = match[0];
+    const key = `${match.index}-${value}`;
+    if (value.startsWith("`")) {
+      parts.push(<code key={key}>{value.slice(1, -1)}</code>);
+    } else if (value.startsWith("**")) {
+      parts.push(<strong key={key}>{value.slice(2, -2)}</strong>);
+    } else if (value.startsWith("*")) {
+      parts.push(<em key={key}>{value.slice(1, -1)}</em>);
+    } else {
+      const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(value);
+      const href = link ? safeLinkTarget(link[2]) : null;
+      parts.push(href
+        ? <a key={key} href={href} target="_blank" rel="noreferrer">{link?.[1]}</a>
+        : value);
+    }
+    cursor = match.index + value.length;
+  }
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return <>{parts}</>;
+}
+
+function Markdown({ children }: { children: string }) {
+  const lines = children.replace(/\r\n?/g, "\n").split("\n");
+  const blocks: ReactNode[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+
+    const fence = /^```([\w+-]*)\s*$/.exec(line);
+    if (fence) {
+      const code: string[] = [];
+      index += 1;
+      while (index < lines.length && !/^```\s*$/.test(lines[index])) {
+        code.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      blocks.push(
+        <pre key={`code-${index}`} data-language={fence[1] || undefined}>
+          <code>{code.join("\n")}</code>
+        </pre>,
+      );
+      continue;
+    }
+
+    const heading = /^(#{1,3})\s+(.+)$/.exec(line);
+    if (heading) {
+      const content = <InlineMarkdown text={heading[2]} />;
+      blocks.push(heading[1].length === 1
+        ? <h2 key={`heading-${index}`}>{content}</h2>
+        : heading[1].length === 2
+          ? <h3 key={`heading-${index}`}>{content}</h3>
+          : <h4 key={`heading-${index}`}>{content}</h4>);
+      index += 1;
+      continue;
+    }
+
+    const list = /^(\s*)([-*]|\d+\.)\s+(.+)$/.exec(line);
+    if (list) {
+      const ordered = /\d+\./.test(list[2]);
+      const items: string[] = [];
+      while (index < lines.length) {
+        const item = /^(\s*)([-*]|\d+\.)\s+(.+)$/.exec(lines[index]);
+        if (!item || /\d+\./.test(item[2]) !== ordered) break;
+        items.push(item[3]);
+        index += 1;
+      }
+      const children = items.map((item, itemIndex) => <li key={itemIndex}><InlineMarkdown text={item} /></li>);
+      blocks.push(ordered
+        ? <ol key={`list-${index}`}>{children}</ol>
+        : <ul key={`list-${index}`}>{children}</ul>);
+      continue;
+    }
+
+    if (/^>\s?/.test(line)) {
+      const quote: string[] = [];
+      while (index < lines.length && /^>\s?/.test(lines[index])) {
+        quote.push(lines[index].replace(/^>\s?/, ""));
+        index += 1;
+      }
+      blocks.push(<blockquote key={`quote-${index}`}><Markdown>{quote.join("\n")}</Markdown></blockquote>);
+      continue;
+    }
+
+    const paragraph = [line];
+    index += 1;
+    while (
+      index < lines.length
+      && lines[index].trim()
+      && !/^```/.test(lines[index])
+      && !/^(#{1,3})\s+/.test(lines[index])
+      && !/^(\s*)([-*]|\d+\.)\s+/.test(lines[index])
+      && !/^>\s?/.test(lines[index])
+    ) {
+      paragraph.push(lines[index]);
+      index += 1;
+    }
+    blocks.push(<p key={`paragraph-${index}`}><InlineMarkdown text={paragraph.join("\n")} /></p>);
+  }
+
+  return <div className="markdown-body">{blocks}</div>;
+}
+
 function calendarDate(iso: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
   if (!match) return new Date(iso);
@@ -543,6 +709,9 @@ export default function Home() {
   const [decisionDrafts, setDecisionDrafts] = useState<Record<string, DecisionDraft>>({});
   const [savingDecision, setSavingDecision] = useState<string | null>(null);
   const [decisionReceipt, setDecisionReceipt] = useState<DecisionReceipt | null>(null);
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
+  const [savingIssue, setSavingIssue] = useState(false);
+  const [issueError, setIssueError] = useState<string | null>(null);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [creatingNote, setCreatingNote] = useState(false);
   const [noteError, setNoteError] = useState<string | null>(null);
@@ -821,6 +990,7 @@ export default function Home() {
     setWorkspaceMenuOpen(false);
     setProjectMenuOpen(false);
     setSelectedNoteId(null);
+    setSelectedIssueId(null);
     setSelectedIdeaId(null);
     setSelectedTaskId(null);
     setScopePath(".");
@@ -841,6 +1011,17 @@ export default function Home() {
     return project;
   }
 
+  function rememberProject(project: Project) {
+    setData((current) => {
+      if (!current) return current;
+      const projects = current.projects
+        .filter((candidate) => candidate.path !== project.path)
+        .concat(project)
+        .sort((left, right) => left.path.localeCompare(right.path));
+      return { ...current, projects };
+    });
+  }
+
   async function pickWorkspace() {
     if (pickingWorkspace) return;
     setPickingWorkspace(true);
@@ -856,6 +1037,7 @@ export default function Home() {
       setWorkspaceMenuOpen(false);
       setProjectMenuOpen(false);
       setSelectedNoteId(null);
+      setSelectedIssueId(null);
       setSelectedIdeaId(null);
       setSelectedTaskId(null);
       setScopePath(".");
@@ -1115,6 +1297,18 @@ export default function Home() {
     setSelectedNoteId(scopedNotes[0]?.id ?? null);
   }, [view, selectedNoteId, scopedNotes]);
 
+  const scopedIssues = useMemo(() => {
+    return (data?.issues ?? [])
+      .filter((issue) => scopePath === "." || pathContains(issue.scopePath, scopePath) || pathContains(issue.projectPath, scopePath))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }, [data, scopePath]);
+
+  useEffect(() => {
+    if (view !== "issues") return;
+    if (selectedIssueId && scopedIssues.some((issue) => issue.id === selectedIssueId)) return;
+    setSelectedIssueId(scopedIssues[0]?.id ?? null);
+  }, [view, selectedIssueId, scopedIssues]);
+
   const scopedIdeas = useMemo(() => {
     return (data?.ideas ?? [])
       .filter((idea) => scopePath === "." || pathContains(idea.scopePath, scopePath) || pathContains(idea.projectPath, scopePath))
@@ -1143,7 +1337,10 @@ export default function Home() {
       .filter((decision) => scopePath === "." || pathContains(decision.projectPath, scopePath))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [data, scopePath]);
-  const visibleDecisions = activeDecisions.slice(0, 3);
+  const humanIssues = scopedIssues.filter((issue) => issue.state === "needs_human");
+  const visibleHumanIssues = humanIssues.slice(0, 3);
+  const visibleDecisions = activeDecisions.slice(0, Math.max(0, 3 - visibleHumanIssues.length));
+  const attentionCount = activeDecisions.length + humanIssues.length;
 
   const scheduledItems = useMemo(() => {
     const tasks: ScheduledItem[] = scopedTasks
@@ -1256,6 +1453,73 @@ export default function Home() {
       ...current,
       notes: [note, ...(current.notes ?? []).filter((item) => item.id !== note.id)],
     } : current);
+  }
+
+  function replaceIssue(issue: Issue) {
+    setData((current) => current ? {
+      ...current,
+      issues: [issue, ...(current.issues ?? []).filter((item) => item.id !== issue.id)],
+    } : current);
+  }
+
+  async function createIssue(body: string) {
+    setSavingIssue(true);
+    setIssueError(null);
+    try {
+      const issue = await requestJson<Issue>("/api/issues", {
+        method: "POST",
+        body: JSON.stringify({
+          body,
+          scopePath,
+          projectPath: selectedProject?.path ?? null,
+        }),
+      });
+      replaceIssue(issue);
+      setSelectedIssueId(issue.id);
+      setView("issues");
+      return issue;
+    } catch (error) {
+      setIssueError(error instanceof Error ? error.message : "The issue could not be submitted.");
+      throw error;
+    } finally {
+      setSavingIssue(false);
+    }
+  }
+
+  async function replyToIssue(issueId: string, body: string) {
+    setSavingIssue(true);
+    setIssueError(null);
+    try {
+      const issue = await requestJson<Issue>(`/api/issues/${encodeURIComponent(issueId)}/replies`, {
+        method: "POST",
+        body: JSON.stringify({ body }),
+      });
+      replaceIssue(issue);
+      return issue;
+    } catch (error) {
+      setIssueError(error instanceof Error ? error.message : "The reply could not be submitted.");
+      throw error;
+    } finally {
+      setSavingIssue(false);
+    }
+  }
+
+  async function setIssueState(issueId: string, state: "queued" | "closed") {
+    setSavingIssue(true);
+    setIssueError(null);
+    try {
+      const issue = await requestJson<Issue>(`/api/issues/${encodeURIComponent(issueId)}/state`, {
+        method: "POST",
+        body: JSON.stringify({ state }),
+      });
+      replaceIssue(issue);
+      return issue;
+    } catch (error) {
+      setIssueError(error instanceof Error ? error.message : "The issue state could not be changed.");
+      throw error;
+    } finally {
+      setSavingIssue(false);
+    }
   }
 
   function replaceIdea(idea: ProjectIdea) {
@@ -1545,6 +1809,11 @@ export default function Home() {
         setCommand("");
         return;
       }
+      if (/\b(issues?|requests?|problems?)\b/.test(lower)) {
+        setView("issues");
+        setCommand("");
+        return;
+      }
       if (/\b(notes?|notebook)\b/.test(lower)) {
         setView("notes");
         setCommand("");
@@ -1825,6 +2094,7 @@ export default function Home() {
         <nav className="view-tabs" aria-label="Workspace views">
           <button type="button" className={view === "home" ? "selected" : ""} onClick={() => setView("home")}>Home</button>
           <button type="button" className={view === "board" ? "selected" : ""} onClick={() => setView("board")}>Board</button>
+          <button type="button" className={view === "issues" ? "selected" : ""} onClick={() => setView("issues")}>Issues</button>
           <button type="button" className={view === "ideas" ? "selected" : ""} onClick={() => setView("ideas")}>Ideas</button>
           <button type="button" className={view === "notes" ? "selected" : ""} onClick={() => setView("notes")}>Notes</button>
           <button type="button" className={view === "files" ? "selected" : ""} onClick={() => setView("files")}>Files</button>
@@ -2054,6 +2324,21 @@ export default function Home() {
             onCreate={() => setCreatingTask(true)}
             error={taskError}
           />
+        ) : view === "issues" ? (
+          <IssuesView
+            scopeLabel={scopeLabel}
+            scopePath={scopePath}
+            scopeKind={scopeKind}
+            issues={scopedIssues}
+            projects={data.projects}
+            selectedIssueId={selectedIssueId}
+            saving={savingIssue}
+            error={issueError}
+            onSelect={setSelectedIssueId}
+            onCreate={createIssue}
+            onReply={replyToIssue}
+            onSetState={setIssueState}
+          />
         ) : view === "ideas" ? (
           <IdeasView
             scopeLabel={scopeLabel}
@@ -2087,7 +2372,13 @@ export default function Home() {
             onDelete={deleteProjectNote}
           />
         ) : view === "files" ? (
-          <FilesView key={scopePath} scopeLabel={scopeLabel} scopePath={scopePath} project={selectedProject} />
+          <FilesView
+            key={scopePath}
+            scopeLabel={scopeLabel}
+            scopePath={scopePath}
+            project={selectedProject}
+            onProjectCreated={rememberProject}
+          />
         ) : view === "activity" ? (
           <ActivityView
             scopeLabel={scopeLabel}
@@ -2165,7 +2456,7 @@ export default function Home() {
         <section id="needs-you" className="attention-section" aria-labelledby="needs-you-heading">
           <div className="section-heading">
             <div><p className="eyebrow">Choices, not dismissals</p><h2 id="needs-you-heading">Needs you</h2></div>
-            <span className="count-badge" aria-label={`${activeDecisions.length} active decisions`}>{activeDecisions.length}</span>
+            <span className="count-badge" aria-label={`${attentionCount} items need you`}>{attentionCount}</span>
           </div>
 
           {decisionReceipt && (
@@ -2175,10 +2466,29 @@ export default function Home() {
             </div>
           )}
 
-          {activeDecisions.length === 0 ? (
+          {attentionCount === 0 ? (
             <div className="empty-panel"><strong>Nothing needs a decision in this scope.</strong><span>Ordinary work stays out of this list.</span></div>
           ) : (
             <div className="attention-list">
+              {visibleHumanIssues.map((issue) => (
+                <article className="attention-item issue-attention-item" key={issue.id}>
+                  <button
+                    type="button"
+                    className="attention-summary"
+                    onClick={() => {
+                      setSelectedIssueId(issue.id);
+                      setView("issues");
+                    }}
+                  >
+                    <span className="attention-check" aria-hidden="true">↩</span>
+                    <span className="attention-copy">
+                      <small>Issue · {issue.projectPath ? data.projects.find((project) => project.path === issue.projectPath)?.name ?? issue.projectPath : `${data.workspace.name} · Unassigned`}</small>
+                      <strong>{issue.title}</strong>
+                    </span>
+                    <span className="review-label">Reply</span>
+                  </button>
+                </article>
+              ))}
               {visibleDecisions.map((decision) => {
                 const open = expandedDecision === decision.id;
                 const draft = draftFor(decision.id);
@@ -2286,8 +2596,8 @@ export default function Home() {
                   </article>
                 );
               })}
-              {activeDecisions.length > visibleDecisions.length && (
-                <p className="more-decisions">{activeDecisions.length - visibleDecisions.length} more waiting safely in this scope. Finish or defer one to bring the next forward.</p>
+              {attentionCount > visibleHumanIssues.length + visibleDecisions.length && (
+                <p className="more-decisions">{attentionCount - visibleHumanIssues.length - visibleDecisions.length} more waiting safely in this scope. Reply, finish, or defer one to bring the next forward.</p>
               )}
             </div>
           )}
@@ -2696,7 +3006,12 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function FilesView({ scopeLabel, scopePath, project }: { scopeLabel: string; scopePath: string; project: Project | null }) {
+function FilesView({ scopeLabel, scopePath, project, onProjectCreated }: {
+  scopeLabel: string;
+  scopePath: string;
+  project: Project | null;
+  onProjectCreated: (project: Project) => void;
+}) {
   const fileScopes = project
     ? [
         { path: project.path, label: `${project.path} — primary checkout` },
@@ -2712,6 +3027,10 @@ function FilesView({ scopeLabel, scopePath, project }: { scopeLabel: string; sco
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [projectError, setProjectError] = useState<string | null>(null);
+  const [projectReceipt, setProjectReceipt] = useState<Project | null>(null);
+  const [initializingProjectPath, setInitializingProjectPath] = useState<string | null>(null);
+  const [initializedProjectPaths, setInitializedProjectPaths] = useState<Set<string>>(new Set());
   const [changedOnly, setChangedOnly] = useState(false);
   const [git, setGit] = useState<FileDirectory["git"]>({ available: false, counts: {} });
 
@@ -2780,6 +3099,35 @@ function FilesView({ scopeLabel, scopePath, project }: { scopeLabel: string; sco
     }
   }
 
+  async function initializeFolderProject(entry: FileEntry) {
+    if (!entry.canInitializeProject || initializingProjectPath) return;
+    const projectPath = fileScopePath === "." ? entry.path : `${fileScopePath}/${entry.path}`;
+    setInitializingProjectPath(entry.path);
+    setProjectError(null);
+    setProjectReceipt(null);
+    try {
+      const created = await requestJson<Project>("/api/projects", {
+        method: "POST",
+        body: JSON.stringify({ projectPath }),
+      });
+      setDirectories((current) => Object.fromEntries(
+        Object.entries(current).map(([path, entries]) => [
+          path,
+          entries.map((candidate) => candidate.path === entry.path
+            ? { ...candidate, canInitializeProject: false }
+            : candidate),
+        ]),
+      ));
+      setInitializedProjectPaths((current) => new Set(current).add(entry.path));
+      setProjectReceipt(created);
+      onProjectCreated(created);
+    } catch (projectInitError) {
+      setProjectError(projectInitError instanceof Error ? projectInitError.message : "The project could not be started.");
+    } finally {
+      setInitializingProjectPath(null);
+    }
+  }
+
   const selectedEntry = Object.values(directories).flat().find((entry) => entry.path === selectedPath) ?? null;
   const totalChanges = Object.values(git.counts).reduce((total, count) => total + (count ?? 0), 0);
 
@@ -2795,26 +3143,43 @@ function FilesView({ scopeLabel, scopePath, project }: { scopeLabel: string; sco
       const status = entry.gitStatus ? FILE_STATUS_COPY[entry.gitStatus] : null;
       return (
         <div className="file-tree-branch" key={entry.path} role="none">
-          <button
-            type="button"
-            role="treeitem"
-            aria-level={depth + 1}
-            aria-expanded={isDirectory ? isOpen : undefined}
-            aria-selected={!isDirectory && selectedPath === entry.path}
-            className={`${selectedPath === entry.path ? "selected" : ""} kind-${entry.kind}`}
-            style={{ paddingLeft: `${12 + depth * 16}px` }}
-            onClick={() => isDirectory ? void toggleDirectory(entry) : void selectFile(entry)}
-            title={entry.blockedReason ?? entry.path}
-          >
-            <span className="file-tree-toggle" aria-hidden="true">{isDirectory ? (isOpen ? "▾" : "▸") : ""}</span>
-            {isDirectory ? (
-              <span className="file-kind folder" aria-hidden="true">DIR</span>
-            ) : (
-              <span className="file-kind" data-language={entry.language?.id ?? "text"} aria-hidden="true">{entry.language?.short ?? "—"}</span>
+          <div className="file-tree-row">
+            <button
+              type="button"
+              role="treeitem"
+              aria-level={depth + 1}
+              aria-expanded={isDirectory ? isOpen : undefined}
+              aria-selected={!isDirectory && selectedPath === entry.path}
+              className={`file-tree-entry ${selectedPath === entry.path ? "selected" : ""} kind-${entry.kind}`}
+              style={{ paddingLeft: `${12 + depth * 16}px` }}
+              onClick={() => isDirectory ? void toggleDirectory(entry) : void selectFile(entry)}
+              title={entry.blockedReason ?? entry.path}
+            >
+              <span className="file-tree-toggle" aria-hidden="true">{isDirectory ? (isOpen ? "▾" : "▸") : ""}</span>
+              {isDirectory ? (
+                <span className="file-kind folder" aria-hidden="true">DIR</span>
+              ) : (
+                <span className="file-kind" data-language={entry.language?.id ?? "text"} aria-hidden="true">{entry.language?.short ?? "—"}</span>
+              )}
+              <span className="file-tree-name">{entry.name}</span>
+              {status && <span className={`file-git-status status-${entry.gitStatus}`} title={status.label}>{status.short}</span>}
+            </button>
+            {entry.canInitializeProject && (
+              <button
+                type="button"
+                className="file-project-start"
+                disabled={initializingProjectPath !== null}
+                aria-label={`Start a Work project in ${entry.name}`}
+                title={`Create ${entry.path}/.work and start a project here`}
+                onClick={() => void initializeFolderProject(entry)}
+              >
+                {initializingProjectPath === entry.path ? "Starting…" : "+ Project"}
+              </button>
             )}
-            <span className="file-tree-name">{entry.name}</span>
-            {status && <span className={`file-git-status status-${entry.gitStatus}`} title={status.label}>{status.short}</span>}
-          </button>
+            {initializedProjectPaths.has(entry.path) && (
+              <span className="file-project-ready" title="This folder is now a Work project">Project</span>
+            )}
+          </div>
           {isDirectory && isOpen && (
             <div role="group">
               {loadingDirectories.has(entry.path)
@@ -2831,11 +3196,11 @@ function FilesView({ scopeLabel, scopePath, project }: { scopeLabel: string; sco
     <section className="files-view" aria-labelledby="files-heading">
       <header className="files-toolbar">
         <div>
-          <p className="eyebrow">Read-only project reference</p>
+          <p className="eyebrow">Read-only source reference</p>
           <h1 id="files-heading">{scopeLabel} files</h1>
           <p>{git.available
-            ? `${totalChanges} changed file${totalChanges === 1 ? "" : "s"} in this Git scope. Browse and inspect without changing the working tree.`
-            : "Browse and inspect this scope without changing its files. Git markers appear when the selected scope is inside a repository."}</p>
+            ? `${totalChanges} changed file${totalChanges === 1 ? "" : "s"} in this Git scope. Browse without editing source files, or start a Work project in an unmarked folder.`
+            : "Browse without editing source files, or start a Work project in an unmarked folder. Git markers appear when the selected scope is inside a repository."}</p>
         </div>
         <div className="files-toolbar-actions">
           {fileScopes.length > 1 && (
@@ -2853,7 +3218,7 @@ function FilesView({ scopeLabel, scopePath, project }: { scopeLabel: string; sco
         </div>
       </header>
 
-      {error && <p className="file-error" role="alert">{error}</p>}
+      {(error || projectError) && <p className="file-error" role="alert">{error ?? projectError}</p>}
 
       <div className="files-workspace">
         <aside className="file-tree-panel" aria-label={`Files in ${scopeLabel}`}>
@@ -2866,6 +3231,12 @@ function FilesView({ scopeLabel, scopePath, project }: { scopeLabel: string; sco
               ? <div className="file-tree-empty">Loading files…</div>
               : renderDirectory(".")}
           </div>
+          {projectReceipt && (
+            <div className="file-project-receipt" role="status">
+              <strong>{projectReceipt.name}</strong>
+              <span>Project started in {projectReceipt.path}</span>
+            </div>
+          )}
           <div className="file-tree-legend" aria-label="Git change legend">
             <span><i className="status-added">A</i> Added</span>
             <span><i className="status-modified">M</i> Modified</span>
@@ -2922,6 +3293,297 @@ const IDEA_STATUS_OPTIONS: Array<{ value: IdeaStatus; label: string }> = [
 
 function ideaStatusLabel(status: IdeaStatus) {
   return IDEA_STATUS_OPTIONS.find((option) => option.value === status)?.label ?? displaySegment(status);
+}
+
+function IssuesView({
+  scopeLabel,
+  scopePath,
+  scopeKind,
+  issues,
+  projects,
+  selectedIssueId,
+  saving,
+  error,
+  onSelect,
+  onCreate,
+  onReply,
+  onSetState,
+}: {
+  scopeLabel: string;
+  scopePath: string;
+  scopeKind: "root" | "group" | "project";
+  issues: Issue[];
+  projects: Project[];
+  selectedIssueId: string | null;
+  saving: boolean;
+  error: string | null;
+  onSelect: (issueId: string) => void;
+  onCreate: (body: string) => Promise<Issue>;
+  onReply: (issueId: string, body: string) => Promise<Issue>;
+  onSetState: (issueId: string, state: "queued" | "closed") => Promise<Issue>;
+}) {
+  const selectedIssue = issues.find((issue) => issue.id === selectedIssueId) ?? null;
+  const [draft, setDraft] = useState("");
+  const [reply, setReply] = useState("");
+  const [search, setSearch] = useState("");
+  const [closeArmed, setCloseArmed] = useState(false);
+
+  useEffect(() => {
+    setReply("");
+    setCloseArmed(false);
+  }, [selectedIssue?.id]);
+
+  const filteredIssues = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return issues;
+    return issues.filter((issue) => [
+      issue.title,
+      issue.body,
+      issue.claimedBy?.name ?? "",
+      ...issue.messages.map((message) => message.body),
+    ].join(" ").toLowerCase().includes(query));
+  }, [issues, search]);
+
+  function issueLocation(issue: Issue) {
+    if (issue.projectPath) return projects.find((project) => project.path === issue.projectPath)?.name ?? issue.projectPath;
+    if (issue.scopePath === ".") return "Workspace";
+    return `Folder · ${issue.scopePath}`;
+  }
+
+  async function submitIssue(event?: FormEvent) {
+    event?.preventDefault();
+    const body = draft;
+    if (!body.trim() || saving) return;
+    await onCreate(body);
+    setDraft("");
+  }
+
+  async function submitReply(event?: FormEvent) {
+    event?.preventDefault();
+    if (!selectedIssue || !reply.trim() || saving) return;
+    await onReply(selectedIssue.id, reply);
+    setReply("");
+  }
+
+  function submitOnShortcut(event: KeyboardEvent<HTMLTextAreaElement>, action: () => Promise<void>) {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      void action().catch(() => {});
+    }
+  }
+
+  const exactScope = scopeKind === "root"
+    ? `${scopeLabel} workspace · ${scopePath}`
+    : `${scopeKind === "project" ? "Project" : "Folder"}: ${scopeLabel} · ${scopePath}`;
+
+  return (
+    <section className="issues-view" aria-labelledby="issues-heading">
+      <header className="issues-toolbar">
+        <div>
+          <p className="eyebrow">A durable conversation with an agent</p>
+          <h1 id="issues-heading">{scopeLabel} issues</h1>
+          <p>Write what is wrong, unclear, or worth investigating. No title or categorization required.</p>
+        </div>
+      </header>
+
+      <form className="issue-composer" onSubmit={(event) => void submitIssue(event).catch(() => {})}>
+        <label htmlFor="new-issue-body">
+          <strong>File an issue</strong>
+          <span>Markdown supported · Enter adds a new line</span>
+        </label>
+        <textarea
+          id="new-issue-body"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => submitOnShortcut(event, () => submitIssue())}
+          placeholder="Describe it however it comes to you…"
+          aria-describedby="issue-scope issue-submit-hint"
+        />
+        <footer>
+          <span id="issue-scope"><strong>Exact scope:</strong> {exactScope}</span>
+          <div>
+            <span id="issue-submit-hint"><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
+            <button type="submit" className="primary-action" disabled={saving || !draft.trim()}>
+              {saving ? "Submitting…" : "Submit issue"}
+            </button>
+          </div>
+        </footer>
+      </form>
+
+      {error && <p className="note-error" role="alert">{error}</p>}
+
+      <div className="issues-workspace">
+        <aside className="issue-list-panel" aria-label="Issues in this scope">
+          <div className="notes-list-heading">
+            <div><strong>Issues</strong><small>{issues.length} in this scope</small></div>
+            <span className="count-badge" aria-hidden="true">{issues.length}</span>
+          </div>
+          <label className="notes-search">
+            <span className="sr-only">Find an issue</span>
+            <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find an issue…" />
+          </label>
+          {filteredIssues.length === 0 ? (
+            <div className="notes-list-empty">
+              <strong>{issues.length === 0 ? "No issues yet." : "No issues match."}</strong>
+              <span>{issues.length === 0 ? "Use the free-form box above whenever an agent should pick something up." : "Try a different search."}</span>
+            </div>
+          ) : (
+            <div className="issue-list" role="listbox" aria-label="Select an issue">
+              {filteredIssues.map((issue) => (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={issue.id === selectedIssue?.id}
+                  className={issue.id === selectedIssue?.id ? "selected" : ""}
+                  key={issue.id}
+                  onClick={() => onSelect(issue.id)}
+                >
+                  <span className="issue-list-title"><strong>{issue.title}</strong></span>
+                  <span className={`issue-state state-${issue.state}`}>{issueStateLabel(issue.state)}</span>
+                  <small>{issueLocation(issue)} · {shortTime(issue.updatedAt)}</small>
+                </button>
+              ))}
+            </div>
+          )}
+        </aside>
+
+        <article className="issue-thread" aria-label={selectedIssue ? `Issue conversation: ${selectedIssue.title}` : "Issue conversation"}>
+          {selectedIssue ? (
+            <>
+              <header className="issue-thread-heading">
+                <div>
+                  <span className={`issue-state state-${selectedIssue.state}`}>{issueStateLabel(selectedIssue.state)}</span>
+                  <h2>{selectedIssue.title}</h2>
+                  <small>{issueLocation(selectedIssue)} · Opened {new Date(selectedIssue.createdAt).toLocaleString()}</small>
+                </div>
+                <div className="issue-state-actions">
+                  {(selectedIssue.state === "resolved" || selectedIssue.state === "closed") && (
+                    <button type="button" className="secondary-action" disabled={saving} onClick={() => void onSetState(selectedIssue.id, "queued").catch(() => {})}>Reopen</button>
+                  )}
+                  {selectedIssue.state !== "closed" && !closeArmed && (
+                    <button type="button" className="issue-close-action" disabled={saving} onClick={() => setCloseArmed(true)}>Close issue</button>
+                  )}
+                  {selectedIssue.state !== "closed" && closeArmed && (
+                    <span className="issue-close-confirm">
+                      <span>Close this issue?</span>
+                      <button type="button" disabled={saving} onClick={() => setCloseArmed(false)}>Cancel</button>
+                      <button type="button" className="danger-action" disabled={saving} onClick={() => void onSetState(selectedIssue.id, "closed").catch(() => {})}>Close</button>
+                    </span>
+                  )}
+                </div>
+              </header>
+
+              {selectedIssue.state === "in_progress" && (
+                <div className="issue-state-note">
+                  <strong>Agent working{selectedIssue.claimedBy ? ` · ${selectedIssue.claimedBy.name}` : ""}</strong>
+                  <span>The issue remains open while the agent investigates.</span>
+                </div>
+              )}
+              {selectedIssue.state === "needs_human" && (
+                <div className="issue-state-note needs-human">
+                  <strong>The agent needs your input.</strong>
+                  <span>Reply below. Only issues in this state appear in the bounded Needs you list.</span>
+                </div>
+              )}
+              {selectedIssue.state === "resolved" && (
+                <div className="issue-state-note resolved">
+                  <strong>Agent resolution — an opinion, not a final judgment.</strong>
+                  {selectedIssue.resolutionSummary
+                    ? <Markdown>{selectedIssue.resolutionSummary}</Markdown>
+                    : <span>If the result is incomplete, reply or reopen the issue.</span>}
+                </div>
+              )}
+              {selectedIssue.state === "closed" && (
+                <div className="issue-state-note closed">
+                  <strong>Closed by a human.</strong>
+                  <span>You can reopen it at any time. Nothing in this conversation is discarded.</span>
+                </div>
+              )}
+
+              <ol className="issue-messages" aria-label="Issue conversation">
+                <li className="issue-message human">
+                  <header><strong>You</strong><time dateTime={selectedIssue.createdAt}>{new Date(selectedIssue.createdAt).toLocaleString()}</time></header>
+                  <Markdown>{selectedIssue.body}</Markdown>
+                </li>
+                {selectedIssue.messages.map((message) => (
+                  <li className={`issue-message ${message.author.kind}`} key={message.id}>
+                    <header>
+                      <strong>{message.author.kind === "human" ? "You" : message.author.name || "Agent"}</strong>
+                      <time dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleString()}</time>
+                    </header>
+                    <Markdown>{message.body}</Markdown>
+                  </li>
+                ))}
+              </ol>
+
+              <details className="issue-history">
+                <summary>
+                  <strong>State history</strong>
+                  <span>{selectedIssue.stateHistory.length} changes</span>
+                </summary>
+                <ol>
+                  {selectedIssue.stateHistory.map((change, index) => (
+                    <li key={`${change.at}-${index}`}>
+                      <header>
+                        <strong>
+                          {change.from
+                            ? `${issueStateLabel(change.from)} → ${issueStateLabel(change.to)}`
+                            : issueStateLabel(change.to)}
+                        </strong>
+                        <time dateTime={change.at}>{new Date(change.at).toLocaleString()}</time>
+                      </header>
+                      <small>{change.actor.kind === "human" ? "You" : change.actor.name || "Agent"}</small>
+                      {change.reason && <Markdown>{change.reason}</Markdown>}
+                      {change.resolutionSummary && (
+                        <div className="issue-history-resolution">
+                          <strong>Resolution</strong>
+                          <Markdown>{change.resolutionSummary}</Markdown>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              </details>
+
+              <form className="issue-reply" onSubmit={(event) => void submitReply(event).catch(() => {})}>
+                <label htmlFor={`issue-reply-${selectedIssue.id}`}>
+                  <strong>Reply</strong>
+                  {selectedIssue.state === "needs_human" && <span>Replying returns this issue to Queued so the agent can continue.</span>}
+                  {(selectedIssue.state === "resolved" || selectedIssue.state === "closed") && <span>Replying automatically reopens this issue and returns it to Queued.</span>}
+                </label>
+                <textarea
+                  id={`issue-reply-${selectedIssue.id}`}
+                  value={reply}
+                  onChange={(event) => setReply(event.target.value)}
+                  onKeyDown={(event) => submitOnShortcut(event, () => submitReply())}
+                  placeholder="Add context, answer the agent, or say what still is not right…"
+                />
+                <footer>
+                  <span>Markdown supported · <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
+                  <button type="submit" className="primary-action" disabled={saving || !reply.trim()}>
+                    {saving
+                      ? "Submitting…"
+                      : selectedIssue.state === "needs_human"
+                        ? "Reply and return to queue"
+                        : selectedIssue.state === "resolved" || selectedIssue.state === "closed"
+                          ? "Reply and reopen"
+                          : "Reply"}
+                  </button>
+                </footer>
+              </form>
+              <p className="issue-authority-note">Only you can close this issue. An agent may resolve it, but cannot delete, lock, or prevent a reply.</p>
+            </>
+          ) : (
+            <div className="note-editor-empty">
+              <span aria-hidden="true">⌁</span>
+              <strong>{issues.length === 0 ? "File the first issue" : "Select an issue"}</strong>
+              <p>{issues.length === 0 ? "A plain description is enough. Work derives the title and keeps the conversation together." : "Choose one to read or continue its conversation."}</p>
+            </div>
+          )}
+        </article>
+      </div>
+    </section>
+  );
 }
 
 function IdeasView({

@@ -48,7 +48,7 @@ private struct DashboardTabs: View {
         TabView {
             HomeView()
                 .tabItem { Label("Home", systemImage: "house.fill") }
-                .badge(model.openDecisions.count)
+                .badge(model.openDecisions.count + model.needsHumanIssueCount)
 
             BoardView()
                 .tabItem { Label("Board", systemImage: "rectangle.3.group") }

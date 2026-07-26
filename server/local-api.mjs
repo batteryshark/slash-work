@@ -1,4 +1,4 @@
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import { createHash, randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
@@ -9,23 +9,30 @@ import {
   createCapture,
   createDecision,
   createIdea,
+  createIssue,
   createNote,
   createTask,
   deleteCapture,
   deleteIdea,
   deleteNote,
   discoverProjects,
+  getIssue,
   initializeWorkspace,
   getTask,
+  initializeProject,
   listCaptures,
   listDecisions,
   listIdeas,
+  listIssues,
   listNotes,
   listTasks,
   moveTask,
+  claimIssue,
+  replyToIssue,
   toggleTaskChecklist,
   updateCaptureDestination,
   updateIdea,
+  updateIssueState,
   updateNote,
   updateProjectProfile,
   updateTask,
@@ -55,6 +62,7 @@ import { isTailscaleIPv4 } from "../lib/tailscale-network.mjs";
 const LOOPBACK_HOST = "127.0.0.1";
 const DEFAULT_PORT = 43170;
 const MAX_BODY_BYTES = 128 * 1024;
+const MAX_MCP_BODY_BYTES = 1024 * 1024;
 const MAX_PROXY_RESPONSE_BYTES = 4 * 1024 * 1024;
 const UPDATE_CACHE_MS = 15 * 60 * 1000;
 const CLIENT_API_VERSION = 1;
@@ -160,8 +168,8 @@ function isFederatedWorkspacePath(pathname) {
     /^\/api\/workspace$/,
     /^\/api\/projects(?:\/profile)?$/,
     /^\/api\/files\/(?:directory|content)$/,
-    /^\/api\/(?:captures|notes|ideas|decisions|tasks)(?:\/[^/]+(?:\/(?:actions|move|checklist|log))?)?$/,
-    /^\/api\/agent\/notes(?:\/[^/]+)?$/,
+    /^\/api\/(?:captures|notes|ideas|issues|decisions|tasks)(?:\/[^/]+(?:\/(?:actions|move|checklist|log|replies|state))?)?$/,
+    /^\/api\/agent\/(?:notes|issues)(?:\/[^/]+(?:\/(?:claim|replies|state))?)?$/,
     /^\/api\/ai\/(?:proposals|apply)$/,
   ].some((pattern) => pattern.test(pathname));
 }
@@ -228,7 +236,7 @@ function routeId(pathname, resource, suffix = "") {
 function requiredAgentName(request) {
   const value = request.headers["x-work-agent"];
   if (typeof value !== "string" || !value.trim()) {
-    throw new WorkspaceError("Agent note operations require X-Work-Agent.", { code: "agent_identity_required", status: 400 });
+    throw new WorkspaceError("Agent operations require X-Work-Agent.", { code: "agent_identity_required", status: 400 });
   }
   const name = value.trim();
   if (name.length > 120 || /[\r\n]/.test(name)) {
@@ -345,6 +353,51 @@ function selectedWorkspace(workspaces, defaultWorkspace, request) {
   return workspace;
 }
 
+function proxyMcpRequest(service, request, response) {
+  const sidecar = service.mcp;
+  if (!sidecar?.ready) {
+    sendJson(request, response, 503, { error: { code: "mcp_unavailable", message: "The MCP sidecar is unavailable." } });
+    return;
+  }
+  if (!new Set(["GET", "POST", "DELETE"]).has(request.method ?? "GET")) {
+    sendJson(request, response, 405, { error: { code: "mcp_method_not_allowed", message: "That MCP method is not supported." } }, { Allow: "GET, POST, DELETE" });
+    return;
+  }
+  const declaredLength = Number(request.headers["content-length"] ?? 0);
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_MCP_BODY_BYTES) {
+    sendJson(request, response, 413, { error: { code: "body_too_large", message: "MCP request body is too large." } });
+    return;
+  }
+  let received = 0;
+  const headers = {};
+  const hopByHop = new Set(["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade", "host"]);
+  for (const [name, value] of Object.entries(request.headers)) {
+    if (hopByHop.has(name) || value == null) continue;
+    headers[name] = value;
+  }
+  headers.host = `127.0.0.1:${sidecar.port}`;
+  headers["x-work-mcp-proxy"] = sidecar.secret;
+  const upstream = httpRequest({ host: "127.0.0.1", port: sidecar.port, method: request.method, path: request.url, headers }, (upstreamResponse) => {
+    const responseHeaders = {};
+    for (const [name, value] of Object.entries(upstreamResponse.headers)) {
+      if (!hopByHop.has(name) && value != null) responseHeaders[name] = value;
+    }
+    response.writeHead(upstreamResponse.statusCode ?? 502, responseHeaders);
+    upstreamResponse.pipe(response);
+  });
+  upstream.setTimeout(15_000, () => upstream.destroy(new Error("MCP sidecar request timed out.")));
+  upstream.once("error", () => {
+    if (!response.headersSent) sendJson(request, response, 503, { error: { code: "mcp_unavailable", message: "The MCP sidecar is unavailable." } });
+    else response.destroy();
+  });
+  request.on("data", (chunk) => {
+    received += chunk.length;
+    if (received > MAX_MCP_BODY_BYTES) request.destroy(new WorkspaceError("MCP request body is too large.", { code: "body_too_large", status: 413 }));
+  });
+  request.on("aborted", () => upstream.destroy());
+  request.pipe(upstream);
+}
+
 async function handleRequest(workspaces, service, request, response) {
   const url = new URL(request.url ?? "/", `http://${request.headers.host}`);
   const method = request.method ?? "GET";
@@ -365,6 +418,11 @@ async function handleRequest(workspaces, service, request, response) {
     federationGrant = await service.federation.authorize(request.headers.authorization, requestedWorkspaceId);
   } else {
     assertLocalRequest(request, service.host);
+  }
+
+  if (url.pathname === "/mcp" || url.pathname === "/mcp/") {
+    proxyMcpRequest(service, request, response);
+    return;
   }
 
   if (method === "OPTIONS") {
@@ -708,6 +766,7 @@ async function handleRequest(workspaces, service, request, response) {
         version: service.version,
         updatePending: service.updatePending,
       },
+      ...(service.mcp ? { mcp: { enabled: true, ready: service.mcp.ready, path: "/mcp" } } : {}),
       workspace: { id: workspace.id, name: workspace.name, root: workspace.root },
     });
     return;
@@ -718,6 +777,11 @@ async function handleRequest(workspaces, service, request, response) {
   }
   if (method === "GET" && url.pathname === "/api/projects") {
     sendJson(request, response, 200, { projects: await discoverProjects(workspace.root) });
+    return;
+  }
+  if (method === "POST" && url.pathname === "/api/projects") {
+    const body = await readJsonBody(request);
+    sendJson(request, response, 201, await initializeProject(workspace, body?.projectPath));
     return;
   }
   if (method === "POST" && url.pathname === "/api/ai/proposals") {
@@ -835,6 +899,60 @@ async function handleRequest(workspaces, service, request, response) {
   if (method === "DELETE" && noteId) {
     await deleteNote(workspace, noteId);
     sendEmpty(request, response);
+    return;
+  }
+  if (method === "GET" && url.pathname === "/api/issues") {
+    sendJson(request, response, 200, { issues: await listIssues(workspace) });
+    return;
+  }
+  if (method === "POST" && url.pathname === "/api/issues") {
+    const body = await readJsonBody(request);
+    const projects = await discoverProjects(workspace.root);
+    sendJson(request, response, 201, await createIssue(workspace, body, projects));
+    return;
+  }
+  if (method === "GET" && url.pathname === "/api/agent/issues") {
+    requiredAgentName(request);
+    sendJson(request, response, 200, { issues: await listIssues(workspace) });
+    return;
+  }
+  const issueReplyId = routeId(url.pathname, "issues", "/replies");
+  if (method === "POST" && issueReplyId) {
+    sendJson(request, response, 200, await replyToIssue(workspace, issueReplyId, await readJsonBody(request)));
+    return;
+  }
+  const issueStateId = routeId(url.pathname, "issues", "/state");
+  if (method === "POST" && issueStateId) {
+    sendJson(request, response, 200, await updateIssueState(workspace, issueStateId, await readJsonBody(request)));
+    return;
+  }
+  const agentIssueClaimId = routeId(url.pathname, "agent/issues", "/claim");
+  if (method === "POST" && agentIssueClaimId) {
+    const agentName = requiredAgentName(request);
+    sendJson(request, response, 200, await claimIssue(workspace, agentIssueClaimId, agentName));
+    return;
+  }
+  const agentIssueReplyId = routeId(url.pathname, "agent/issues", "/replies");
+  if (method === "POST" && agentIssueReplyId) {
+    const agentName = requiredAgentName(request);
+    sendJson(request, response, 200, await replyToIssue(workspace, agentIssueReplyId, await readJsonBody(request), { agentName }));
+    return;
+  }
+  const agentIssueStateId = routeId(url.pathname, "agent/issues", "/state");
+  if (method === "POST" && agentIssueStateId) {
+    const agentName = requiredAgentName(request);
+    sendJson(request, response, 200, await updateIssueState(workspace, agentIssueStateId, await readJsonBody(request), { agentName }));
+    return;
+  }
+  const agentIssueId = routeId(url.pathname, "agent/issues");
+  if (method === "GET" && agentIssueId) {
+    requiredAgentName(request);
+    sendJson(request, response, 200, await getIssue(workspace, agentIssueId));
+    return;
+  }
+  const issueId = routeId(url.pathname, "issues");
+  if (method === "GET" && issueId) {
+    sendJson(request, response, 200, await getIssue(workspace, issueId));
     return;
   }
   if (method === "GET" && url.pathname === "/api/ideas") {
@@ -1026,6 +1144,7 @@ export async function startLocalApi({
     aiRequestTimeoutMs,
     aiCredentialStore,
     federation,
+    mcp: null,
   };
   const server = createServer((request, response) => {
     handleRequest(workspaces, service, request, response).catch((error) => errorResponse(request, response, error));
@@ -1065,6 +1184,12 @@ export async function startLocalApi({
     port: selectedPort,
     workspace,
     workspaces: [...workspaces.values()],
+    configureMcp(mcp) {
+      if (!mcp || !Number.isInteger(mcp.port) || typeof mcp.secret !== "string") {
+        throw new WorkspaceError("Invalid MCP sidecar.", { code: "invalid_mcp_sidecar" });
+      }
+      service.mcp = mcp;
+    },
   };
 }
 

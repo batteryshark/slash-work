@@ -1,6 +1,6 @@
 ---
 name: slash-work
-description: Use Slash Work to discover project context and safely create, review, evaluate, update, move, or inspect durable captures, notes, ideas, decisions, and Kanban tasks. Use when an agent is asked to work with a `.work` workspace, the `work` CLI, a Work HTTP service, project purpose descriptions, or Work's Markdown records.
+description: Use Slash Work to discover project context and safely create, review, evaluate, discuss, update, move, or inspect durable captures, notes, ideas, issues, decisions, and Kanban tasks. Use when an agent is asked to work with a `.work` workspace, the `work` CLI, a Work HTTP service, project purpose descriptions, or Work's Markdown records.
 ---
 
 # Slash Work
@@ -55,6 +55,10 @@ Read [references/service-routing.md](references/service-routing.md) when multipl
   reference notes only when useful, and never edit or delete a human note or a
   note owned by another agent.
 - Treat idea evaluation and note review as analysis only.
+- Treat an issue as authority to investigate and reply, not to modify a
+  repository or create executable work. An agent may resolve an issue with a
+  summary, but only a human may close it. Never prevent a human from reopening
+  or replying.
 - Do not resolve decisions, delete records, or create executable work without user authority.
 - Read an existing item by stable ID before a nontrivial update.
 - Prefer Work mutations so validation, relocation, dependency gates, and history are preserved.

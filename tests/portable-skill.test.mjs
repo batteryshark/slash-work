@@ -16,6 +16,8 @@ test("ships a vendor-neutral progressively disclosed Slash Work skill", async ()
   assert.match(skill, /references\/service-routing\.md/);
   assert.match(skill, /references\/artifact-model\.md/);
   assert.match(skill, /references\/filesystem-fallback\.md/);
+  assert.match(skill, /issue as authority to investigate and reply/i);
+  assert.match(skill, /only a human may close it/i);
   assert.doesNotMatch(skill, /OpenAI|Claude|Codex/i);
 
   for (const reference of ["service-routing.md", "artifact-model.md", "filesystem-fallback.md"]) {

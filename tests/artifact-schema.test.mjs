@@ -11,7 +11,7 @@ test("publishes a machine-readable schema for every Markdown artifact type", asy
   assert.equal(schema.$schema, "https://json-schema.org/draft/2020-12/schema");
   assert.deepEqual(
     schema.oneOf.map((entry) => entry.$ref),
-    ["#/$defs/capture", "#/$defs/note", "#/$defs/idea", "#/$defs/decision", "#/$defs/task"],
+    ["#/$defs/capture", "#/$defs/note", "#/$defs/idea", "#/$defs/issue", "#/$defs/decision", "#/$defs/task"],
   );
   assert.deepEqual(schema.$defs.capture.properties.kind.enum, ["idea", "question", "update"]);
   assert.deepEqual(schema.$defs.note.properties.agentIntent.enum, ["reference_only", "review_requested"]);
@@ -19,6 +19,10 @@ test("publishes a machine-readable schema for every Markdown artifact type", asy
   assert.equal(schema.$defs.note.properties.createdBy.oneOf[1].properties.kind.const, "agent");
   assert.deepEqual(schema.$defs.idea.properties.status.enum, ["open", "exploring", "deferred", "proposed", "adopted", "declined"]);
   assert.deepEqual(schema.$defs.idea.properties.agentIntent.enum, ["consideration_only", "evaluation_requested"]);
+  assert.deepEqual(schema.$defs.issue.properties.state.enum, ["queued", "in_progress", "needs_human", "resolved", "closed"]);
+  assert.equal(schema.$defs.issue.properties.claimedBy.oneOf[0].properties.kind.const, "agent");
+  assert.ok(schema.$defs.issue.required.includes("stateHistory"));
+  assert.equal(schema.$defs.issueStateEvent.properties.actor.$ref, "#/$defs/issueActor");
   assert.ok(schema.$defs.decision.properties.status.enum.includes("kept_unassigned"));
   assert.ok(schema.$defs.decision.required.includes("recommendedOption"));
   assert.equal(schema.$defs.decision.properties.recommendedOption.oneOf[1].type, "null");
@@ -31,7 +35,7 @@ test("publishes a machine-readable schema for every Markdown artifact type", asy
 test("documents exact storage, envelope, and body grammar for automations", async () => {
   const contract = await readFile(contractUrl, "utf8");
 
-  for (const heading of ["## Capture", "## Note", "## Idea", "## Decision", "## Task"]) {
+  for (const heading of ["## Capture", "## Note", "## Idea", "## Issue", "## Decision", "## Task"]) {
     assert.ok(contract.includes(heading), `missing ${heading}`);
   }
   for (const requiredRule of [
@@ -41,6 +45,8 @@ test("documents exact storage, envelope, and body grammar for automations", asyn
     "- <ISO timestamp> — <message>",
     "evaluation_requested",
     "never grants permission to implement it",
+    "Only a human may move an\nissue to `closed`",
+    "Agents cannot\ndelete, archive, lock, or prevent replies",
     "temporary\nsibling file followed by an atomic rename",
   ]) {
     assert.ok(contract.includes(requiredRule), `missing contract rule: ${requiredRule}`);
