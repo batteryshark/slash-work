@@ -879,6 +879,27 @@ test("groups linked worktrees when the primary checkout is outside the selected 
   assert.deepEqual(projects[0].aliasPaths, ["rekit-factory-mission-control"]);
 });
 
+test("discovers deeply nested projects without an arbitrary depth cutoff", async () => {
+  const root = await temporaryDirectory("work-deep-projects-");
+  const nested = join(root, "portfolios", "games", "preservation", "recomp", "engine");
+  await mkdir(join(nested, ".project"), { recursive: true });
+
+  const projects = await discoverProjects(root);
+  assert.deepEqual(projects.map(projectPath), ["portfolios/games/preservation/recomp/engine"]);
+});
+
+test("bounds pathological project discovery with an actionable directory limit", async () => {
+  const root = await temporaryDirectory("work-project-limit-");
+  await mkdir(join(root, "one", "two", "three", "four"), { recursive: true });
+
+  await assert.rejects(
+    discoverProjects(root, { maxDirectories: 3 }),
+    (error) => error.code === "project_discovery_limit"
+      && /3-directory safety limit/i.test(error.message)
+      && /nested \.work\/workspace\.json boundary/i.test(error.message),
+  );
+});
+
 test("offers registered roots and resolves every request inside the selected workspace", async () => {
   const firstRoot = await temporaryDirectory("work-picker-home-");
   const secondRoot = await temporaryDirectory("work-picker-lab-");
