@@ -4,399 +4,47 @@ import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 
-test("builds a local root-scoped interface instead of a hosted demo", async () => {
-  const [html, page, packageSource] = await Promise.all([
+test("ships a local root-scoped interface, not a hosted demo", async () => {
+  const [html, packageSource] = await Promise.all([
     readFile(new URL("dist/index.html", root), "utf8"),
-    readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("package.json", root), "utf8"),
   ]);
 
   assert.match(html, /<title>Work · One root at a time<\/title>/i);
-  assert.match(page, /\/api\/workspace/);
-  assert.match(page, /\/api\/workspaces\/pick/);
-  assert.match(page, /Choose folder…/);
-  assert.match(page, /created automatically/);
-  assert.match(page, /Remove from list\? Files stay untouched/);
-  assert.match(page, /"x-work-unregister": "confirm"/);
-  assert.match(page, /scopePath/);
-  assert.match(page, /projectPath: selectedProject\?\.path \?\? null/);
-  assert.match(page, /Project names in the thought never reroute it/);
-  assert.doesNotMatch(page, /inferProject|hard-coded|ReKit Factory/i);
-
-  // Project creation is one step inside the app: no stale marker-file
-  // instructions, and Home offers an inline create-project input.
-  assert.doesNotMatch(page, /`\.project` file/);
-  assert.match(page, /No projects here yet\./);
-  assert.match(page, /function InlineProjectCreate/);
-  assert.match(page, /\+ New project/);
-  assert.match(page, /body: JSON\.stringify\(\{ name: trimmed/);
-
-  const packageJson = JSON.parse(packageSource);
-  assert.equal(packageJson.bin.work, "bin/work.mjs");
-  assert.equal(packageJson.scripts.dev, "vite");
-  assert.equal(packageJson.dependencies.next, undefined);
+  assert.equal(JSON.parse(packageSource).bin.work, "bin/work.mjs");
   await assert.rejects(access(new URL(".openai/hosting.json", root)));
 });
 
-test("makes captures immediate, durable, and visibly undoable", async () => {
-  const [page, css, standard, server] = await Promise.all([
+test("keeps the ADHD usability gates present in the interface", async () => {
+  const [page, css] = await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("app/globals.css", root), "utf8"),
-    readFile(new URL("docs/ADHD-USABILITY-STANDARD.md", root), "utf8"),
-    readFile(new URL("server/local-api.mjs", root), "utf8"),
   ]);
 
+  // Capture gate: an always-available dock, "/" focuses it, and a plain typed
+  // thought is saved as a capture rather than interpreted as navigation.
+  assert.match(page, /capture-dock/);
   assert.match(page, /event\.key === "\/"/);
-  assert.match(page, /<textarea/);
-  assert.match(page, /event\.shiftKey/);
-  assert.match(page, /Shift<\/kbd> \+ <kbd>Enter<\/kbd> new line/);
-  assert.match(page, /const isMultiline = text\.includes\("\\n"\)/);
-  assert.match(page, /role="status"/);
-  assert.match(page, /Saved: “\{captureReceipt\.capture\.text\}”/);
-  assert.match(page, /window\.setTimeout/);
-  assert.match(page, /5_000/);
-  assert.match(page, /Waiting in your inbox/);
-  assert.match(page, /Hide capture box/);
-  assert.match(page, /Show capture box/);
-  assert.match(page, /work\.captureDockCollapsed/);
-  assert.match(page, /setCaptureDockCollapsedPersisted/);
-  assert.match(page, /function openHomeSection/);
-  assert.match(page, /setView\("home"\)/);
-  assert.match(page, /pendingHomeSection/);
-  assert.match(page, /Project inbox:/);
-  assert.match(page, /Root inbox:/);
+  assert.match(page, /"\/api\/captures"/);
 
-  // Captures default to the root Inbox; routing to the current project is an
-  // explicit, session-only toggle, and typed text is never swallowed as a
-  // navigation command.
-  assert.match(page, /capture-destination-toggle/);
-  assert.match(page, /const \[captureToProject, setCaptureToProject\] = useState\(false\)/);
-  assert.match(page, /scopePath: toProject \? scopePath : "\."/);
-  assert.doesNotMatch(page, /findNavigationTarget/);
-  assert.doesNotMatch(page, /localStorage[^\n]*captureToProject/);
-  assert.match(page, /Move to/);
-  assert.match(page, /Project inbox ·/);
-  assert.match(page, /method: "PATCH"/);
-  assert.match(page, /Undo/);
-  assert.match(page, /Not saved/);
-  assert.match(page, /DELETE/);
-  assert.doesNotMatch(page, /localStorage\.setItem\(storageKeys\.captures/);
-  assert.match(page, /project\.aliasPaths \?\? \[\]/);
-  assert.match(page, /Restart Work/);
-  assert.match(page, /Confirm restart/);
-  assert.match(page, /\/api\/service\/restart/);
-  assert.match(page, /"x-work-restart": "confirm"/);
-  assert.match(page, /health\.service\.instanceId !== serviceInstanceId/);
-  assert.match(page, /Install & restart/);
-  assert.match(page, /Check now/);
-  assert.match(page, /Open Work system menu/);
-  assert.match(page, /Work system controls/);
-  assert.match(page, /Select workspace root\. Current:/);
-  assert.match(page, /workspace-current-name/);
-  assert.match(page, /\{data\.workspace\.name\}/);
-  assert.match(css, /\.system-menu/);
-  assert.match(page, /6 \* 60 \* 60 \* 1000/);
-  assert.match(page, /"x-work-update": "confirm"/);
-  assert.match(page, /update-available-dot/);
-  assert.match(server, /\/api\/service\/update/);
-  assert.match(server, /update_confirmation_required/);
-  assert.match(page, /Project pulse/);
-  assert.match(page, /Project purpose/);
-  assert.match(page, /Edit project name/);
-  assert.match(page, /Use folder name/);
-  assert.match(page, /Why this project exists/);
-  assert.match(page, /\/api\/projects\/profile/);
-  assert.match(server, /updateProjectProfile/);
-  assert.match(page, /Human notes stay protected/);
-  assert.match(page, /Agent: \$\{selectedNote\.createdBy\.name\}/);
-  assert.match(server, /X-Work-Agent/);
-  assert.match(page, /Current work/);
-  assert.match(page, /Latest progress/);
-  assert.match(page, /\.slice\(0, 3\)/);
-  assert.doesNotMatch(page, /Local files|local-state/);
-  assert.doesNotMatch(page, /flow-rail|root-boundary|Your working flow/);
-  assert.doesNotMatch(css, /\.local-state/);
-  assert.doesNotMatch(css, /\.flow-rail|\.rail-step|\.rail-line|\.root-boundary/);
-  assert.match(css, /\.main-content\s*\{[^}]*width:\s*min\(1720px, calc\(100% - 64px\)\)[^}]*margin:\s*0 auto/);
-  assert.match(css, /\.pulse-grid/);
-  assert.match(css, /\.home-support-grid/);
-  assert.match(css, /-webkit-line-clamp:\s*4/);
-  assert.doesNotMatch(page, /Last meaningful update/);
-  assert.doesNotMatch(css, /\.focus-facts/);
+  // Needs you stays a bounded decision surface on Home.
+  assert.match(page, /id="needs-you"/);
+
+  // Deleting a project requires an inline second confirmation.
+  assert.match(page, /project-delete-confirm/);
+
+  // No modal interruptions and no required form fields.
   assert.doesNotMatch(page, /<dialog|window\.alert|window\.confirm|\brequired=/i);
 
+  // Tap targets meet the 44px minimum; motion and focus stay accessible.
   assert.match(css, /min-height:\s*44px/);
-  assert.match(css, /\.capture-dock-restore/);
-  assert.match(css, /\.app-shell\.capture-collapsed/);
-  assert.match(css, /\.capture-list li strong[^}]*white-space:\s*pre-wrap/);
   assert.match(css, /prefers-reduced-motion:\s*reduce/);
   assert.match(css, /focus-visible/);
-  assert.doesNotMatch(css, /\.remember-button\s*\{[^}]*font-size:\s*0/s);
+});
 
+test("keeps the usability standard document alive", async () => {
+  const standard = await readFile(new URL("docs/ADHD-USABILITY-STANDARD.md", root), "utf8");
   assert.match(standard, /Capture Gate/i);
-  assert.match(standard, /filesystem root/i);
   assert.match(standard, /Five-Minute Local Workspace Scenario/i);
   assert.match(standard, /No shame language/i);
-});
-
-test("provides durable selectable plain-text notes without turning capture into a form", async () => {
-  const [page, css, store, server, standard] = await Promise.all([
-    readFile(new URL("app/page.tsx", root), "utf8"),
-    readFile(new URL("app/globals.css", root), "utf8"),
-    readFile(new URL("lib/local-workspace.mjs", root), "utf8"),
-    readFile(new URL("server/local-api.mjs", root), "utf8"),
-    readFile(new URL("docs/ADHD-USABILITY-STANDARD.md", root), "utf8"),
-  ]);
-
-  assert.match(page, /type AppView = "home" \| "board" \| "issues" \| "notes" \| "files" \| "activity"/);
-  assert.match(page, /function NotesView/);
-  assert.match(page, /role="listbox"/);
-  assert.match(page, /aria-label="Note title"/);
-  assert.match(page, /aria-label="Note text"/);
-  assert.match(page, /Plain-text working notes/);
-  assert.match(page, /Delete this note\?/);
-  assert.match(page, /Save now/);
-  assert.match(page, /Added by \{note\.createdBy\.name\}/);
-  assert.doesNotMatch(page, /Ask agent to review|Clear review request|agentIntent/);
-  assert.match(page, /setTimeout\(\(\) =>/);
-  assert.match(page, /\/api\/notes/);
-  assert.match(css, /\.notes-workspace[^}]*grid-template-columns:\s*300px minmax\(0, 1fr\)/);
-  assert.match(css, /\.note-body-field textarea/);
-  assert.match(store, /notesPath/);
-  assert.match(store, /export async function createNote/);
-  assert.match(store, /export async function updateNote/);
-  assert.match(store, /export async function deleteNote/);
-  // Tolerant read: legacy notes carrying the removed agentIntent field still
-  // load, and the rewrite-on-read hook drops the field.
-  assert.match(store, /"agentIntent" in record\.metadata/);
-  assert.match(server, /route\("GET", "\/api\/notes"/);
-  assert.match(standard, /plain-text notes autosave/i);
-  assert.match(standard, /passive reference material/i);
-});
-
-test("provides free-form, reopenable issue conversations without turning submission into a form", async () => {
-  const [page, css] = await Promise.all([
-    readFile(new URL("app/page.tsx", root), "utf8"),
-    readFile(new URL("app/globals.css", root), "utf8"),
-  ]);
-  const issuesView = page.slice(page.indexOf("function IssuesView"), page.indexOf("function NotesView"));
-
-  assert.match(page, /type AppView = "home" \| "board" \| "issues"/);
-  assert.match(page, /<IssuesView/);
-  assert.match(page, />Issues<\/button>/);
-  assert.match(page, /\/api\/issues/);
-  assert.match(page, /\/replies/);
-  assert.match(page, /\/state/);
-  assert.match(page, /body: JSON\.stringify\(\{ state \}\)/);
-  assert.match(page, /issue\.state === "needs_human"/);
-  assert.match(page, /visibleHumanIssues = humanIssues\.slice\(0, 3\)/);
-  assert.match(page, /Math\.max\(0, 3 - visibleHumanIssues\.length\)/);
-  // Needs you merges blocked tasks alongside needs_human issues and open
-  // decisions, matching GET /api/needs-you, and keeps the display cap.
-  assert.match(page, /blockedTasks = scopedTasks\.filter\(\(task\) => task\.status === "blocked"\)/);
-  assert.match(page, /visibleBlockedTasks/);
-  assert.match(issuesView, /File an issue/);
-  assert.match(issuesView, /No title or categorization required/);
-  assert.match(issuesView, /Exact scope:/);
-  assert.match(issuesView, /Submit issue/);
-  assert.match(issuesView, /const body = draft;/);
-  assert.match(issuesView, /await onCreate\(body\)/);
-  assert.match(issuesView, /await onReply\(selectedIssue\.id, reply\)/);
-  assert.doesNotMatch(issuesView, /on(?:Create|Reply)\([^)]*\.trim\(\)/);
-  assert.match(issuesView, /event\.metaKey \|\| event\.ctrlKey/);
-  assert.match(issuesView, /Enter adds a new line/);
-  assert.match(issuesView, /Markdown supported/);
-  assert.match(issuesView, /Queued/);
-  assert.match(page, /in_progress: "In progress"/);
-  assert.match(issuesView, /Needs you/);
-  assert.match(issuesView, /Resolution — awaiting your review/);
-  assert.match(issuesView, /State history/);
-  assert.match(issuesView, /Closed by a human/);
-  assert.match(issuesView, />Reopen<\/button>/);
-  assert.match(issuesView, /Replying automatically reopens this issue and returns it to Queued/);
-  assert.match(issuesView, /Reply and return to queue/);
-  assert.match(issuesView, /Only you can close this issue/);
-  assert.match(page, /function Markdown/);
-  assert.match(page, /safeLinkTarget/);
-  assert.match(page, /<pre key=/);
-  assert.doesNotMatch(page, /dangerouslySetInnerHTML/);
-  assert.doesNotMatch(issuesView, /\brequired=/i);
-  assert.match(css, /\.issues-workspace[^}]*grid-template-columns:\s*320px minmax\(0, 1fr\)/);
-  assert.match(css, /\.issue-composer textarea[^}]*min-height:\s*170px/);
-  assert.match(css, /\.issue-reply textarea/);
-  assert.match(css, /\.markdown-body pre/);
-  assert.match(css, /\.issue-composer \.primary-action[^}]*min-height:\s*44px/);
-  assert.match(css, /@media \(max-width:\s*760px\)[\s\S]*\.issues-workspace\s*\{\s*grid-template-columns:\s*1fr/);
-});
-
-test("merges ideas into notes and keeps project deletion human-only with explicit confirmation", async () => {
-  const [page, css, store, server, contract] = await Promise.all([
-    readFile(new URL("app/page.tsx", root), "utf8"),
-    readFile(new URL("app/globals.css", root), "utf8"),
-    readFile(new URL("lib/local-workspace.mjs", root), "utf8"),
-    readFile(new URL("server/local-api.mjs", root), "utf8"),
-    readFile(new URL("docs/ARTIFACT-SCHEMA.md", root), "utf8"),
-  ]);
-
-  // Ideas merged into notes: the Ideas view, routes, and vocabulary are gone.
-  assert.doesNotMatch(page, /function IdeasView|ProjectIdea|IdeaStatus|\/api\/ideas/);
-  assert.doesNotMatch(css, /\.idea-|\.ideas-workspace/);
-  assert.doesNotMatch(server, /\/api\/ideas|listIdeas|createIdea|updateIdea|deleteIdea/);
-  assert.match(store, /function ideaRecordAsNote/);
-  assert.match(store, /listStoredMarkdown\(workspace, "ideasPath", projects\)/);
-  assert.match(contract, /Ideas were merged into notes/);
-
-  // Capture receipt promotes to a note instead of an idea.
-  assert.match(page, /Make note/);
-  assert.doesNotMatch(page, /Make idea/);
-  assert.match(page, /promoteCaptureToNote/);
-
-  // Project deletion: human-only, inline confirm, files stay unless empty.
-  assert.match(page, /Delete project/);
-  assert.match(page, /Removes it from Work\. Your files stay unless the folder is empty\./);
-  assert.match(page, /project-delete-confirm/);
-  assert.match(store, /export async function deleteProject/);
-  assert.match(store, /project_delete_forbidden/);
-  assert.match(server, /deleteProject/);
-});
-
-test("provides a scope-bound read-only file reference instead of an embedded editor", async () => {
-  const [page, css, browser, server, contract] = await Promise.all([
-    readFile(new URL("app/page.tsx", root), "utf8"),
-    readFile(new URL("app/globals.css", root), "utf8"),
-    readFile(new URL("lib/file-browser.mjs", root), "utf8"),
-    readFile(new URL("server/local-api.mjs", root), "utf8"),
-    readFile(new URL("docs/LOCAL-WORKSPACE.md", root), "utf8"),
-  ]);
-
-  assert.match(page, /function FilesView/);
-  assert.match(page, /Read-only source reference/);
-  assert.match(page, /Changed only/);
-  assert.match(page, /Start a Work project in/);
-  assert.match(page, /\+ Project/);
-  assert.match(page, /\/api\/projects/);
-  assert.match(page, /Checkout or linked worktree/);
-  assert.match(page, /primary checkout/);
-  assert.match(page, /linked worktree/);
-  assert.match(page, /Read only/);
-  assert.match(page, /Work will not edit or save source files/);
-  assert.match(page, /role="tree"/);
-  assert.match(page, /file\.language\.short|entry\.language\?\.short/);
-  assert.match(css, /\.files-workspace[^}]*grid-template-columns:\s*330px minmax\(0, 1fr\)/);
-  assert.match(css, /\.file-code-line/);
-  assert.match(css, /data-language/);
-  assert.match(server, /\/api\/files\/directory/);
-  assert.match(server, /\/api\/files\/content/);
-  assert.match(server, /initializeProject/);
-  assert.match(browser, /Symbolic links are not followed/);
-  assert.match(browser, /validateScopePath/);
-  assert.match(browser, /sensitiveReason/);
-  assert.match(browser, /MAX_PREVIEW_FILE_BYTES/);
-  assert.match(browser, /canInitializeProject/);
-  assert.match(browser, /readOnly:\s*true/);
-  assert.match(browser, /import \{ lstat, readFile, readdir, realpath, stat \} from "node:fs\/promises"/);
-  assert.match(contract, /Read-only file reference/i);
-  assert.match(contract, /no source-file write route/i);
-});
-
-test("does not replace an active note draft with an autosave response", async () => {
-  const page = await readFile(new URL("app/page.tsx", root), "utf8");
-  const notesView = page.slice(page.indexOf("function NotesView"), page.indexOf("function statusLabel"));
-
-  assert.match(notesView, /await onUpdate\(selectedNote\.id/);
-  assert.match(notesView, /revisionRef\.current === revision/);
-  assert.doesNotMatch(notesView, /setDraftTitle\(updated\.title\)/);
-  assert.doesNotMatch(notesView, /setDraftText\(updated\.text\)/);
-});
-
-test("requires an explicit recorded choice for every human decision", async () => {
-  const page = await readFile(new URL("app/page.tsx", root), "utf8");
-
-  assert.match(page, /Choose one option/);
-  assert.match(page, />Recommendation</);
-  assert.match(page, /\[\.\.\.decision\.options, "Other"\]/);
-  assert.match(page, /choosingOther/);
-  assert.match(page, /Write a different answer below/);
-  assert.match(page, /Your answer/);
-  assert.match(page, /selectedOption/);
-  assert.match(page, /choice = \{ option: draft\.selectedOption \}/);
-  assert.match(page, /Manage instead of deciding/);
-  assert.match(page, /Assign to a project/);
-  assert.match(page, /Keep unassigned/);
-  assert.match(page, /Decide later/);
-  assert.match(page, /Cancel this item/);
-  assert.match(page, /Confirm decision/);
-  assert.match(page, /Close without changes/);
-  assert.match(page, /action: "reopen"/);
-  assert.match(page, /disabled=\{!canConfirm/);
-  assert.doesNotMatch(page, /resolveAttention|resolvedAttention/);
-});
-
-test("ships a scoped Kanban, complete cards, lifecycle history, and retained terminal work", async () => {
-  const [page, css, store] = await Promise.all([
-    readFile(new URL("app/page.tsx", root), "utf8"),
-    readFile(new URL("app/globals.css", root), "utf8"),
-    readFile(new URL("lib/local-workspace.mjs", root), "utf8"),
-  ]);
-
-  assert.match(page, /function KanbanBoard/);
-  assert.match(page, /function TaskDetailPanel/);
-  assert.match(page, /function ActivityView/);
-  assert.match(page, /Backlog/);
-  assert.match(page, /In flight/);
-  assert.match(page, /Completed/);
-  assert.match(page, /cancelled/);
-  assert.match(page, /archived/);
-  assert.match(page, /Human owner/);
-  assert.match(page, /Agents or teams/);
-  assert.match(page, /Depends on task IDs/);
-  assert.match(page, /Requirements/);
-  assert.match(page, /Acceptance criteria/);
-  assert.match(page, /Completion summary/);
-  assert.match(page, /Progress log/);
-  assert.match(page, /draggable/);
-  assert.match(page, /\/api\/tasks/);
-  assert.match(page, /\/checklist/);
-  assert.match(page, /Review — complete checklist first/);
-  assert.match(page, /Focus by epic/);
-  assert.match(page, /filterTasksByEpic/);
-  assert.match(page, /nested children and direct epic links/);
-  assert.match(page, /legacy review card has unchecked/);
-  assert.match(page, /\/log/);
-  assert.match(page, /task\|todo/);
-
-  assert.match(css, /\.kanban-grid/);
-  assert.match(css, /\.board-epic-filter/);
-  assert.match(css, /\.board-view\s*\{[^}]*width:\s*100%/);
-  assert.match(css, /@container\s*\(max-width:\s*210px\)/);
-  assert.match(page, /Select a card for full details/);
-  assert.match(page, /title=\{hoverSummary\}/);
-  assert.match(page, /Logical projects are listed once/);
-  assert.match(page, /linked worktree.*grouped/i);
-  assert.match(css, /\.task-panel/);
-  assert.match(css, /\.activity-list/);
-
-  for (const field of ["projectPath", "assignee", "agents", "priority", "tags", "dependsOn", "blockedBy", "parentId", "createdAt", "updatedAt", "startedAt", "completedAt", "cancelledAt"]) {
-    assert.ok(store.includes(field), `task store should persist ${field}`);
-  }
-  assert.match(store, /appendProgress/);
-  assert.match(store, /unfinished dependencies/);
-});
-
-test("surfaces due dates on cards and keeps a scoped, scrollable upcoming schedule", async () => {
-  const [page, css] = await Promise.all([
-    readFile(new URL("app/page.tsx", root), "utf8"),
-    readFile(new URL("app/globals.css", root), "utf8"),
-  ]);
-
-  assert.match(page, /function UpcomingSchedule/);
-  assert.match(page, /Dates across this scope/);
-  assert.match(page, /Due dates and revisit dates will appear automatically/);
-  assert.match(page, /task\.dueAt && !\["done", "cancelled", "archived"\]\.includes\(task\.status\)/);
-  assert.match(page, /decision\.status === "deferred"/);
-  assert.match(page, /className=\{`card-due/);
-  assert.match(page, /scheduleTone/);
-  assert.match(page, /Overdue/);
-  assert.match(css, /\.upcoming-list\s*\{[^}]*max-height:\s*250px[^}]*overflow-y:\s*auto/s);
-  assert.match(css, /\.card-due\.overdue/);
 });

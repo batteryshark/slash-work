@@ -1,11 +1,11 @@
 # Work Artifact Markdown Contract
 
 This is the authoring contract for automations that create or update Work's
-filesystem artifacts. Validate the logical artifact against
-[`schemas/work-artifact.schema.json`](../schemas/work-artifact.schema.json),
-then serialize it using the rules and templates below.
+filesystem artifacts. Serialize each artifact using the rules and templates
+below; the enforced input rules for each mutation are published by
+`work agent instructions <operation>` and `GET /api/agent/operations/{id}`.
 
-The schema covers five Markdown artifact types: `capture`, `note`,
+This contract covers five Markdown artifact types: `capture`, `note`,
 `issue`, `decision`, and `task`. The workspace and project marker files are
 JSON, not Markdown, and are outside this schema. Ideas were merged into notes:
 legacy records in `.work/ideas/` load as notes and are rewritten into the notes
@@ -331,7 +331,8 @@ Before writing an artifact:
 1. Locate the nearest ancestor `.work/workspace.json`; never cross that root.
 2. Discover explicit projects and use an exact canonical project path, or keep
    the record unassigned. Never infer ownership from prose.
-3. Validate the logical object with `schemas/work-artifact.schema.json`.
+3. Check the logical object against the operation's input rules from
+   `work agent instructions <operation>`.
 4. Allocate a globally unique ID and make the filename match it.
 5. Serialize header values as compact JSON and the body with the exact grammar
    above.

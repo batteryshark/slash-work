@@ -1,8 +1,8 @@
 # Work
 
-![Work logo](public/logo.svg)
+![Work logo](docs/logo.svg)
 
-![Work: capture anything and continue without reconstructing context](public/og.png)
+![Work: capture anything and continue without reconstructing context](docs/og.png)
 
 Work stores project tasks, captures, notes, issues, and decisions as local
 files for people managing many repositories. Agents connect as attributed
@@ -264,7 +264,6 @@ work projects --json
 work agent operations
 work agent instructions tasks.create
 work agent instructions issues.reply --json
-work agent schema task
 ```
 
 The operation index stays small; the agent loads rules and input schemas only
@@ -292,9 +291,8 @@ filesystem fallback only when needed.
 See [`docs/LOCAL-WORKSPACE.md`](docs/LOCAL-WORKSPACE.md) for discovery,
 containment, storage, and recovery details.
 Automations that write the filesystem records directly should follow the
-[`Work Artifact Markdown Contract`](docs/ARTIFACT-SCHEMA.md) and validate their
-logical payloads with
-[`schemas/work-artifact.schema.json`](schemas/work-artifact.schema.json).
+[`Work Artifact Markdown Contract`](docs/ARTIFACT-SCHEMA.md); the enforced
+input rules for each mutation live in the `work agent instructions` catalog.
 
 ## Development and validation
 

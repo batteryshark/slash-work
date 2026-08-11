@@ -3,7 +3,7 @@
 Use direct Markdown access only when the Work CLI and HTTP API are unavailable.
 
 1. Locate the nearest ancestor `.work/workspace.json`; never cross that root.
-2. Read `docs/ARTIFACT-SCHEMA.md` and `schemas/work-artifact.schema.json` from the installed package or repository.
+2. Read `docs/ARTIFACT-SCHEMA.md` from the installed package or repository.
 3. Discover only explicit projects and use their exact canonical paths.
 4. Allocate stable unique IDs and match filenames to IDs.
 5. Preserve unknown metadata and sections during updates.

@@ -12,4 +12,4 @@ Choose the smallest durable record matching the user's intent:
 
 Projects have a durable description explaining what they are, who they serve, and why they exist. Read it before creating or assigning substantive work. Do not replace enduring purpose with current status or a task list.
 
-Use `work agent instructions <operation>` for current input fields and rules. Use `work agent schema <artifact>` only when direct serialization or complete logical validation is required.
+Use `work agent instructions <operation>` for current input fields and rules. Read `docs/ARTIFACT-SCHEMA.md` only when direct filesystem serialization is required.

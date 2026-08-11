@@ -20,19 +20,15 @@
     "work": "bin/work.mjs"
   },
   "files": [
-    "app",
     "bin",
+    "dist",
     "docs/ARTIFACT-SCHEMA.md",
     "docs/AGENT-CAPABILITIES.md",
     "docs/LOCAL-WORKSPACE.md",
     "lib",
     "mcp",
-    "public",
     "skills/slash-work",
-    "server",
-    "src",
-    "index.html",
-    "vite.config.ts"
+    "server"
   ],
   "publishConfig": {
     "access": "public"
@@ -48,17 +44,16 @@
     "test": "npm run build && node --test tests/*.test.mjs",
     "prepublishOnly": "npm test"
   },
-  "dependencies": {
-    "@vitejs/plugin-react": "6.0.2",
-    "react": "19.2.6",
-    "react-dom": "19.2.6",
-    "vite": "8.1.4"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
-    "typescript": "5.9.3"
+    "@vitejs/plugin-react": "6.0.2",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "typescript": "5.9.3",
+    "vite": "8.1.4"
   },
   "type": "module"
 }

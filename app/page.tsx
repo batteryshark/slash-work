@@ -230,11 +230,6 @@ type WorkspaceDirectory = {
 type WorkspacePickerReceipt = {
   cancelled: boolean;
   workspace?: WorkspaceSummary;
-  workspaces?: WorkspaceSummary[];
-};
-
-type WorkspaceRemovalReceipt = WorkspaceDirectory & {
-  removedWorkspaceId: string;
 };
 
 type DecisionDraft = {
@@ -255,10 +250,8 @@ type DecisionReceipt = {
   message: string;
 };
 
-type ServiceRestartReceipt = {
-  restarting: true;
-  serviceInstanceId: string;
-};
+// Restart and update accept-receipts only matter for their instance id.
+type ServiceReceipt = { serviceInstanceId: string };
 
 type ServiceHealth = {
   ok: boolean;
@@ -271,12 +264,6 @@ type ServiceUpdateStatus = {
   updateAvailable: boolean;
   installable: boolean;
   checkedAt: string;
-};
-
-type ServiceUpdateReceipt = {
-  updating: true;
-  installedVersion: string;
-  serviceInstanceId: string;
 };
 
 const emptyDraft: DecisionDraft = {
@@ -339,8 +326,9 @@ const ISSUE_STATE_LABELS: Record<IssueState, string> = {
   closed: "Closed",
 };
 
-function issueStateLabel(state: IssueState) {
-  return ISSUE_STATE_LABELS[state];
+function scopeLabelFor(projects: Project[], projectPath: string | null, fallback: string) {
+  if (!projectPath) return fallback;
+  return projects.find((project) => project.path === projectPath)?.name ?? projectPath;
 }
 
 function safeLinkTarget(target: string) {
@@ -405,18 +393,6 @@ function Markdown({ children }: { children: string }) {
       continue;
     }
 
-    const heading = /^(#{1,3})\s+(.+)$/.exec(line);
-    if (heading) {
-      const content = <InlineMarkdown text={heading[2]} />;
-      blocks.push(heading[1].length === 1
-        ? <h2 key={`heading-${index}`}>{content}</h2>
-        : heading[1].length === 2
-          ? <h3 key={`heading-${index}`}>{content}</h3>
-          : <h4 key={`heading-${index}`}>{content}</h4>);
-      index += 1;
-      continue;
-    }
-
     const list = /^(\s*)([-*]|\d+\.)\s+(.+)$/.exec(line);
     if (list) {
       const ordered = /\d+\./.test(list[2]);
@@ -434,25 +410,13 @@ function Markdown({ children }: { children: string }) {
       continue;
     }
 
-    if (/^>\s?/.test(line)) {
-      const quote: string[] = [];
-      while (index < lines.length && /^>\s?/.test(lines[index])) {
-        quote.push(lines[index].replace(/^>\s?/, ""));
-        index += 1;
-      }
-      blocks.push(<blockquote key={`quote-${index}`}><Markdown>{quote.join("\n")}</Markdown></blockquote>);
-      continue;
-    }
-
     const paragraph = [line];
     index += 1;
     while (
       index < lines.length
       && lines[index].trim()
       && !/^```/.test(lines[index])
-      && !/^(#{1,3})\s+/.test(lines[index])
       && !/^(\s*)([-*]|\d+\.)\s+/.test(lines[index])
-      && !/^>\s?/.test(lines[index])
     ) {
       paragraph.push(lines[index]);
       index += 1;
@@ -462,6 +426,31 @@ function Markdown({ children }: { children: string }) {
 
   return <div className="markdown-body">{blocks}</div>;
 }
+
+const ISSUE_STATE_NOTES: Partial<Record<IssueState, { className: string; title: (issue: Issue) => string; body: (issue: Issue) => ReactNode }>> = {
+  in_progress: {
+    className: "",
+    title: (issue) => `In progress${issue.claimedBy ? ` · ${issue.claimedBy.name}` : ""}`,
+    body: () => <span>The issue stays open while it is investigated.</span>,
+  },
+  needs_human: {
+    className: "needs-human",
+    title: () => "Needs you.",
+    body: () => <span>Reply below. Only issues in this state appear in the bounded Needs you list.</span>,
+  },
+  resolved: {
+    className: "resolved",
+    title: () => "Resolution — awaiting your review.",
+    body: (issue) => issue.resolutionSummary
+      ? <Markdown>{issue.resolutionSummary}</Markdown>
+      : <span>If the result is incomplete, reply or reopen the issue.</span>,
+  },
+  closed: {
+    className: "closed",
+    title: () => "Closed by a human.",
+    body: () => <span>You can reopen it at any time. Nothing in this conversation is discarded.</span>,
+  },
+};
 
 function calendarDate(iso: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
@@ -558,6 +547,24 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+// Shared mutation wrapper: flips the saving flag, clears then reports the
+// error state, and rethrows so callers can keep their own control flow.
+async function run<T>(
+  work: () => Promise<T>,
+  handlers: { saving?: (value: boolean) => void; error: (message: string | null) => void; fallback: string },
+): Promise<T> {
+  handlers.saving?.(true);
+  handlers.error(null);
+  try {
+    return await work();
+  } catch (cause) {
+    handlers.error(cause instanceof Error ? cause.message : handlers.fallback);
+    throw cause;
+  } finally {
+    handlers.saving?.(false);
+  }
+}
+
 export default function Home() {
   const [data, setData] = useState<WorkspacePayload | null>(null);
   const [workspaceDirectory, setWorkspaceDirectory] = useState<WorkspaceDirectory | null>(null);
@@ -589,15 +596,12 @@ export default function Home() {
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [pickingWorkspace, setPickingWorkspace] = useState(false);
   const [workspacePickerError, setWorkspacePickerError] = useState<string | null>(null);
-  const [workspaceRemovalTarget, setWorkspaceRemovalTarget] = useState<string | null>(null);
   const [removingWorkspace, setRemovingWorkspace] = useState<string | null>(null);
-  const [restartArmed, setRestartArmed] = useState(false);
   const [restartingService, setRestartingService] = useState(false);
   const [serviceRestartError, setServiceRestartError] = useState<string | null>(null);
   const [updateStatus, setUpdateStatus] = useState<ServiceUpdateStatus | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [installingUpdate, setInstallingUpdate] = useState(false);
-  const [updateArmed, setUpdateArmed] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [projectSearch, setProjectSearch] = useState("");
   const [expandedDecision, setExpandedDecision] = useState<string | null>(null);
@@ -666,7 +670,6 @@ export default function Home() {
       });
       setUpdateStatus(status);
       setUpdateError(null);
-      if (!status.updateAvailable) setUpdateArmed(false);
     } catch (error) {
       if (!quiet) setUpdateError(error instanceof Error ? error.message : "Work could not check npm for updates.");
     } finally {
@@ -758,7 +761,7 @@ export default function Home() {
     setRemovingWorkspace(workspaceId);
     setWorkspacePickerError(null);
     try {
-      const receipt = await requestJson<WorkspaceRemovalReceipt>(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+      const receipt = await requestJson<WorkspaceDirectory>(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
         method: "DELETE",
         headers: { "x-work-unregister": "confirm" },
       });
@@ -767,7 +770,6 @@ export default function Home() {
         activeWorkspaceId: receipt.activeWorkspaceId,
         workspaces: receipt.workspaces,
       });
-      setWorkspaceRemovalTarget(null);
     } catch (error) {
       setWorkspacePickerError(error instanceof Error ? error.message : "The workspace root could not be removed from the list.");
     } finally {
@@ -801,14 +803,13 @@ export default function Home() {
     setRestartingService(true);
     setServiceRestartError(null);
     try {
-      const accepted = await requestJson<ServiceRestartReceipt>("/api/service/restart", {
+      const accepted = await requestJson<ServiceReceipt>("/api/service/restart", {
         method: "POST",
         headers: { "x-work-restart": "confirm" },
         body: JSON.stringify({ confirm: true }),
       });
       await waitForServiceRestart(accepted.serviceInstanceId);
       await loadWorkspace();
-      setRestartArmed(false);
       setSystemMenuOpen(false);
     } catch (error) {
       setServiceRestartError(error instanceof Error ? error.message : "Work could not restart.");
@@ -822,7 +823,7 @@ export default function Home() {
     setInstallingUpdate(true);
     setUpdateError(null);
     try {
-      const accepted = await requestJson<ServiceUpdateReceipt>("/api/service/update", {
+      const accepted = await requestJson<ServiceReceipt>("/api/service/update", {
         method: "POST",
         headers: { "x-work-update": "confirm" },
         body: JSON.stringify({ confirm: true }),
@@ -1110,91 +1111,50 @@ export default function Home() {
     return `Folder inbox: ${displaySegment(pathParts(capture.scopePath).at(-1) ?? capture.scopePath)} · Unassigned`;
   }
 
-  function replaceTask(task: WorkTask) {
+  function replaceIn<K extends "tasks" | "notes" | "issues">(key: K, record: WorkspacePayload[K][number]) {
     setData((current) => current ? {
       ...current,
-      tasks: [task, ...(current.tasks ?? []).filter((item) => item.id !== task.id)],
+      [key]: [record, ...(current[key] ?? []).filter((item) => item.id !== record.id)],
     } : current);
   }
 
-  function replaceNote(note: ProjectNote) {
-    setData((current) => current ? {
-      ...current,
-      notes: [note, ...(current.notes ?? []).filter((item) => item.id !== note.id)],
-    } : current);
-  }
-
-  function replaceIssue(issue: Issue) {
-    setData((current) => current ? {
-      ...current,
-      issues: [issue, ...(current.issues ?? []).filter((item) => item.id !== issue.id)],
-    } : current);
-  }
-
-  async function createIssue(body: string) {
-    setSavingIssue(true);
-    setIssueError(null);
-    try {
+  function createIssue(body: string) {
+    return run(async () => {
       const issue = await requestJson<Issue>("/api/issues", {
         method: "POST",
-        body: JSON.stringify({
-          body,
-          scopePath,
-          projectPath: selectedProject?.path ?? null,
-        }),
+        body: JSON.stringify({ body, scopePath, projectPath: selectedProject?.path ?? null }),
       });
-      replaceIssue(issue);
+      replaceIn("issues", issue);
       setSelectedIssueId(issue.id);
       setView("issues");
       return issue;
-    } catch (error) {
-      setIssueError(error instanceof Error ? error.message : "The issue could not be submitted.");
-      throw error;
-    } finally {
-      setSavingIssue(false);
-    }
+    }, { saving: setSavingIssue, error: setIssueError, fallback: "The issue could not be submitted." });
   }
 
-  async function replyToIssue(issueId: string, body: string) {
-    setSavingIssue(true);
-    setIssueError(null);
-    try {
+  function replyToIssue(issueId: string, body: string) {
+    return run(async () => {
       const issue = await requestJson<Issue>(`/api/issues/${encodeURIComponent(issueId)}/replies`, {
         method: "POST",
         body: JSON.stringify({ body }),
       });
-      replaceIssue(issue);
+      replaceIn("issues", issue);
       return issue;
-    } catch (error) {
-      setIssueError(error instanceof Error ? error.message : "The reply could not be submitted.");
-      throw error;
-    } finally {
-      setSavingIssue(false);
-    }
+    }, { saving: setSavingIssue, error: setIssueError, fallback: "The reply could not be submitted." });
   }
 
-  async function setIssueState(issueId: string, state: "queued" | "closed") {
-    setSavingIssue(true);
-    setIssueError(null);
-    try {
+  function setIssueState(issueId: string, state: "queued" | "closed") {
+    return run(async () => {
       const issue = await requestJson<Issue>(`/api/issues/${encodeURIComponent(issueId)}/state`, {
         method: "POST",
         body: JSON.stringify({ state }),
       });
-      replaceIssue(issue);
+      replaceIn("issues", issue);
       return issue;
-    } catch (error) {
-      setIssueError(error instanceof Error ? error.message : "The issue state could not be changed.");
-      throw error;
-    } finally {
-      setSavingIssue(false);
-    }
+    }, { saving: setSavingIssue, error: setIssueError, fallback: "The issue state could not be changed." });
   }
 
-  async function createProjectNote(input: { title?: string; text?: string } = {}) {
-    setCreatingNote(true);
-    setNoteError(null);
-    try {
+  function createProjectNote(input: { title?: string; text?: string } = {}) {
+    return run(async () => {
       const note = await requestJson<ProjectNote>("/api/notes", {
         method: "POST",
         body: JSON.stringify({
@@ -1204,135 +1164,91 @@ export default function Home() {
           projectPath: selectedProject?.path ?? null,
         }),
       });
-      replaceNote(note);
+      replaceIn("notes", note);
       setSelectedNoteId(note.id);
       setView("notes");
       return note;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "The note could not be created.";
-      setNoteError(message);
-      throw error;
-    } finally {
-      setCreatingNote(false);
-    }
+    }, { saving: setCreatingNote, error: setNoteError, fallback: "The note could not be created." });
   }
 
-  async function updateProjectNote(noteId: string, patch: { title?: string; text?: string }) {
-    setNoteError(null);
-    try {
+  function updateProjectNote(noteId: string, patch: { title?: string; text?: string }) {
+    return run(async () => {
       const note = await requestJson<ProjectNote>(`/api/notes/${encodeURIComponent(noteId)}`, {
         method: "PATCH",
         body: JSON.stringify(patch),
       });
-      replaceNote(note);
+      replaceIn("notes", note);
       return note;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "The note could not be saved.";
-      setNoteError(message);
-      throw error;
-    }
+    }, { error: setNoteError, fallback: "The note could not be saved." });
   }
 
-  async function deleteProjectNote(noteId: string) {
-    setNoteError(null);
-    try {
+  function deleteProjectNote(noteId: string) {
+    return run(async () => {
       await requestJson<{ ok: boolean }>(`/api/notes/${encodeURIComponent(noteId)}`, { method: "DELETE" });
       setData((current) => current ? {
         ...current,
         notes: (current.notes ?? []).filter((item) => item.id !== noteId),
       } : current);
       setSelectedNoteId((current) => current === noteId ? null : current);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "The note could not be deleted.";
-      setNoteError(message);
-      throw error;
-    }
+    }, { error: setNoteError, fallback: "The note could not be deleted." });
   }
 
-  async function createWorkTask(input: Record<string, unknown>, open = true) {
-    setSavingTask(true);
-    setTaskError(null);
-    try {
+  function createWorkTask(input: Record<string, unknown>, open = true) {
+    return run(async () => {
       const task = await requestJson<WorkTask>("/api/tasks", {
         method: "POST",
         body: JSON.stringify(input),
       });
-      replaceTask(task);
+      replaceIn("tasks", task);
       setCreatingTask(false);
       if (open) {
         setView("board");
         setSelectedTaskId(task.id);
       }
       return task;
-    } catch (error) {
-      setTaskError(error instanceof Error ? error.message : "The work item could not be created.");
-      throw error;
-    } finally {
-      setSavingTask(false);
-    }
+    }, { saving: setSavingTask, error: setTaskError, fallback: "The work item could not be created." });
   }
 
-  async function moveWorkTask(taskId: string, status: string, note?: string) {
-    setSavingTask(true);
-    setTaskError(null);
-    try {
+  function moveWorkTask(taskId: string, status: string, note?: string) {
+    return run(async () => {
       const task = await requestJson<WorkTask>(`/api/tasks/${encodeURIComponent(taskId)}/move`, {
         method: "POST",
         body: JSON.stringify({ status, note }),
       });
-      replaceTask(task);
+      replaceIn("tasks", task);
       return task;
-    } catch (error) {
-      setTaskError(error instanceof Error ? error.message : "The card could not be moved.");
-      throw error;
-    } finally {
-      setSavingTask(false);
-    }
+    }, { saving: setSavingTask, error: setTaskError, fallback: "The card could not be moved." });
   }
 
-  async function patchWorkTask(taskId: string, patch: Record<string, unknown>) {
-    setSavingTask(true);
-    setTaskError(null);
-    try {
+  function patchWorkTask(taskId: string, patch: Record<string, unknown>) {
+    return run(async () => {
       const task = await requestJson<WorkTask>(`/api/tasks/${encodeURIComponent(taskId)}`, {
         method: "PATCH",
         body: JSON.stringify(patch),
       });
-      replaceTask(task);
+      replaceIn("tasks", task);
       return task;
-    } catch (error) {
-      setTaskError(error instanceof Error ? error.message : "The work item could not be updated.");
-      throw error;
-    } finally {
-      setSavingTask(false);
-    }
+    }, { saving: setSavingTask, error: setTaskError, fallback: "The work item could not be updated." });
   }
 
   async function toggleWorkChecklist(taskId: string, section: "requirements" | "acceptance", index: number, checked: boolean) {
-    setTaskError(null);
-    try {
+    await run(async () => {
       const task = await requestJson<WorkTask>(`/api/tasks/${encodeURIComponent(taskId)}/checklist`, {
         method: "POST",
         body: JSON.stringify({ section, index, checked }),
       });
-      replaceTask(task);
-    } catch (error) {
-      setTaskError(error instanceof Error ? error.message : "The checklist could not be updated.");
-    }
+      replaceIn("tasks", task);
+    }, { error: setTaskError, fallback: "The checklist could not be updated." }).catch(() => {});
   }
 
-  async function logWorkProgress(taskId: string, message: string) {
-    setTaskError(null);
-    try {
+  function logWorkProgress(taskId: string, message: string) {
+    return run(async () => {
       const task = await requestJson<WorkTask>(`/api/tasks/${encodeURIComponent(taskId)}/log`, {
         method: "POST",
         body: JSON.stringify({ message }),
       });
-      replaceTask(task);
-    } catch (error) {
-      setTaskError(error instanceof Error ? error.message : "The progress entry could not be saved.");
-      throw error;
-    }
+      replaceIn("tasks", task);
+    }, { error: setTaskError, fallback: "The progress entry could not be saved." });
   }
 
   async function promoteCaptureToTask(capture: Capture) {
@@ -1492,15 +1408,12 @@ export default function Home() {
         ...current,
         decisions: current.decisions.map((item) => item.id === updated.id ? updated : item),
       } : current);
-      const assignedProject = draft.action === "assign"
-        ? data?.projects.find((project) => project.path === draft.projectPath)?.name
-        : null;
       const labels: Record<Exclude<DecisionAction, "reopen">, string> = {
         approve: draft.selectedOption ? `Selected “${draft.selectedOption}”` : "Decision recorded",
         reject: "Rejected",
         defer: `Deferred until ${new Date(choice?.until as string).toLocaleDateString([], { month: "short", day: "numeric" })}`,
         cancel: "Cancelled and retained in history",
-        assign: `Assigned to ${assignedProject ?? draft.projectPath}`,
+        assign: `Assigned to ${scopeLabelFor(data?.projects ?? [], draft.projectPath, draft.projectPath)}`,
         keep_unassigned: "Kept unassigned",
       };
       setDecisionReceipt({ decisionId: decision.id, message: labels[draft.action] });
@@ -1722,14 +1635,18 @@ export default function Home() {
               </div>
               <div className="update-actions">
                 <button type="button" onClick={() => void checkForUpdates(false, true)} disabled={checkingUpdate || installingUpdate}>{checkingUpdate ? "Checking…" : "Check now"}</button>
-                {updateStatus?.updateAvailable && updateStatus.installable && !updateArmed && (
-                  <button type="button" className="update-install" onClick={() => setUpdateArmed(true)} disabled={installingUpdate}>Install & restart</button>
-                )}
-                {updateStatus?.updateAvailable && updateStatus.installable && updateArmed && (
-                  <div className="update-confirm">
-                    <button type="button" onClick={() => setUpdateArmed(false)} disabled={installingUpdate}>Cancel</button>
-                    <button type="button" className="primary-action" onClick={() => void installServiceUpdate()} disabled={installingUpdate}>{installingUpdate ? "Installing…" : `Install ${updateStatus.latestVersion}`}</button>
-                  </div>
+                {updateStatus?.updateAvailable && updateStatus.installable && (
+                  <ConfirmAction
+                    label="Install & restart"
+                    triggerClassName="update-install"
+                    confirmLabel={`Install ${updateStatus.latestVersion}`}
+                    busyLabel="Installing…"
+                    busy={installingUpdate}
+                    disabled={installingUpdate}
+                    confirmClassName="update-confirm"
+                    confirmButtonClassName="primary-action"
+                    onConfirm={() => void installServiceUpdate()}
+                  />
                 )}
               </div>
               {updateStatus?.updateAvailable && !updateStatus.installable && <small className="update-source-note">This copy is running from source; update its Git checkout instead.</small>}
@@ -1740,17 +1657,16 @@ export default function Home() {
                 <strong>Local service</strong>
                 <small>Reload the Work API and interface without changing project files.</small>
               </div>
-              {!restartArmed ? (
-                <button type="button" onClick={() => { setRestartArmed(true); setServiceRestartError(null); }}>Restart Work</button>
-              ) : (
-                <div className="service-restart-confirm">
-                  <span>Restart now?</span>
-                  <button type="button" onClick={() => setRestartArmed(false)} disabled={restartingService}>Cancel</button>
-                  <button type="button" className="danger-action" onClick={() => void restartLocalService()} disabled={restartingService}>
-                    {restartingService ? "Restarting…" : "Confirm restart"}
-                  </button>
-                </div>
-              )}
+              <ConfirmAction
+                label="Restart Work"
+                message="Restart now?"
+                confirmLabel="Confirm restart"
+                busyLabel="Restarting…"
+                busy={restartingService}
+                confirmClassName="service-restart-confirm"
+                onArm={() => setServiceRestartError(null)}
+                onConfirm={() => void restartLocalService()}
+              />
               {serviceRestartError && <small className="service-restart-error" role="alert">{serviceRestartError}</small>}
             </section>
           </div>
@@ -1769,7 +1685,6 @@ export default function Home() {
             <div className="workspace-menu-list">
               {workspaceDirectory.workspaces.map((workspace) => {
                 const current = workspace.id === data.workspace.id;
-                const confirmingRemoval = workspaceRemovalTarget === workspace.id;
                 return (
                   <div className={`workspace-menu-item${current ? " selected" : ""}`} role="group" key={workspace.id}>
                     <button
@@ -1783,24 +1698,20 @@ export default function Home() {
                       <span><strong>{workspace.name}</strong><small>{workspace.root}</small></span>
                       {current && <span className="current-root">Current</span>}
                     </button>
-                    {!current && !confirmingRemoval && (
-                      <button
-                        type="button"
-                        className="workspace-remove"
-                        aria-label={`Remove ${workspace.name} from the workspace list`}
-                        onClick={() => { setWorkspaceRemovalTarget(workspace.id); setWorkspacePickerError(null); }}
-                      >
-                        Remove
-                      </button>
-                    )}
-                    {!current && confirmingRemoval && (
-                      <div className="workspace-remove-confirm" role="alert">
-                        <span>Remove from list? Files stay untouched.</span>
-                        <button type="button" onClick={() => setWorkspaceRemovalTarget(null)} disabled={removingWorkspace === workspace.id}>Cancel</button>
-                        <button type="button" className="danger-action" onClick={() => void removeWorkspace(workspace.id)} disabled={removingWorkspace === workspace.id}>
-                          {removingWorkspace === workspace.id ? "Removing…" : "Confirm"}
-                        </button>
-                      </div>
+                    {!current && (
+                      <ConfirmAction
+                        label="Remove"
+                        triggerClassName="workspace-remove"
+                        triggerAriaLabel={`Remove ${workspace.name} from the workspace list`}
+                        message="Remove from list? Files stay untouched."
+                        confirmLabel="Confirm"
+                        busyLabel="Removing…"
+                        busy={removingWorkspace === workspace.id}
+                        confirmClassName="workspace-remove-confirm"
+                        alert
+                        onArm={() => setWorkspacePickerError(null)}
+                        onConfirm={() => void removeWorkspace(workspace.id)}
+                      />
                     )}
                   </div>
                 );
@@ -1899,19 +1810,20 @@ export default function Home() {
               onDelete={deleteWorkProject}
             />
           ) : (
-            <ScopeOverview
-              rootName={data.workspace.name}
-              scopeLabel={scopeLabel}
-              scopeKind={scopeKind}
-              scopePath={scopePath}
-              projectCount={visibleProjects.length + (scopePath === "." && rootProject ? 1 : 0)}
-              captureCount={scopedCaptures.length}
-              decisionCount={activeDecisions.length}
-              taskCount={scopedTasks.length}
-              inFlightCount={scopedTasks.filter((task) => ["in_progress", "blocked", "review"].includes(task.status)).length}
-              doneCount={scopedTasks.filter((task) => task.status === "done").length}
-              rootPath={workspaceLocationLabel}
-            />
+            <div className="portfolio-intro">
+              <p className="continue-label"><span aria-hidden="true" /> {scopeKind === "root" ? "One root" : "Folder scope"}</p>
+              <h1>{scopeKind === "root" ? `All in ${data.workspace.name}` : scopeLabel}</h1>
+              <p>See the shape of this directory without pulling in unrelated work. Everything here stays under one filesystem boundary.</p>
+              <p className="scope-path" title={scopeKind === "root" ? workspaceLocationLabel : `${workspaceLocationLabel}/${scopePath}`}>{scopeKind === "root" ? workspaceLocationLabel : scopePath}</p>
+              <div className="portfolio-stats" aria-label="Scope summary">
+                <span><strong>{visibleProjects.length + (scopePath === "." && rootProject ? 1 : 0)}</strong> projects</span>
+                <span><strong>{scopedTasks.length}</strong> work items</span>
+                <span><strong>{scopedTasks.filter((task) => ["in_progress", "blocked", "review"].includes(task.status)).length}</strong> in flight</span>
+                <span><strong>{scopedTasks.filter((task) => task.status === "done").length}</strong> completed</span>
+                <span><strong>{scopedCaptures.length}</strong> captured</span>
+                <span><strong>{activeDecisions.length}</strong> need you</span>
+              </div>
+            </div>
           )}
 
           {(scopeKind !== "project" || childGroups.length > 0 || directProjects.length > 0) && (
@@ -1979,41 +1891,34 @@ export default function Home() {
             <div className="empty-panel"><strong>Nothing needs a decision in this scope.</strong><span>Ordinary work stays out of this list.</span></div>
           ) : (
             <div className="attention-list">
-              {visibleHumanIssues.map((issue) => (
-                <article className="attention-item issue-attention-item" key={issue.id}>
-                  <button
-                    type="button"
-                    className="attention-summary"
-                    onClick={() => {
-                      setSelectedIssueId(issue.id);
-                      setView("issues");
-                    }}
-                  >
-                    <span className="attention-check" aria-hidden="true">↩</span>
+              {[
+                ...visibleHumanIssues.map((issue) => ({
+                  key: `issue-${issue.id}`,
+                  icon: "↩",
+                  kind: "Issue",
+                  title: issue.title,
+                  projectPath: issue.projectPath,
+                  action: "Reply",
+                  open: () => { setSelectedIssueId(issue.id); setView("issues"); },
+                })),
+                ...visibleBlockedTasks.map((task) => ({
+                  key: `task-${task.id}`,
+                  icon: "■",
+                  kind: "Blocked task",
+                  title: task.title,
+                  projectPath: task.projectPath,
+                  action: "Unblock",
+                  open: () => { setSelectedTaskId(task.id); setView("board"); },
+                })),
+              ].map((item) => (
+                <article className="attention-item issue-attention-item" key={item.key}>
+                  <button type="button" className="attention-summary" onClick={item.open}>
+                    <span className="attention-check" aria-hidden="true">{item.icon}</span>
                     <span className="attention-copy">
-                      <small>Issue · {issue.projectPath ? data.projects.find((project) => project.path === issue.projectPath)?.name ?? issue.projectPath : `${data.workspace.name} · Unassigned`}</small>
-                      <strong>{issue.title}</strong>
+                      <small>{item.kind} · {scopeLabelFor(data.projects, item.projectPath, `${data.workspace.name} · Unassigned`)}</small>
+                      <strong>{item.title}</strong>
                     </span>
-                    <span className="review-label">Reply</span>
-                  </button>
-                </article>
-              ))}
-              {visibleBlockedTasks.map((task) => (
-                <article className="attention-item issue-attention-item" key={task.id}>
-                  <button
-                    type="button"
-                    className="attention-summary"
-                    onClick={() => {
-                      setSelectedTaskId(task.id);
-                      setView("board");
-                    }}
-                  >
-                    <span className="attention-check" aria-hidden="true">■</span>
-                    <span className="attention-copy">
-                      <small>Blocked task · {task.projectPath ? data.projects.find((project) => project.path === task.projectPath)?.name ?? task.projectPath : `${data.workspace.name} · Unassigned`}</small>
-                      <strong>{task.title}</strong>
-                    </span>
-                    <span className="review-label">Unblock</span>
+                    <span className="review-label">{item.action}</span>
                   </button>
                 </article>
               ))}
@@ -2038,7 +1943,7 @@ export default function Home() {
                     <button type="button" className="attention-summary" onClick={() => setExpandedDecision(open ? null : decision.id)} aria-expanded={open}>
                       <span className="attention-check" aria-hidden="true">?</span>
                       <span className="attention-copy">
-                        <small>{decision.projectPath ? data.projects.find((project) => project.path === decision.projectPath)?.name ?? decision.projectPath : `${data.workspace.name} · Unassigned`}</small>
+                        <small>{scopeLabelFor(data.projects, decision.projectPath, `${data.workspace.name} · Unassigned`)}</small>
                         <strong>{decision.title}</strong>
                       </span>
                       <span className="review-label">{open ? "Close" : "Choose"}</span>
@@ -2337,6 +2242,63 @@ function InlineProjectCreate({
   );
 }
 
+function ConfirmAction({
+  label,
+  message,
+  confirmLabel,
+  busyLabel,
+  busy = false,
+  disabled = false,
+  triggerClassName,
+  triggerAriaLabel,
+  confirmClassName,
+  confirmButtonClassName = "danger-action",
+  alert = false,
+  onArm,
+  onConfirm,
+}: {
+  label: ReactNode;
+  message?: string;
+  confirmLabel: string;
+  busyLabel?: string;
+  busy?: boolean;
+  disabled?: boolean;
+  triggerClassName?: string;
+  triggerAriaLabel?: string;
+  confirmClassName?: string;
+  confirmButtonClassName?: string;
+  alert?: boolean;
+  onArm?: () => void;
+  onConfirm: () => void;
+}) {
+  const [armed, setArmed] = useState(false);
+  if (!armed) {
+    return (
+      <button
+        type="button"
+        className={triggerClassName}
+        aria-label={triggerAriaLabel}
+        disabled={disabled}
+        onClick={() => {
+          setArmed(true);
+          onArm?.();
+        }}
+      >
+        {label}
+      </button>
+    );
+  }
+  return (
+    <div className={confirmClassName} role={alert ? "alert" : undefined}>
+      {message && <span>{message}</span>}
+      <button type="button" onClick={() => setArmed(false)} disabled={busy}>Cancel</button>
+      <button type="button" className={confirmButtonClassName} disabled={busy} onClick={onConfirm}>
+        {busy && busyLabel ? busyLabel : confirmLabel}
+      </button>
+    </div>
+  );
+}
+
 function DecisionChoice({
   decisionId,
   action,
@@ -2360,49 +2322,6 @@ function DecisionChoice({
   );
 }
 
-function ScopeOverview({
-  rootName,
-  scopeLabel,
-  scopeKind,
-  scopePath,
-  projectCount,
-  captureCount,
-  decisionCount,
-  taskCount,
-  inFlightCount,
-  doneCount,
-  rootPath,
-}: {
-  rootName: string;
-  scopeLabel: string;
-  scopeKind: "root" | "group" | "project";
-  scopePath: string;
-  projectCount: number;
-  captureCount: number;
-  decisionCount: number;
-  taskCount: number;
-  inFlightCount: number;
-  doneCount: number;
-  rootPath: string;
-}) {
-  return (
-    <div className="portfolio-intro">
-      <p className="continue-label"><span aria-hidden="true" /> {scopeKind === "root" ? "One root" : "Folder scope"}</p>
-      <h1>{scopeKind === "root" ? `All in ${rootName}` : scopeLabel}</h1>
-      <p>See the shape of this directory without pulling in unrelated work. Everything here stays under one filesystem boundary.</p>
-      <p className="scope-path" title={scopeKind === "root" ? rootPath : `${rootPath}/${scopePath}`}>{scopeKind === "root" ? rootPath : scopePath}</p>
-      <div className="portfolio-stats" aria-label="Scope summary">
-        <span><strong>{projectCount}</strong> projects</span>
-        <span><strong>{taskCount}</strong> work items</span>
-        <span><strong>{inFlightCount}</strong> in flight</span>
-        <span><strong>{doneCount}</strong> completed</span>
-        <span><strong>{captureCount}</strong> captured</span>
-        <span><strong>{decisionCount}</strong> need you</span>
-      </div>
-    </div>
-  );
-}
-
 function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpdateProfile, onDelete }: {
   project: Project;
   captures: Capture[];
@@ -2420,7 +2339,6 @@ function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpd
   const [purpose, setPurpose] = useState(project.description ?? "");
   const [savingPurpose, setSavingPurpose] = useState(false);
   const [purposeError, setPurposeError] = useState<string | null>(null);
-  const [deleteArmed, setDeleteArmed] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const updates = captures.filter((capture) => capture.kind === "update");
@@ -2444,7 +2362,6 @@ function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpd
     setPurpose(project.description ?? "");
     setEditingPurpose(false);
     setPurposeError(null);
-    setDeleteArmed(false);
     setDeleteError(null);
   }, [project.path, project.name, project.description]);
 
@@ -2567,15 +2484,17 @@ function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpd
       </div>
 
       <footer className="project-danger" aria-label="Delete this project">
-        {deleteArmed ? (
-          <div className="project-delete-confirm">
-            <span>Delete {project.name}? Removes it from Work. Your files stay unless the folder is empty.</span>
-            <button type="button" onClick={() => setDeleteArmed(false)} disabled={deleting}>Cancel</button>
-            <button type="button" className="danger-action" onClick={() => void removeProject()} disabled={deleting}>{deleting ? "Deleting…" : "Delete"}</button>
-          </div>
-        ) : (
-          <button type="button" className="project-delete" onClick={() => setDeleteArmed(true)}>Delete project</button>
-        )}
+        <ConfirmAction
+          key={project.path}
+          label="Delete project"
+          triggerClassName="project-delete"
+          message={`Delete ${project.name}? Removes it from Work. Your files stay unless the folder is empty.`}
+          confirmLabel="Delete"
+          busyLabel="Deleting…"
+          busy={deleting}
+          confirmClassName="project-delete-confirm"
+          onConfirm={() => void removeProject()}
+        />
         {deleteError && <p className="field-error" role="alert">{deleteError}</p>}
       </footer>
     </article>
@@ -2901,14 +2820,13 @@ function IssuesView({
   onSetState: (issueId: string, state: "queued" | "closed") => Promise<Issue>;
 }) {
   const selectedIssue = issues.find((issue) => issue.id === selectedIssueId) ?? null;
+  const stateNote = selectedIssue ? ISSUE_STATE_NOTES[selectedIssue.state] : undefined;
   const [draft, setDraft] = useState("");
   const [reply, setReply] = useState("");
   const [search, setSearch] = useState("");
-  const [closeArmed, setCloseArmed] = useState(false);
 
   useEffect(() => {
     setReply("");
-    setCloseArmed(false);
   }, [selectedIssue?.id]);
 
   const filteredIssues = useMemo(() => {
@@ -2923,9 +2841,7 @@ function IssuesView({
   }, [issues, search]);
 
   function issueLocation(issue: Issue) {
-    if (issue.projectPath) return projects.find((project) => project.path === issue.projectPath)?.name ?? issue.projectPath;
-    if (issue.scopePath === ".") return "Workspace";
-    return `Folder · ${issue.scopePath}`;
+    return scopeLabelFor(projects, issue.projectPath, issue.scopePath === "." ? "Workspace" : `Folder · ${issue.scopePath}`);
   }
 
   async function submitIssue(event?: FormEvent) {
@@ -3017,7 +2933,7 @@ function IssuesView({
                   onClick={() => onSelect(issue.id)}
                 >
                   <span className="issue-list-title"><strong>{issue.title}</strong></span>
-                  <span className={`issue-state state-${issue.state}`}>{issueStateLabel(issue.state)}</span>
+                  <span className={`issue-state state-${issue.state}`}>{ISSUE_STATE_LABELS[issue.state]}</span>
                   <small>{issueLocation(issue)} · {shortTime(issue.updatedAt)}</small>
                 </button>
               ))}
@@ -3030,7 +2946,7 @@ function IssuesView({
             <>
               <header className="issue-thread-heading">
                 <div>
-                  <span className={`issue-state state-${selectedIssue.state}`}>{issueStateLabel(selectedIssue.state)}</span>
+                  <span className={`issue-state state-${selectedIssue.state}`}>{ISSUE_STATE_LABELS[selectedIssue.state]}</span>
                   <h2>{selectedIssue.title}</h2>
                   <small>{issueLocation(selectedIssue)} · Opened {new Date(selectedIssue.createdAt).toLocaleString()}</small>
                 </div>
@@ -3038,43 +2954,26 @@ function IssuesView({
                   {(selectedIssue.state === "resolved" || selectedIssue.state === "closed") && (
                     <button type="button" className="secondary-action" disabled={saving} onClick={() => void onSetState(selectedIssue.id, "queued").catch(() => {})}>Reopen</button>
                   )}
-                  {selectedIssue.state !== "closed" && !closeArmed && (
-                    <button type="button" className="issue-close-action" disabled={saving} onClick={() => setCloseArmed(true)}>Close issue</button>
-                  )}
-                  {selectedIssue.state !== "closed" && closeArmed && (
-                    <span className="issue-close-confirm">
-                      <span>Close this issue?</span>
-                      <button type="button" disabled={saving} onClick={() => setCloseArmed(false)}>Cancel</button>
-                      <button type="button" className="danger-action" disabled={saving} onClick={() => void onSetState(selectedIssue.id, "closed").catch(() => {})}>Close</button>
-                    </span>
+                  {selectedIssue.state !== "closed" && (
+                    <ConfirmAction
+                      key={selectedIssue.id}
+                      label="Close issue"
+                      triggerClassName="issue-close-action"
+                      message="Close this issue?"
+                      confirmLabel="Close"
+                      busy={saving}
+                      disabled={saving}
+                      confirmClassName="issue-close-confirm"
+                      onConfirm={() => void onSetState(selectedIssue.id, "closed").catch(() => {})}
+                    />
                   )}
                 </div>
               </header>
 
-              {selectedIssue.state === "in_progress" && (
-                <div className="issue-state-note">
-                  <strong>In progress{selectedIssue.claimedBy ? ` · ${selectedIssue.claimedBy.name}` : ""}</strong>
-                  <span>The issue stays open while it is investigated.</span>
-                </div>
-              )}
-              {selectedIssue.state === "needs_human" && (
-                <div className="issue-state-note needs-human">
-                  <strong>Needs you.</strong>
-                  <span>Reply below. Only issues in this state appear in the bounded Needs you list.</span>
-                </div>
-              )}
-              {selectedIssue.state === "resolved" && (
-                <div className="issue-state-note resolved">
-                  <strong>Resolution — awaiting your review.</strong>
-                  {selectedIssue.resolutionSummary
-                    ? <Markdown>{selectedIssue.resolutionSummary}</Markdown>
-                    : <span>If the result is incomplete, reply or reopen the issue.</span>}
-                </div>
-              )}
-              {selectedIssue.state === "closed" && (
-                <div className="issue-state-note closed">
-                  <strong>Closed by a human.</strong>
-                  <span>You can reopen it at any time. Nothing in this conversation is discarded.</span>
+              {stateNote && (
+                <div className={`issue-state-note ${stateNote.className}`}>
+                  <strong>{stateNote.title(selectedIssue)}</strong>
+                  {stateNote.body(selectedIssue)}
                 </div>
               )}
 
@@ -3105,8 +3004,8 @@ function IssuesView({
                       <header>
                         <strong>
                           {change.from
-                            ? `${issueStateLabel(change.from)} → ${issueStateLabel(change.to)}`
-                            : issueStateLabel(change.to)}
+                            ? `${ISSUE_STATE_LABELS[change.from]} → ${ISSUE_STATE_LABELS[change.to]}`
+                            : ISSUE_STATE_LABELS[change.to]}
                         </strong>
                         <time dateTime={change.at}>{new Date(change.at).toLocaleString()}</time>
                       </header>
@@ -3195,7 +3094,6 @@ function NotesView({
   const [draftText, setDraftText] = useState("");
   const [dirty, setDirty] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "editing" | "saving" | "saved" | "error">("idle");
-  const [deleteArmed, setDeleteArmed] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const revisionRef = useRef(0);
   const saveTimerRef = useRef<number | null>(null);
@@ -3214,7 +3112,6 @@ function NotesView({
     setDraftText(selectedNote?.text ?? "");
     setDirty(false);
     setSaveState(selectedNote ? "saved" : "idle");
-    setDeleteArmed(false);
   }, [selectedNote?.id]);
 
   async function persistDraft() {
@@ -3293,7 +3190,6 @@ function NotesView({
     setDeleting(true);
     try {
       await onDelete(selectedNote.id);
-      setDeleteArmed(false);
     } catch {
       setSaveState("error");
     } finally {
@@ -3302,8 +3198,11 @@ function NotesView({
   }
 
   function noteLocation(note: ProjectNote) {
-    if (!note.projectPath) return note.scopePath === "." ? "Workspace note" : `${displaySegment(pathParts(note.scopePath).at(-1) ?? note.scopePath)} note`;
-    return projects.find((project) => project.path === note.projectPath)?.name ?? note.projectPath;
+    return scopeLabelFor(
+      projects,
+      note.projectPath,
+      note.scopePath === "." ? "Workspace note" : `${displaySegment(pathParts(note.scopePath).at(-1) ?? note.scopePath)} note`,
+    );
   }
 
   const saveLabel = saveState === "saving"
@@ -3404,15 +3303,17 @@ function NotesView({
               <footer className="note-editor-footer">
                 <span className={`note-save-state state-${saveState}`} role="status" aria-live="polite">{saveLabel}</span>
                 <div className="note-editor-actions">
-                  {deleteArmed ? (
-                    <div className="note-delete-confirm">
-                      <span>Delete this note?</span>
-                      <button type="button" onClick={() => setDeleteArmed(false)} disabled={deleting}>Cancel</button>
-                      <button type="button" className="danger-action" onClick={() => void removeNote()} disabled={deleting}>{deleting ? "Deleting…" : "Delete"}</button>
-                    </div>
-                  ) : (
-                    <button type="button" className="note-delete" onClick={() => setDeleteArmed(true)}>Delete note</button>
-                  )}
+                  <ConfirmAction
+                    key={selectedNote.id}
+                    label="Delete note"
+                    triggerClassName="note-delete"
+                    message="Delete this note?"
+                    confirmLabel="Delete"
+                    busyLabel="Deleting…"
+                    busy={deleting}
+                    confirmClassName="note-delete-confirm"
+                    onConfirm={() => void removeNote()}
+                  />
                   <button type="button" className="secondary-action note-save-button" disabled={!dirty || saveState === "saving"} onClick={() => void persistDraft()}>Save now</button>
                 </div>
               </footer>
@@ -3468,7 +3369,6 @@ function UpcomingSchedule({ items, projects, onOpenTask }: {
         <ol className="upcoming-list" aria-label="Upcoming scheduled dates">
           {items.map((item) => {
             const tone = scheduleTone(item);
-            const project = projects.find((candidate) => candidate.path === item.projectPath);
             const content = (
               <>
                 <time className={`upcoming-date ${tone}`} dateTime={item.scheduledAt}>
@@ -3476,7 +3376,7 @@ function UpcomingSchedule({ items, projects, onOpenTask }: {
                   <span>{scheduleDateDetail(item)}</span>
                 </time>
                 <span className="upcoming-copy">
-                  <small><i>{item.kind}</i>{project?.name ?? item.projectPath ?? "Unassigned"}</small>
+                  <small><i>{item.kind}</i>{scopeLabelFor(projects, item.projectPath, "Unassigned")}</small>
                   <strong>{item.title}</strong>
                   <span>{item.detail}</span>
                 </span>
@@ -3605,8 +3505,7 @@ function KanbanBoard({
                   <div className="kanban-card-list">
                     {columnTasks.map((task) => {
                       const progress = checklistProgress(task);
-                      const project = projects.find((item) => item.path === task.projectPath);
-                      const projectName = project?.name ?? task.projectPath ?? "Unassigned";
+                      const projectName = scopeLabelFor(projects, task.projectPath, "Unassigned");
                       const owners = [task.assignee, ...task.agents].filter(Boolean).join(" · ");
                       const hoverSummary = [
                         `${task.id} · ${statusLabel(task.status)} · ${task.priority}`,
@@ -3673,18 +3572,55 @@ function ActivityView({ scopeLabel, tasks, projects, onOpenTask }: { scopeLabel:
         <div className="empty-panel"><strong>No task activity yet.</strong><span>Creating, moving, editing, and checking work items appends here automatically.</span></div>
       ) : (
         <ol className="activity-list">
-          {events.map((event, index) => {
-            const project = projects.find((item) => item.path === event.task.projectPath);
-            return (
-              <li key={`${event.task.id}-${event.at}-${index}`}>
-                <time dateTime={event.at}>{new Date(event.at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>
-                <button type="button" onClick={() => onOpenTask(event.task.id)}><strong>{event.task.id} · {event.task.title}</strong><span>{event.message}</span><small>{project?.name ?? "Unassigned"} · {statusLabel(event.task.status)}</small></button>
-              </li>
-            );
-          })}
+          {events.map((event, index) => (
+            <li key={`${event.task.id}-${event.at}-${index}`}>
+              <time dateTime={event.at}>{new Date(event.at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>
+              <button type="button" onClick={() => onOpenTask(event.task.id)}><strong>{event.task.id} · {event.task.title}</strong><span>{event.message}</span><small>{scopeLabelFor(projects, event.task.projectPath, "Unassigned")} · {statusLabel(event.task.status)}</small></button>
+            </li>
+          ))}
         </ol>
       )}
     </section>
+  );
+}
+
+type TaskFieldValues = {
+  projectPath: string;
+  type: string;
+  priority: string;
+  assignee: string;
+  agents: string;
+  tags: string;
+  parentId: string;
+  dueAt: string;
+};
+
+function commaList(value: string) {
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+// The field grid shared by the create and detail panels. `children` renders
+// the one panel-specific field (Status when creating, Estimate when editing).
+function TaskFields({ projects, values, onChange, children }: {
+  projects: Project[];
+  values: TaskFieldValues;
+  onChange: (patch: Partial<TaskFieldValues>) => void;
+  children?: ReactNode;
+}) {
+  return (
+    <>
+      <div className="field-grid">
+        <label><span>Project</span><select value={values.projectPath} onChange={(event) => onChange({ projectPath: event.target.value })}><option value="">Unassigned</option>{projects.filter((project) => project.path !== ".").map((project) => <option key={project.id} value={project.path}>{project.name} — {project.path}</option>)}</select></label>
+        <label><span>Type</span><select value={values.type} onChange={(event) => onChange({ type: event.target.value })}>{["task", "bug", "feature", "research", "admin", "epic", "idea"].map((item) => <option key={item}>{item}</option>)}</select></label>
+        <label><span>Priority</span><select value={values.priority} onChange={(event) => onChange({ priority: event.target.value })}>{["none", "low", "medium", "high", "critical"].map((item) => <option key={item}>{item}</option>)}</select></label>
+        {children}
+        <label><span>Human owner</span><input value={values.assignee} onChange={(event) => onChange({ assignee: event.target.value })} placeholder="Optional" /></label>
+        <label><span>Agents or teams</span><input value={values.agents} onChange={(event) => onChange({ agents: event.target.value })} placeholder="codex, rev-team" /></label>
+        <label><span>Parent task ID</span><input value={values.parentId} onChange={(event) => onChange({ parentId: event.target.value })} placeholder="W-0001" /></label>
+        <label><span>Due date</span><input type="date" value={values.dueAt} onChange={(event) => onChange({ dueAt: event.target.value })} /></label>
+      </div>
+      <label className="field-wide"><span>Tags</span><input value={values.tags} onChange={(event) => onChange({ tags: event.target.value })} placeholder="Comma-separated" /></label>
+    </>
   );
 }
 
@@ -3698,15 +3634,17 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
   onCreate: (input: Record<string, unknown>) => void;
 }) {
   const [title, setTitle] = useState("");
-  const [projectPath, setProjectPath] = useState(defaultProjectPath ?? "");
   const [status, setStatus] = useState(statuses[0] ?? "backlog");
-  const [type, setType] = useState("task");
-  const [priority, setPriority] = useState("none");
-  const [assignee, setAssignee] = useState("");
-  const [agents, setAgents] = useState("");
-  const [tags, setTags] = useState("");
-  const [parentId, setParentId] = useState("");
-  const [dueAt, setDueAt] = useState("");
+  const [fields, setFields] = useState<TaskFieldValues>({
+    projectPath: defaultProjectPath ?? "",
+    type: "task",
+    priority: "none",
+    assignee: "",
+    agents: "",
+    tags: "",
+    parentId: "",
+    dueAt: "",
+  });
   const [goal, setGoal] = useState("");
   const [requirements, setRequirements] = useState("");
   const [acceptance, setAcceptance] = useState("");
@@ -3717,15 +3655,15 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
     if (!title.trim()) return;
     onCreate({
       title: title.trim(),
-      projectPath: projectPath || null,
+      projectPath: fields.projectPath || null,
       status,
-      type,
-      priority,
-      assignee: assignee.trim() || null,
-      agents: agents.split(",").map((item) => item.trim()).filter(Boolean),
-      tags: tags.split(",").map((item) => item.trim()).filter(Boolean),
-      parentId: parentId.trim() || null,
-      dueAt: dueAt || null,
+      type: fields.type,
+      priority: fields.priority,
+      assignee: fields.assignee.trim() || null,
+      agents: commaList(fields.agents),
+      tags: commaList(fields.tags),
+      parentId: fields.parentId.trim() || null,
+      dueAt: fields.dueAt || null,
       goal,
       requirements: requirements.split("\n").map((item) => item.trim()).filter(Boolean),
       acceptanceCriteria: acceptance.split("\n").map((item) => item.trim()).filter(Boolean),
@@ -3738,17 +3676,9 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
       <div className="task-panel-header"><div><p className="eyebrow">New work item</p><h2 id="create-task-heading">Create a complete card</h2></div><button type="button" onClick={onClose} aria-label="Close new work item">×</button></div>
       <form onSubmit={submit} className="task-form">
         <label className="field-wide"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="What outcome or task needs tracking?" autoFocus /></label>
-        <div className="field-grid">
-          <label><span>Project</span><select value={projectPath} onChange={(event) => setProjectPath(event.target.value)}><option value="">Unassigned</option>{projects.filter((project) => project.path !== ".").map((project) => <option key={project.id} value={project.path}>{project.name} — {project.path}</option>)}</select></label>
+        <TaskFields projects={projects} values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))}>
           <label><span>Status</span><select value={status} onChange={(event) => setStatus(event.target.value)}>{statuses.map((item) => <option key={item} value={item}>{statusLabel(item)}</option>)}</select></label>
-          <label><span>Type</span><select value={type} onChange={(event) => setType(event.target.value)}>{["task", "bug", "feature", "research", "admin", "epic", "idea"].map((item) => <option key={item}>{item}</option>)}</select></label>
-          <label><span>Priority</span><select value={priority} onChange={(event) => setPriority(event.target.value)}>{["none", "low", "medium", "high", "critical"].map((item) => <option key={item}>{item}</option>)}</select></label>
-          <label><span>Human owner</span><input value={assignee} onChange={(event) => setAssignee(event.target.value)} placeholder="Optional" /></label>
-          <label><span>Agents or teams</span><input value={agents} onChange={(event) => setAgents(event.target.value)} placeholder="codex, rev-team" /></label>
-          <label><span>Parent task ID</span><input value={parentId} onChange={(event) => setParentId(event.target.value)} placeholder="W-0001" /></label>
-          <label><span>Due date</span><input type="date" value={dueAt} onChange={(event) => setDueAt(event.target.value)} /></label>
-        </div>
-        <label className="field-wide"><span>Tags</span><input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="release, reverse-engineering" /></label>
+        </TaskFields>
         <label className="field-wide"><span>Goal</span><textarea value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="What does done accomplish?" /></label>
         <label className="field-wide"><span>Requirements · one per line</span><textarea value={requirements} onChange={(event) => setRequirements(event.target.value)} placeholder={"Must preserve Markdown\nMust remain root-scoped"} /></label>
         <label className="field-wide"><span>Acceptance criteria · one per line</span><textarea value={acceptance} onChange={(event) => setAcceptance(event.target.value)} placeholder={"Board reflects status\nRestart restores the card"} /></label>
@@ -3773,19 +3703,22 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClo
   onToggle: (section: "requirements" | "acceptance", index: number, checked: boolean) => void;
   onLog: (message: string) => Promise<void>;
 }) {
+  const taskFieldValues = (): TaskFieldValues => ({
+    projectPath: task.projectPath ?? "",
+    type: task.type,
+    priority: task.priority,
+    assignee: task.assignee ?? "",
+    agents: task.agents.join(", "),
+    tags: task.tags.join(", "),
+    parentId: task.parentId ?? "",
+    dueAt: task.dueAt?.slice(0, 10) ?? "",
+  });
   const [title, setTitle] = useState(task.title);
-  const [projectPath, setProjectPath] = useState(task.projectPath ?? "");
-  const [type, setType] = useState(task.type);
-  const [priority, setPriority] = useState(task.priority);
-  const [assignee, setAssignee] = useState(task.assignee ?? "");
-  const [agents, setAgents] = useState(task.agents.join(", "));
-  const [tags, setTags] = useState(task.tags.join(", "));
+  const [fields, setFields] = useState<TaskFieldValues>(taskFieldValues);
   const [dependsOn, setDependsOn] = useState(task.dependsOn.join(", "));
   const [blockedBy, setBlockedBy] = useState(task.blockedBy.join(", "));
   const [blockedReason, setBlockedReason] = useState(task.blockedReason ?? "");
   const [estimate, setEstimate] = useState(task.estimate ?? "");
-  const [parentId, setParentId] = useState(task.parentId ?? "");
-  const [dueAt, setDueAt] = useState(task.dueAt?.slice(0, 10) ?? "");
   const [goal, setGoal] = useState(task.sections.goal);
   const [plan, setPlan] = useState(task.sections.plan);
   const [notes, setNotes] = useState(task.sections.notes);
@@ -3795,17 +3728,16 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClo
   const [logMessage, setLogMessage] = useState("");
 
   useEffect(() => {
-    setTitle(task.title); setProjectPath(task.projectPath ?? ""); setType(task.type); setPriority(task.priority);
-    setAssignee(task.assignee ?? ""); setAgents(task.agents.join(", ")); setTags(task.tags.join(", "));
+    setTitle(task.title);
+    setFields(taskFieldValues());
     setDependsOn(task.dependsOn.join(", ")); setBlockedBy(task.blockedBy.join(", ")); setBlockedReason(task.blockedReason ?? "");
-    setEstimate(task.estimate ?? ""); setParentId(task.parentId ?? ""); setDueAt(task.dueAt?.slice(0, 10) ?? ""); setGoal(task.sections.goal); setPlan(task.sections.plan); setNotes(task.sections.notes);
+    setEstimate(task.estimate ?? ""); setGoal(task.sections.goal); setPlan(task.sections.plan); setNotes(task.sections.notes);
     setCompletionSummary(task.sections.completionSummary);
   }, [task.id, task.updatedAt]);
 
-  function commaIds(value: string) { return value.split(",").map((item) => item.trim()).filter(Boolean); }
   function saveDetails(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onPatch({ title, projectPath: projectPath || null, type, priority, assignee: assignee.trim() || null, agents: commaIds(agents), tags: commaIds(tags), dependsOn: commaIds(dependsOn), blockedBy: commaIds(blockedBy), blockedReason: blockedReason.trim() || null, estimate: estimate.trim() || null, parentId: parentId.trim() || null, dueAt: dueAt || null, goal, plan, notes, completionSummary });
+    onPatch({ title, projectPath: fields.projectPath || null, type: fields.type, priority: fields.priority, assignee: fields.assignee.trim() || null, agents: commaList(fields.agents), tags: commaList(fields.tags), dependsOn: commaList(dependsOn), blockedBy: commaList(blockedBy), blockedReason: blockedReason.trim() || null, estimate: estimate.trim() || null, parentId: fields.parentId.trim() || null, dueAt: fields.dueAt || null, goal, plan, notes, completionSummary });
   }
 
   const childTasks = tasks.filter((item) => item.parentId === task.id);
@@ -3819,17 +3751,9 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClo
       {error && <div className="task-error" role="alert">{error}</div>}
       <form className="task-form" onSubmit={saveDetails}>
         <label className="field-wide"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-        <div className="field-grid">
-          <label><span>Project</span><select value={projectPath} onChange={(event) => setProjectPath(event.target.value)}><option value="">Unassigned</option>{projects.filter((project) => project.path !== ".").map((project) => <option key={project.id} value={project.path}>{project.name} — {project.path}</option>)}</select></label>
-          <label><span>Type</span><select value={type} onChange={(event) => setType(event.target.value as WorkTask["type"])}>{["task", "bug", "feature", "research", "admin", "epic", "idea"].map((item) => <option key={item}>{item}</option>)}</select></label>
-          <label><span>Priority</span><select value={priority} onChange={(event) => setPriority(event.target.value as WorkTask["priority"])}>{["none", "low", "medium", "high", "critical"].map((item) => <option key={item}>{item}</option>)}</select></label>
+        <TaskFields projects={projects} values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))}>
           <label><span>Estimate</span><input value={estimate} onChange={(event) => setEstimate(event.target.value)} placeholder="2h, 3 points, unknown" /></label>
-          <label><span>Human owner</span><input value={assignee} onChange={(event) => setAssignee(event.target.value)} /></label>
-          <label><span>Agents or teams</span><input value={agents} onChange={(event) => setAgents(event.target.value)} placeholder="Comma-separated" /></label>
-          <label><span>Parent task ID</span><input value={parentId} onChange={(event) => setParentId(event.target.value)} placeholder="W-0001" /></label>
-          <label><span>Due date</span><input type="date" value={dueAt} onChange={(event) => setDueAt(event.target.value)} /></label>
-        </div>
-        <label className="field-wide"><span>Tags</span><input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="Comma-separated" /></label>
+        </TaskFields>
         <label className="field-wide"><span>Depends on task IDs</span><input value={dependsOn} onChange={(event) => setDependsOn(event.target.value)} placeholder="W-0001, W-0002" /></label>
         <label className="field-wide"><span>Blocked by task IDs</span><input value={blockedBy} onChange={(event) => setBlockedBy(event.target.value)} placeholder="W-0001" /></label>
         <label className="field-wide"><span>Blocker explanation</span><textarea value={blockedReason} onChange={(event) => setBlockedReason(event.target.value)} /></label>

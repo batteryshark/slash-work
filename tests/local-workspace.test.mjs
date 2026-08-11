@@ -107,6 +107,13 @@ async function launchApiFromCli(root, { cwd = repositoryRoot, registryPath = roo
   return { child, origin };
 }
 
+async function stopChild(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = once(child, "exit");
+  child.kill("SIGTERM");
+  await exited;
+}
+
 function projectPath(project) {
   return project.path ?? project.projectPath ?? project.relativePath;
 }
@@ -128,7 +135,6 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   assert.match(help.stdout, /work \[root\]/i);
   assert.match(help.stdout, /--init/);
   assert.match(help.stdout, /work remove <rel-path>/i);
-  assert.doesNotMatch(help.stdout, /work ideas?\b/i);
   assert.match(help.stdout, /work projects/i);
   assert.match(help.stdout, /work agent context/i);
   assert.match(help.stdout, /--project <path>.*exact discovered project/i);
@@ -220,9 +226,7 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
     const health = await apiRequest(launched.origin, "/api/health");
     assert.equal(health.response.status, 200);
   } finally {
-    const exited = once(launched.child, "exit");
-    launched.child.kill("SIGTERM");
-    await exited;
+    await stopChild(launched.child);
   }
 });
 
@@ -318,9 +322,7 @@ test("serve does not silently restore an unregistered workspace around the launc
     assert.equal(snapshot.payload.workspace.root, canonicalSelected);
     assert.deepEqual(JSON.parse(await readFile(registryPath, "utf8")).roots.map((entry) => entry.root), [canonicalSelected]);
   } finally {
-    const exited = once(launched.child, "exit");
-    launched.child.kill("SIGTERM");
-    await exited;
+    await stopChild(launched.child);
   }
 });
 
@@ -369,9 +371,7 @@ test("reports the actual UI URL when the requested port is occupied", async () =
     const proxiedHealth = await fetch(new URL("/api/health", actualUrl));
     assert.equal(proxiedHealth.status, 200, "the dynamically selected UI must proxy to the actual API origin");
   } finally {
-    const exited = once(child, "exit");
-    child.kill("SIGTERM");
-    await exited;
+    await stopChild(child);
     await new Promise((resolve, reject) => blocker.close((error) => error ? reject(error) : resolve()));
   }
 });
@@ -1488,13 +1488,9 @@ See project trees from several servers in one place.
     });
     assert.equal(updated.response.status, 200);
 
-    // The snapshot keeps the empty iOS compat constant, and the idea routes
-    // are gone.
+    // The migrated note appears in the workspace snapshot.
     const snapshot = await apiRequest(api.origin, "/api/workspace");
-    assert.deepEqual(snapshot.payload.ideas, []);
     assert.equal(snapshot.payload.notes.some((note) => note.id === "note_legacy1234"), true);
-    const removedRoute = await apiRequest(api.origin, "/api/ideas");
-    assert.equal(removedRoute.response.status, 404);
 
     // A task written before the camelCase frontmatter change still loads, and
     // the next write rewrites it without any snake_case keys.

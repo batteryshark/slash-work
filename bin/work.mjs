@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { realpath } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { createReadStream } from "node:fs";
+import { realpath, stat } from "node:fs/promises";
+import { createServer, request as httpRequest } from "node:http";
+import { dirname, extname, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import {
@@ -33,7 +35,6 @@ import { closeLocalApi, startLocalApi } from "../server/local-api.mjs";
 import { startMcpSidecar } from "../lib/mcp-sidecar.mjs";
 import { createServiceUpdater } from "../lib/service-updater.mjs";
 import { discoverTailscaleIPv4 } from "../lib/tailscale-network.mjs";
-import { createServer as createViteServer } from "vite";
 import {
   getAgentIndex,
   getAgentOperation,
@@ -477,6 +478,100 @@ async function runLog(options, positionals) {
   console.log(`Logged progress on ${task.id}`);
 }
 
+const UI_MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+  ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".woff2": "font/woff2",
+};
+
+// Serves the prebuilt dist/ statically and proxies /api to the local API,
+// mirroring the host discipline of server/local-api.mjs. The API keeps its own
+// Host/Origin validation for the proxied requests.
+async function startUiServer({ distRoot, host, port, apiOrigin }) {
+  await stat(join(distRoot, "index.html")).catch(() => {
+    throw new WorkspaceError("The built interface is missing. Run `npm run build` in this checkout first.", { code: "ui_build_missing" });
+  });
+  const server = createServer((request, response) => {
+    void handleUiRequest(request, response).catch(() => {
+      if (!response.headersSent) response.writeHead(500);
+      response.end();
+    });
+  });
+  async function handleUiRequest(request, response) {
+    const url = new URL(request.url ?? "/", `http://${request.headers.host ?? host}`);
+    let hostname = null;
+    try {
+      hostname = new URL(`http://${request.headers.host}`).hostname;
+    } catch {}
+    if (hostname !== "localhost" && hostname !== "127.0.0.1" && hostname !== "[::1]" && hostname !== "::1" && hostname !== host) {
+      response.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+      response.end("This interface only accepts requests for its configured host.");
+      return;
+    }
+    if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
+      const upstream = httpRequest(new URL(url.pathname + url.search, apiOrigin), { method: request.method, headers: request.headers }, (upstreamResponse) => {
+        response.writeHead(upstreamResponse.statusCode ?? 502, upstreamResponse.headers);
+        upstreamResponse.pipe(response);
+      });
+      upstream.once("error", () => {
+        if (!response.headersSent) response.writeHead(502);
+        response.end();
+      });
+      request.pipe(upstream);
+      return;
+    }
+    const relativePath = normalize(decodeURIComponent(url.pathname)).replace(/^([/\\])+/, "");
+    let filePath = join(distRoot, relativePath);
+    if (relativePath.split(sep).includes("..")) filePath = join(distRoot, "index.html");
+    let info = await stat(filePath).catch(() => null);
+    if (!info || info.isDirectory()) {
+      if (extname(filePath) && !filePath.endsWith(`${sep}index.html`)) {
+        response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+        response.end("Not found.");
+        return;
+      }
+      filePath = join(distRoot, "index.html");
+      info = await stat(filePath);
+    }
+    response.writeHead(200, {
+      "Content-Type": UI_MIME[extname(filePath)] ?? "application/octet-stream",
+      "Content-Length": info.size,
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    });
+    createReadStream(filePath).pipe(response);
+  }
+  const listen = (selectedPort) => new Promise((resolvePromise, rejectPromise) => {
+    const onError = (error) => {
+      server.off("listening", onListening);
+      rejectPromise(error);
+    };
+    const onListening = () => {
+      server.off("error", onError);
+      resolvePromise();
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(selectedPort, host);
+  });
+  try {
+    await listen(port);
+  } catch (error) {
+    // The UI port is a preference, never a hard requirement; any free port
+    // still proxies to the pinned API origin.
+    if (port === 0 || error?.code !== "EADDRINUSE") throw error;
+    await listen(0);
+  }
+  const address = server.address();
+  return { server, port: typeof address === "object" && address ? address.port : port };
+}
+
 function openLocalUrl(url) {
   const command = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
   const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
@@ -542,7 +637,12 @@ async function runServer(options, positionals) {
   async function shutdown(exitCode = 0, { restart = false } = {}) {
     if (shuttingDown) return;
     shuttingDown = true;
-    await uiServer?.close();
+    if (uiServer?.listening) {
+      await new Promise((resolvePromise) => {
+        uiServer.close(() => resolvePromise());
+        uiServer.closeIdleConnections?.();
+      });
+    }
     await mcpSidecar?.stop().catch((error) => console.error(`[work:mcp] ${error.message}`));
     await closeLocalApi(localApi.server).catch((error) => console.error(`[work] ${error.message}`));
     if (restart) {
@@ -570,24 +670,14 @@ async function runServer(options, positionals) {
 
   if (!options.noUi) {
     try {
-      uiServer = await createViteServer({
-        root: APP_ROOT,
-        server: {
-          host: listenHost,
-          port: uiPort,
-          allowedHosts: [listenHost],
-          proxy: {
-            "/api": {
-              target: localApi.origin,
-              changeOrigin: false,
-            },
-          },
-        },
+      const ui = await startUiServer({
+        distRoot: join(APP_ROOT, "dist"),
+        host: listenHost,
+        port: uiPort,
+        apiOrigin: localApi.origin,
       });
-      await uiServer.listen();
-      const address = uiServer.httpServer?.address();
-      const selectedUiPort = typeof address === "object" && address ? address.port : uiPort;
-      const uiUrl = `http://${listenHost}:${selectedUiPort}/`;
+      uiServer = ui.server;
+      const uiUrl = `http://${listenHost}:${ui.port}/`;
       console.log(`[work] UI ready at ${uiUrl}`);
       if (!options.noOpen) openLocalUrl(uiUrl);
     } catch (error) {
