@@ -1,20 +1,20 @@
 import { createServer, request as httpRequest } from "node:http";
 import { createHash, randomUUID } from "node:crypto";
 import { realpath } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute, relative, sep } from "node:path";
 import {
   WorkspaceError,
   appendTaskLog,
   applyDecisionAction,
   createCapture,
   createDecision,
-  createIdea,
   createIssue,
   createNote,
+  createProject,
   createTask,
   deleteCapture,
-  deleteIdea,
   deleteNote,
+  deleteProject,
   discoverProjects,
   getIssue,
   initializeWorkspace,
@@ -22,7 +22,6 @@ import {
   initializeProject,
   listCaptures,
   listDecisions,
-  listIdeas,
   listIssues,
   listNotes,
   listTasks,
@@ -31,7 +30,7 @@ import {
   replyToIssue,
   toggleTaskChecklist,
   updateCaptureDestination,
-  updateIdea,
+  updateIssue,
   updateIssueState,
   updateNote,
   updateProjectProfile,
@@ -46,26 +45,15 @@ import {
   getAgentIndex,
   getAgentOpenApi,
   getAgentOperation,
-  getArtifactSchema,
   listAgentOperations,
 } from "../lib/agent-capabilities.mjs";
-import {
-  createAiProposal,
-  getAiSettings,
-  saveAiSettings,
-  selectedProposalPatch,
-  testAiSettings,
-} from "../lib/ai-assistance.mjs";
-import { FederationManager } from "../lib/instance-federation.mjs";
 import { isTailscaleIPv4 } from "../lib/tailscale-network.mjs";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const DEFAULT_PORT = 43170;
 const MAX_BODY_BYTES = 128 * 1024;
 const MAX_MCP_BODY_BYTES = 1024 * 1024;
-const MAX_PROXY_RESPONSE_BYTES = 4 * 1024 * 1024;
 const UPDATE_CACHE_MS = 15 * 60 * 1000;
-const CLIENT_API_VERSION = 1;
 const LOCAL_ORIGIN = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i;
 
 function isLocalHostname(hostname) {
@@ -110,22 +98,6 @@ function sendJson(request, response, status, body, extraHeaders = {}) {
   response.end(content);
 }
 
-function entityTag(content, prefix) {
-  const digest = createHash("sha256").update(content).digest("base64url");
-  return `"${prefix}-${digest}"`;
-}
-
-function sendWorkspaceSnapshot(request, response, snapshot) {
-  const serialized = `${JSON.stringify(snapshot)}\n`;
-  const etag = entityTag(serialized, "workspace-v1");
-  if (request.headers["if-none-match"] === etag) {
-    response.writeHead(304, responseHeaders(request, { ETag: etag }));
-    response.end();
-    return;
-  }
-  sendJson(request, response, 200, snapshot, { ETag: etag });
-}
-
 function sendEmpty(request, response, status = 204) {
   response.writeHead(status, responseHeaders(request));
   response.end();
@@ -162,18 +134,6 @@ function assertLocalRequest(request, allowedHost) {
   if (origin) request.workBrowserOrigin = origin;
 }
 
-function isFederatedWorkspacePath(pathname) {
-  return [
-    /^\/api\/health$/,
-    /^\/api\/workspace$/,
-    /^\/api\/projects(?:\/profile)?$/,
-    /^\/api\/files\/(?:directory|content)$/,
-    /^\/api\/(?:captures|notes|ideas|issues|decisions|tasks)(?:\/[^/]+(?:\/(?:actions|move|checklist|log|replies|state))?)?$/,
-    /^\/api\/agent\/(?:notes|issues)(?:\/[^/]+(?:\/(?:claim|replies|state))?)?$/,
-    /^\/api\/ai\/(?:proposals|apply)$/,
-  ].some((pattern) => pattern.test(pathname));
-}
-
 async function readJsonBody(request) {
   const contentType = request.headers["content-type"] ?? "";
   if (!contentType.toLowerCase().startsWith("application/json")) {
@@ -207,32 +167,6 @@ async function readJsonBody(request) {
   }
 }
 
-async function readRawBody(request) {
-  const declaredLength = Number(request.headers["content-length"] ?? 0);
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
-    throw new WorkspaceError("Request body is too large.", { code: "body_too_large", status: 413 });
-  }
-  const chunks = [];
-  let total = 0;
-  for await (const chunk of request) {
-    total += chunk.length;
-    if (total > MAX_BODY_BYTES) throw new WorkspaceError("Request body is too large.", { code: "body_too_large", status: 413 });
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks);
-}
-
-function routeId(pathname, resource, suffix = "") {
-  const pattern = new RegExp(`^/api/${resource}/([^/]+)${suffix}$`);
-  const match = pathname.match(pattern);
-  if (!match) return null;
-  try {
-    return decodeURIComponent(match[1]);
-  } catch {
-    throw new WorkspaceError("Invalid record id.", { code: "invalid_id" });
-  }
-}
-
 function requiredAgentName(request) {
   const value = request.headers["x-work-agent"];
   if (typeof value !== "string" || !value.trim()) {
@@ -245,92 +179,23 @@ function requiredAgentName(request) {
   return name;
 }
 
+function optionalAgentName(request) {
+  return request.headers["x-work-agent"] == null ? null : requiredAgentName(request);
+}
+
+// ponytail: filters after reading every record; parse per-record frontmatter (or index updated timestamps) if polling cost matters.
+function filterUpdatedSince(records, url) {
+  const value = url.searchParams.get("updatedSince");
+  if (value == null || value === "") return records;
+  const cutoff = new Date(value);
+  if (Number.isNaN(cutoff.valueOf())) {
+    throw new WorkspaceError("updatedSince must be an ISO-8601 date/time.", { code: "invalid_input" });
+  }
+  return records.filter((record) => new Date(record.updatedAt ?? 0).getTime() > cutoff.getTime());
+}
+
 function publicWorkspace(workspace) {
-  return { id: workspace.id, name: workspace.name, root: workspace.root, location: "local", available: true };
-}
-
-function publicFederationSettings(service) {
-  return {
-    ...service.federation.settings(),
-    network: {
-      mode: isTailscaleIPv4(service.host) ? "tailscale" : "loopback",
-      reachableUrl: isTailscaleIPv4(service.host) ? service.origin ?? null : null,
-    },
-  };
-}
-
-function proxyHeaders(request, remoteWorkspaceId, sourceName) {
-  const headers = {
-    authorization: null,
-    "x-work-federation-hop": "1",
-    "x-work-federation-source": sourceName,
-    "x-work-workspace": remoteWorkspaceId,
-  };
-  for (const [name, value] of Object.entries(request.headers)) {
-    if (typeof value !== "string") continue;
-    if (new Set(["accept", "content-type", "if-none-match"]).has(name)
-      || (name.startsWith("x-work-") && !new Set(["x-work-workspace", "x-work-federation-hop", "x-work-federation-source"]).has(name))) {
-      headers[name] = value;
-    }
-  }
-  return headers;
-}
-
-async function proxyFederatedRequest(service, remoteWorkspace, url, request, response) {
-  const token = await service.federation.peerToken(remoteWorkspace.peer.id);
-  const body = new Set(["GET", "HEAD"]).has(request.method ?? "GET") ? null : await readRawBody(request);
-  const headers = proxyHeaders(request, remoteWorkspace.remoteWorkspaceId, service.federation.config.name);
-  headers.authorization = `Bearer ${token}`;
-  let upstream;
-  try {
-    upstream = await service.federation.fetch(`${remoteWorkspace.peer.baseUrl}${url.pathname}${url.search}`, {
-      method: request.method,
-      headers,
-      ...(body?.length ? { body } : {}),
-      redirect: "manual",
-      signal: AbortSignal.timeout(service.federation.timeoutMs),
-    });
-  } catch (error) {
-    const timedOut = error?.name === "TimeoutError" || error?.name === "AbortError";
-    throw new WorkspaceError(
-      timedOut ? `${remoteWorkspace.peer.name} did not respond in time.` : `${remoteWorkspace.peer.name} is unavailable: ${error.message}`,
-      { code: timedOut ? "peer_timeout" : "peer_unavailable", status: timedOut ? 504 : 502 },
-    );
-  }
-  const declaredLength = Number(upstream.headers.get("content-length") ?? 0);
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_PROXY_RESPONSE_BYTES) {
-    throw new WorkspaceError("The remote Work response is too large.", { code: "peer_response_too_large", status: 502 });
-  }
-  let content = Buffer.from(await upstream.arrayBuffer());
-  if (content.length > MAX_PROXY_RESPONSE_BYTES) {
-    throw new WorkspaceError("The remote Work response is too large.", { code: "peer_response_too_large", status: 502 });
-  }
-  const contentType = upstream.headers.get("content-type") ?? "application/json; charset=utf-8";
-  if (upstream.ok && contentType.includes("application/json") && new Set(["/api/workspace", "/api/health"]).has(url.pathname)) {
-    try {
-      const payload = JSON.parse(content.toString("utf8"));
-      if (payload?.workspace && typeof payload.workspace === "object") {
-        payload.workspace = {
-          ...payload.workspace,
-          id: remoteWorkspace.id,
-          root: remoteWorkspace.root,
-          location: "remote",
-          available: true,
-          peer: remoteWorkspace.peer,
-        };
-      }
-      content = Buffer.from(`${JSON.stringify(payload)}\n`);
-    } catch {
-      throw new WorkspaceError("The remote Work instance returned invalid JSON.", { code: "invalid_peer_response", status: 502 });
-    }
-  }
-  request.workWorkspaceId = remoteWorkspace.id;
-  response.writeHead(upstream.status, responseHeaders(request, {
-    "Content-Type": contentType,
-    "Content-Length": content.length,
-    ...(upstream.headers.get("etag") ? { ETag: upstream.headers.get("etag") } : {}),
-  }));
-  response.end(content);
+  return { id: workspace.id, name: workspace.name, root: workspace.root };
 }
 
 function selectedWorkspace(workspaces, defaultWorkspace, request) {
@@ -398,294 +263,168 @@ function proxyMcpRequest(service, request, response) {
   request.pipe(upstream);
 }
 
-async function handleRequest(workspaces, service, request, response) {
-  const url = new URL(request.url ?? "/", `http://${request.headers.host}`);
-  const method = request.method ?? "GET";
-  const defaultWorkspace = service.defaultWorkspace;
-  const federationHop = request.headers["x-work-federation-hop"];
-  let federationGrant = null;
-  if (federationHop != null) {
-    if (federationHop !== "1" || requestOrigin(request)) {
-      throw new WorkspaceError("Federation requests must be direct server-to-server calls.", { code: "invalid_federation_hop", status: 403 });
-    }
-    if (url.pathname !== "/api/federation/manifest" && !isFederatedWorkspacePath(url.pathname)) {
-      throw new WorkspaceError("That service operation is not available through federation.", { code: "federation_route_forbidden", status: 403 });
-    }
-    const requestedWorkspaceId = url.pathname === "/api/federation/manifest" ? null : request.headers["x-work-workspace"];
-    if (url.pathname !== "/api/federation/manifest" && (typeof requestedWorkspaceId !== "string" || !requestedWorkspaceId)) {
-      throw new WorkspaceError("Federated workspace requests require one exact workspace id.", { code: "invalid_workspace", status: 400 });
-    }
-    federationGrant = await service.federation.authorize(request.headers.authorization, requestedWorkspaceId);
-  } else {
-    assertLocalRequest(request, service.host);
-  }
+// Routes are matched in table order; keep more specific patterns (and the
+// agent/… prefixes) above their generic siblings, exactly like the old
+// if-chain. A handler either returns [status, body, extraHeaders?] for a JSON
+// response or writes the response itself and returns nothing.
+function route(method, pattern, handler) {
+  const match = pattern.includes("{id}") ? new RegExp(`^${pattern.replace("{id}", "([^/]+)")}$`) : null;
+  return { method, pattern, match, handler };
+}
 
-  if (url.pathname === "/mcp" || url.pathname === "/mcp/") {
-    proxyMcpRequest(service, request, response);
-    return;
+async function dispatch(routes, context) {
+  const { request, url } = context;
+  for (const { method, pattern, match, handler } of routes) {
+    let id = null;
+    if (match) {
+      const found = url.pathname.match(match);
+      if (!found) continue;
+      try {
+        id = decodeURIComponent(found[1]);
+      } catch {
+        throw new WorkspaceError("Invalid record id.", { code: "invalid_id" });
+      }
+    } else if (url.pathname !== pattern) {
+      continue;
+    }
+    if ((request.method ?? "GET") !== method) continue;
+    const result = await handler({ ...context, id });
+    if (result) sendJson(request, context.response, result[0], result[1], result[2]);
+    return true;
   }
+  return false;
+}
 
-  if (method === "OPTIONS") {
-    response.writeHead(
-      204,
-      responseHeaders(request, {
-        "Access-Control-Allow-Headers": "Content-Type, If-None-Match, X-Work-Agent, X-Work-AI-Apply, X-Work-AI-Settings, X-Work-Federation-Settings, X-Work-Folder-Picker, X-Work-Restart, X-Work-Unregister, X-Work-Workspace",
-        "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
-        "Access-Control-Max-Age": "600",
-      }),
-    );
-    response.end();
-    return;
-  }
-
-  if (method === "GET" && url.pathname === "/api/federation/manifest") {
-    if (!federationGrant) throw new WorkspaceError("Federation discovery requires an authenticated peer request.", { code: "federation_unauthorized", status: 401 });
-    sendJson(request, response, 200, service.federation.manifest(federationGrant));
-    return;
-  }
-
-  if (method === "GET" && url.pathname === "/api/workspaces") {
-    const forceRefresh = url.searchParams.get("refresh") === "1";
-    if (forceRefresh) {
-      await service.federation.refreshPeers({ force: true });
-    } else {
-      void service.federation.refreshPeers().catch((error) => console.error("[work] Connected-instance refresh failed:", error));
-    }
-    sendJson(request, response, 200, {
-      defaultWorkspaceId: defaultWorkspace.id,
-      activeWorkspaceId: defaultWorkspace.id,
-      workspaces: [...workspaces.values()].map(publicWorkspace).concat(service.federation.remoteWorkspaces()),
-    });
-    return;
-  }
-
-  if (method === "GET" && url.pathname === "/api/federation") {
-    await service.federation.refreshPeers({ force: url.searchParams.get("refresh") === "1" });
-    sendJson(request, response, 200, publicFederationSettings(service));
-    return;
-  }
-  if (method === "PATCH" && url.pathname === "/api/federation") {
-    if (request.headers["x-work-federation-settings"] !== "confirm") {
-      throw new WorkspaceError("Changing federation settings requires explicit local confirmation.", { code: "federation_confirmation_required", status: 403 });
-    }
-    const body = await readJsonBody(request);
-    await service.federation.rename(body.name);
-    sendJson(request, response, 200, publicFederationSettings(service));
-    return;
-  }
-  if (method === "POST" && url.pathname === "/api/federation/grants") {
-    if (request.headers["x-work-federation-settings"] !== "confirm") {
-      throw new WorkspaceError("Creating an access key requires explicit local confirmation.", { code: "federation_confirmation_required", status: 403 });
-    }
-    sendJson(request, response, 201, await service.federation.createGrant(await readJsonBody(request)));
-    return;
-  }
-  const grantToRevoke = routeId(url.pathname, "federation/grants");
-  if (method === "DELETE" && grantToRevoke) {
-    if (request.headers["x-work-federation-settings"] !== "confirm") {
-      throw new WorkspaceError("Revoking an access key requires explicit local confirmation.", { code: "federation_confirmation_required", status: 403 });
-    }
-    await service.federation.revokeGrant(grantToRevoke);
-    sendEmpty(request, response);
-    return;
-  }
-  if (method === "POST" && url.pathname === "/api/federation/peers") {
-    if (request.headers["x-work-federation-settings"] !== "confirm") {
-      throw new WorkspaceError("Connecting a Work instance requires explicit local confirmation.", { code: "federation_confirmation_required", status: 403 });
-    }
-    sendJson(request, response, 201, await service.federation.addPeer(await readJsonBody(request)));
-    return;
-  }
-  const peerToRemove = routeId(url.pathname, "federation/peers");
-  if (method === "DELETE" && peerToRemove) {
-    if (request.headers["x-work-federation-settings"] !== "confirm") {
-      throw new WorkspaceError("Removing a connected instance requires explicit local confirmation.", { code: "federation_confirmation_required", status: 403 });
-    }
-    await service.federation.removePeer(peerToRemove);
-    sendEmpty(request, response);
-    return;
-  }
-
-  if (method === "GET" && url.pathname === "/api/agent") {
-    sendJson(request, response, 200, getAgentIndex({ serviceVersion: service.version }));
-    return;
-  }
-  if (method === "GET" && url.pathname === "/api/agent/operations") {
-    sendJson(request, response, 200, listAgentOperations({ serviceVersion: service.version }));
-    return;
-  }
-  const agentOperationId = routeId(url.pathname, "agent/operations");
-  if (method === "GET" && agentOperationId) {
-    const operation = getAgentOperation(agentOperationId, { serviceVersion: service.version });
+const SERVICE_ROUTES = [
+  route("GET", "/api/workspaces", (c) => [200, {
+    defaultWorkspaceId: c.service.defaultWorkspace.id,
+    activeWorkspaceId: c.service.defaultWorkspace.id,
+    workspaces: [...c.workspaces.values()].map(publicWorkspace),
+  }]),
+  route("GET", "/api/agent", (c) => [200, getAgentIndex({ serviceVersion: c.service.version })]),
+  route("GET", "/api/agent/operations", (c) => [200, listAgentOperations({ serviceVersion: c.service.version })]),
+  route("GET", "/api/agent/operations/{id}", (c) => {
+    const operation = getAgentOperation(c.id, { serviceVersion: c.service.version });
     if (!operation) throw new WorkspaceError("Agent operation not found.", { code: "not_found", status: 404 });
-    sendJson(request, response, 200, operation);
-    return;
-  }
-  if (method === "GET" && url.pathname === "/api/agent/schemas/artifacts") {
-    sendJson(request, response, 200, getArtifactSchema());
-    return;
-  }
-  const artifactSchemaType = routeId(url.pathname, "agent/schemas/artifacts");
-  if (method === "GET" && artifactSchemaType) {
-    const schema = getArtifactSchema(artifactSchemaType);
-    if (!schema) throw new WorkspaceError("Artifact schema not found.", { code: "not_found", status: 404 });
-    sendJson(request, response, 200, schema);
-    return;
-  }
-  if (method === "GET" && url.pathname === "/api/openapi.json") {
-    sendJson(request, response, 200, getAgentOpenApi({ serviceVersion: service.version }));
-    return;
-  }
-
-  if (method === "POST" && url.pathname === "/api/workspaces/pick") {
-    if (request.headers["x-work-folder-picker"] !== "confirm") {
+    return [200, operation];
+  }),
+  route("GET", "/api/openapi.json", (c) => [200, getAgentOpenApi({ serviceVersion: c.service.version })]),
+  route("POST", "/api/workspaces/pick", async (c) => {
+    if (c.request.headers["x-work-folder-picker"] !== "confirm") {
       throw new WorkspaceError("Opening the folder picker requires explicit local confirmation.", {
         code: "folder_picker_confirmation_required",
         status: 403,
       });
     }
-    const body = await readJsonBody(request);
-    if (body.confirm !== true) {
+    if ((await c.body()).confirm !== true) {
       throw new WorkspaceError("Opening the folder picker requires confirm: true.", {
         code: "folder_picker_confirmation_required",
         status: 400,
       });
     }
-    const selectedDirectory = await service.pickWorkspaceDirectory();
-    if (!selectedDirectory) {
-      sendJson(request, response, 200, { cancelled: true });
-      return;
-    }
+    const selectedDirectory = await c.service.pickWorkspaceDirectory();
+    if (!selectedDirectory) return [200, { cancelled: true }];
     const added = await registerWorkspace(selectedDirectory, {
       force: true,
-      registryPath: service.registryPath,
+      registryPath: c.service.registryPath,
     });
-    workspaces.set(added.id, added);
-    sendJson(request, response, 201, {
+    c.workspaces.set(added.id, added);
+    return [201, {
       cancelled: false,
       workspace: publicWorkspace(added),
-      workspaces: [...workspaces.values()].map(publicWorkspace),
-    });
-    return;
-  }
-
-  const workspaceToRemove = routeId(url.pathname, "workspaces");
-  if (method === "DELETE" && workspaceToRemove) {
-    if (request.headers["x-work-unregister"] !== "confirm") {
+      workspaces: [...c.workspaces.values()].map(publicWorkspace),
+    }];
+  }),
+  route("DELETE", "/api/workspaces/{id}", async (c) => {
+    if (c.request.headers["x-work-unregister"] !== "confirm") {
       throw new WorkspaceError("Removing a workspace root requires explicit local confirmation.", {
         code: "workspace_removal_confirmation_required",
         status: 403,
       });
     }
-    const currentWorkspaceId = typeof request.headers["x-work-workspace"] === "string"
-      ? request.headers["x-work-workspace"]
-      : defaultWorkspace.id;
-    if (workspaceToRemove === currentWorkspaceId) {
+    const currentWorkspaceId = typeof c.request.headers["x-work-workspace"] === "string"
+      ? c.request.headers["x-work-workspace"]
+      : c.service.defaultWorkspace.id;
+    if (c.id === currentWorkspaceId) {
       throw new WorkspaceError("Switch to another workspace before removing this root from the list.", {
         code: "cannot_remove_current_workspace",
         status: 409,
       });
     }
-    if (!workspaces.has(workspaceToRemove)) {
+    if (!c.workspaces.has(c.id)) {
       throw new WorkspaceError("That workspace root is not in the list.", {
         code: "workspace_not_found",
         status: 404,
       });
     }
-    if (workspaces.size === 1) {
+    if (c.workspaces.size === 1) {
       throw new WorkspaceError("Keep at least one local workspace registered with this Work server.", {
         code: "cannot_remove_last_local_workspace",
         status: 409,
       });
     }
-    await unregisterWorkspace(workspaceToRemove, { registryPath: service.registryPath });
-    workspaces.delete(workspaceToRemove);
-    if (service.defaultWorkspace.id === workspaceToRemove) {
-      service.defaultWorkspace = [...workspaces.values()][0];
+    await unregisterWorkspace(c.id, { registryPath: c.service.registryPath });
+    c.workspaces.delete(c.id);
+    if (c.service.defaultWorkspace.id === c.id) {
+      c.service.defaultWorkspace = [...c.workspaces.values()][0];
     }
-    sendJson(request, response, 200, {
-      removedWorkspaceId: workspaceToRemove,
-      defaultWorkspaceId: service.defaultWorkspace.id,
-      activeWorkspaceId: service.defaultWorkspace.id,
-      workspaces: [...workspaces.values()].map(publicWorkspace),
-    });
-    return;
-  }
-
-  if (method === "POST" && url.pathname === "/api/service/restart") {
+    return [200, {
+      removedWorkspaceId: c.id,
+      defaultWorkspaceId: c.service.defaultWorkspace.id,
+      activeWorkspaceId: c.service.defaultWorkspace.id,
+      workspaces: [...c.workspaces.values()].map(publicWorkspace),
+    }];
+  }),
+  route("POST", "/api/service/restart", async (c) => {
+    const service = c.service;
     if (typeof service.onRestart !== "function") {
-      throw new WorkspaceError("This Work process cannot restart itself.", {
-        code: "restart_unavailable",
-        status: 409,
-      });
+      throw new WorkspaceError("This Work process cannot restart itself.", { code: "restart_unavailable", status: 409 });
     }
-    if (request.headers["x-work-restart"] !== "confirm") {
-      throw new WorkspaceError("Restart requires explicit local confirmation.", {
-        code: "restart_confirmation_required",
-        status: 403,
-      });
+    if (c.request.headers["x-work-restart"] !== "confirm") {
+      throw new WorkspaceError("Restart requires explicit local confirmation.", { code: "restart_confirmation_required", status: 403 });
     }
     if (service.restartPending) {
-      throw new WorkspaceError("Work is already restarting.", {
-        code: "restart_pending",
-        status: 409,
-      });
+      throw new WorkspaceError("Work is already restarting.", { code: "restart_pending", status: 409 });
     }
-    const body = await readJsonBody(request);
-    if (body.confirm !== true) {
-      throw new WorkspaceError("Restart requires confirm: true.", {
-        code: "restart_confirmation_required",
-        status: 400,
-      });
+    if ((await c.body()).confirm !== true) {
+      throw new WorkspaceError("Restart requires confirm: true.", { code: "restart_confirmation_required", status: 400 });
     }
     service.restartPending = true;
-    sendJson(request, response, 202, {
-      restarting: true,
-      serviceInstanceId: service.instanceId,
-    });
     setTimeout(() => {
       Promise.resolve(service.onRestart()).catch((error) => console.error("[work] Restart failed:", error));
     }, 100).unref();
-    return;
-  }
-
-  if (method === "GET" && url.pathname === "/api/service/update") {
+    return [202, { restarting: true, serviceInstanceId: service.instanceId }];
+  }),
+  route("GET", "/api/service/update", async (c) => {
+    const service = c.service;
     if (typeof service.checkForUpdate !== "function") {
-      throw new WorkspaceError("This Work process cannot check for npm updates.", {
-        code: "update_check_unavailable",
-        status: 409,
-      });
+      throw new WorkspaceError("This Work process cannot check for npm updates.", { code: "update_check_unavailable", status: 409 });
     }
-    const force = url.searchParams.get("force") === "1";
+    const force = c.url.searchParams.get("force") === "1";
     const cachedAt = service.updateStatus?.checkedAt ? new Date(service.updateStatus.checkedAt).getTime() : 0;
     if (force || !service.updateStatus || Date.now() - cachedAt >= UPDATE_CACHE_MS) {
       service.updateStatus = await service.checkForUpdate();
     }
-    sendJson(request, response, 200, service.updateStatus);
-    return;
-  }
-
-  if (method === "POST" && url.pathname === "/api/service/update") {
+    return [200, service.updateStatus];
+  }),
+  route("POST", "/api/service/update", async (c) => {
+    const service = c.service;
     if (typeof service.onUpdate !== "function" || typeof service.onRestart !== "function") {
       throw new WorkspaceError("This Work process cannot install and restart after an npm update.", {
         code: "update_unavailable",
         status: 409,
       });
     }
-    if (request.headers["x-work-update"] !== "confirm") {
+    if (c.request.headers["x-work-update"] !== "confirm") {
       throw new WorkspaceError("Installing an update requires explicit local confirmation.", {
         code: "update_confirmation_required",
         status: 403,
       });
     }
     if (service.updatePending || service.restartPending) {
-      throw new WorkspaceError("Work is already updating or restarting.", {
-        code: "update_pending",
-        status: 409,
-      });
+      throw new WorkspaceError("Work is already updating or restarting.", { code: "update_pending", status: 409 });
     }
-    const body = await readJsonBody(request);
-    if (body.confirm !== true) {
+    if ((await c.body()).confirm !== true) {
       throw new WorkspaceError("Installing an update requires confirm: true.", {
         code: "update_confirmation_required",
         status: 400,
@@ -706,14 +445,10 @@ async function handleRequest(workspaces, service, request, response) {
     try {
       await service.onUpdate(update.latestVersion);
       service.restartPending = true;
-      sendJson(request, response, 202, {
-        updating: true,
-        installedVersion: update.latestVersion,
-        serviceInstanceId: service.instanceId,
-      });
       setTimeout(() => {
         Promise.resolve(service.onRestart()).catch((error) => console.error("[work] Restart after update failed:", error));
       }, 100).unref();
+      return [202, { updating: true, installedVersion: update.latestVersion, serviceInstanceId: service.instanceId }];
     } catch (error) {
       service.updatePending = false;
       throw new WorkspaceError(`The npm update could not be installed: ${error.message}`, {
@@ -721,316 +456,170 @@ async function handleRequest(workspaces, service, request, response) {
         status: 502,
       });
     }
-    return;
-  }
+  }),
+];
 
-  if (method === "GET" && url.pathname === "/api/ai/settings") {
-    sendJson(request, response, 200, await getAiSettings(service.aiConfigFile, service.aiCredentialStore));
-    return;
-  }
-
-  if (method === "PATCH" && url.pathname === "/api/ai/settings") {
-    if (request.headers["x-work-ai-settings"] !== "confirm") {
-      throw new WorkspaceError("Saving AI settings requires explicit local confirmation.", { code: "ai_settings_confirmation_required", status: 403 });
-    }
-    sendJson(request, response, 200, await saveAiSettings(await readJsonBody(request), service.aiConfigFile, service.aiCredentialStore));
-    return;
-  }
-
-  if (method === "POST" && url.pathname === "/api/ai/settings/test") {
-    sendJson(request, response, 200, await testAiSettings(service.aiConfigFile, service.aiFetch, service.aiRequestTimeoutMs, service.aiCredentialStore));
-    return;
-  }
-
-  const requestedWorkspaceId = request.headers["x-work-workspace"];
-  if (typeof requestedWorkspaceId === "string") {
-    const remoteWorkspace = service.federation.resolveRemoteWorkspace(requestedWorkspaceId);
-    if (remoteWorkspace) {
-      await proxyFederatedRequest(service, remoteWorkspace, url, request, response);
+const WORKSPACE_ROUTES = [
+  route("GET", "/api/health", (c) => [200, {
+    ok: true,
+    service: {
+      instanceId: c.service.instanceId,
+      restartable: typeof c.service.onRestart === "function",
+      version: c.service.version,
+      updatePending: c.service.updatePending,
+    },
+    ...(c.service.mcp ? { mcp: { enabled: true, ready: c.service.mcp.ready, path: "/mcp" } } : {}),
+    workspace: publicWorkspace(c.workspace),
+  }]),
+  route("GET", "/api/workspace", async (c) => {
+    const snapshot = await workspaceSnapshot(c.workspace);
+    const serialized = `${JSON.stringify(snapshot)}\n`;
+    const etag = `"workspace-v1-${createHash("sha256").update(serialized).digest("base64url")}"`;
+    if (c.request.headers["if-none-match"] === etag) {
+      c.response.writeHead(304, responseHeaders(c.request, { ETag: etag }));
+      c.response.end();
       return;
     }
-  }
-
-  const workspace = selectedWorkspace(workspaces, defaultWorkspace, request);
-
-  if (method === "GET" && url.pathname === "/api/health") {
-    sendJson(request, response, 200, {
-      ok: true,
-      api: {
-        version: CLIENT_API_VERSION,
-        capabilities: ["workspace-directory", "workspace-snapshot", "workspace-etag", "artifact-mutations"],
-      },
-      service: {
-        instanceId: service.instanceId,
-        restartable: typeof service.onRestart === "function",
-        version: service.version,
-        updatePending: service.updatePending,
-      },
-      ...(service.mcp ? { mcp: { enabled: true, ready: service.mcp.ready, path: "/mcp" } } : {}),
-      workspace: { id: workspace.id, name: workspace.name, root: workspace.root },
-    });
-    return;
-  }
-  if (method === "GET" && url.pathname === "/api/workspace") {
-    sendWorkspaceSnapshot(request, response, await workspaceSnapshot(workspace));
-    return;
-  }
-  if (method === "GET" && url.pathname === "/api/projects") {
-    sendJson(request, response, 200, { projects: await discoverProjects(workspace.root) });
-    return;
-  }
-  if (method === "POST" && url.pathname === "/api/projects") {
-    const body = await readJsonBody(request);
-    sendJson(request, response, 201, await initializeProject(workspace, body?.projectPath));
-    return;
-  }
-  if (method === "POST" && url.pathname === "/api/ai/proposals") {
-    sendJson(request, response, 200, await createAiProposal(workspace, await readJsonBody(request), {
-      configPath: service.aiConfigFile,
-      fetchImpl: service.aiFetch,
-      timeoutMs: service.aiRequestTimeoutMs,
-      credentialStore: service.aiCredentialStore,
-    }));
-    return;
-  }
-  if (method === "POST" && url.pathname === "/api/ai/apply") {
-    if (request.headers["x-work-ai-apply"] !== "confirm") {
-      throw new WorkspaceError("Applying an AI proposal requires explicit confirmation.", { code: "ai_apply_confirmation_required", status: 403 });
-    }
-    const body = await readJsonBody(request);
-    if (body.confirm !== true || !body.proposal || typeof body.proposal !== "object") {
-      throw new WorkspaceError("Applying an AI proposal requires confirm: true and the proposal preview.", { code: "ai_apply_confirmation_required" });
-    }
-    const proposal = body.proposal;
-    const projects = await discoverProjects(workspace.root);
-    if (proposal.artifactType === "task") {
-      const task = await getTask(workspace, proposal.artifactId);
-      const patch = selectedProposalPatch(proposal, body.selectedFields, task);
-      sendJson(request, response, 200, await updateTask(workspace, task.id, patch, projects));
-      return;
-    }
-    if (proposal.artifactType === "idea") {
-      const idea = (await listIdeas(workspace)).find((item) => item.id === proposal.artifactId);
-      if (!idea) throw new WorkspaceError(`Idea not found: ${proposal.artifactId}`, { code: "idea_not_found", status: 404 });
-      const patch = selectedProposalPatch(proposal, body.selectedFields, idea);
-      sendJson(request, response, 200, await updateIdea(workspace, idea.id, patch, projects));
-      return;
-    }
-    throw new WorkspaceError("That AI proposal artifact is not supported.", { code: "invalid_ai_proposal" });
-  }
-  if (method === "PATCH" && url.pathname === "/api/projects/profile") {
-    const body = await readJsonBody(request);
-    const projects = await discoverProjects(workspace.root);
-    sendJson(request, response, 200, await updateProjectProfile(workspace, body?.projectPath, body, projects));
-    return;
-  }
-  if (method === "GET" && url.pathname === "/api/files/directory") {
-    sendJson(request, response, 200, await listFiles(workspace, {
-      scopePath: url.searchParams.get("scopePath") ?? ".",
-      path: url.searchParams.get("path") ?? ".",
-    }));
-    return;
-  }
-  if (method === "GET" && url.pathname === "/api/files/content") {
-    sendJson(request, response, 200, await readFilePreview(workspace, {
-      scopePath: url.searchParams.get("scopePath") ?? ".",
-      path: url.searchParams.get("path"),
-    }));
-    return;
-  }
-  if (method === "GET" && url.pathname === "/api/captures") {
-    sendJson(request, response, 200, { captures: await listCaptures(workspace) });
-    return;
-  }
-  if (method === "POST" && url.pathname === "/api/captures") {
-    const body = await readJsonBody(request);
-    const projects = await discoverProjects(workspace.root);
-    sendJson(request, response, 201, await createCapture(workspace, body, projects));
-    return;
-  }
-  const captureId = routeId(url.pathname, "captures");
-  if (method === "PATCH" && captureId) {
-    const body = await readJsonBody(request);
-    const projects = await discoverProjects(workspace.root);
-    sendJson(request, response, 200, await updateCaptureDestination(workspace, captureId, body, projects));
-    return;
-  }
-  if (method === "DELETE" && captureId) {
-    await deleteCapture(workspace, captureId);
-    sendEmpty(request, response);
-    return;
-  }
-  if (method === "GET" && url.pathname === "/api/notes") {
-    sendJson(request, response, 200, { notes: await listNotes(workspace) });
-    return;
-  }
-  if (method === "POST" && url.pathname === "/api/agent/notes") {
-    const agentName = requiredAgentName(request);
-    const body = await readJsonBody(request);
-    const projects = await discoverProjects(workspace.root);
-    sendJson(request, response, 201, await createNote(workspace, { ...body, agentIntent: "reference_only" }, projects, {
+    return [200, snapshot, { ETag: etag }];
+  }),
+  route("GET", "/api/needs-you", async (c) => {
+    const [tasks, issues, decisions] = await Promise.all([
+      listTasks(c.workspace),
+      listIssues(c.workspace),
+      listDecisions(c.workspace),
+    ]);
+    const entries = [
+      ...tasks.filter((task) => task.status === "blocked").map((task) => ({ type: "task", id: task.id, title: task.title, updatedAt: task.updatedAt, projectPath: task.projectPath })),
+      ...issues.filter((issue) => issue.state === "needs_human").map((issue) => ({ type: "issue", id: issue.id, title: issue.title, updatedAt: issue.updatedAt, projectPath: issue.projectPath })),
+      ...decisions.filter((decision) => decision.status === "open").map((decision) => ({ type: "decision", id: decision.id, title: decision.title, updatedAt: decision.updatedAt, projectPath: decision.projectPath })),
+    ].sort((left, right) => (right.updatedAt ?? "").localeCompare(left.updatedAt ?? ""));
+    return [200, { entries }];
+  }),
+  route("GET", "/api/projects", async (c) => [200, { projects: await c.projects() }]),
+  route("POST", "/api/projects", async (c) => {
+    const body = await c.body();
+    return [201, body?.projectPath == null && body?.name != null
+      ? await createProject(c.workspace, { name: body.name, parentPath: body.parentPath })
+      : await initializeProject(c.workspace, body?.projectPath)];
+  }),
+  route("DELETE", "/api/projects", async (c) => {
+    // Human-only: a request carrying X-Work-Agent is rejected inside
+    // deleteProject with project_delete_forbidden (same guard style as
+    // agent_task_edit_forbidden in updateTask).
+    const agentName = optionalAgentName(c.request);
+    const projectPath = c.url.searchParams.get("projectPath") ?? (await c.body())?.projectPath;
+    return [200, await deleteProject(c.workspace, projectPath, { agentName })];
+  }),
+  route("PATCH", "/api/projects/profile", async (c) => {
+    const body = await c.body();
+    return [200, await updateProjectProfile(c.workspace, body?.projectPath, body, await c.projects())];
+  }),
+  route("GET", "/api/files/directory", async (c) => [200, await listFiles(c.workspace, {
+    scopePath: c.url.searchParams.get("scopePath") ?? ".",
+    path: c.url.searchParams.get("path") ?? ".",
+  })]),
+  route("GET", "/api/files/content", async (c) => [200, await readFilePreview(c.workspace, {
+    scopePath: c.url.searchParams.get("scopePath") ?? ".",
+    path: c.url.searchParams.get("path"),
+  })]),
+  route("GET", "/api/captures", async (c) => [200, { captures: await listCaptures(c.workspace) }]),
+  route("POST", "/api/captures", async (c) => [201, await createCapture(c.workspace, await c.body(), await c.projects())]),
+  route("PATCH", "/api/captures/{id}", async (c) => [200, await updateCaptureDestination(c.workspace, c.id, await c.body(), await c.projects())]),
+  route("DELETE", "/api/captures/{id}", async (c) => {
+    await deleteCapture(c.workspace, c.id);
+    sendEmpty(c.request, c.response);
+  }),
+  route("GET", "/api/notes", async (c) => [200, { notes: await listNotes(c.workspace) }]),
+  route("POST", "/api/agent/notes", async (c) => {
+    const agentName = requiredAgentName(c.request);
+    return [201, await createNote(c.workspace, await c.body(), await c.projects(), {
       createdBy: { kind: "agent", name: agentName },
-    }));
-    return;
-  }
-  const agentNoteId = routeId(url.pathname, "agent/notes");
-  if (method === "PATCH" && agentNoteId) {
-    const agentName = requiredAgentName(request);
-    sendJson(request, response, 200, await updateNote(workspace, agentNoteId, await readJsonBody(request), { agentName }));
-    return;
-  }
-  if (method === "DELETE" && agentNoteId) {
-    const agentName = requiredAgentName(request);
-    await deleteNote(workspace, agentNoteId, { agentName });
-    sendEmpty(request, response);
-    return;
-  }
-  if (method === "POST" && url.pathname === "/api/notes") {
-    const body = await readJsonBody(request);
-    const projects = await discoverProjects(workspace.root);
-    sendJson(request, response, 201, await createNote(workspace, body, projects));
-    return;
-  }
-  const noteId = routeId(url.pathname, "notes");
-  if (method === "PATCH" && noteId) {
-    sendJson(request, response, 200, await updateNote(workspace, noteId, await readJsonBody(request)));
-    return;
-  }
-  if (method === "DELETE" && noteId) {
-    await deleteNote(workspace, noteId);
-    sendEmpty(request, response);
-    return;
-  }
-  if (method === "GET" && url.pathname === "/api/issues") {
-    sendJson(request, response, 200, { issues: await listIssues(workspace) });
-    return;
-  }
-  if (method === "POST" && url.pathname === "/api/issues") {
-    const body = await readJsonBody(request);
-    const projects = await discoverProjects(workspace.root);
-    sendJson(request, response, 201, await createIssue(workspace, body, projects));
-    return;
-  }
-  if (method === "GET" && url.pathname === "/api/agent/issues") {
-    requiredAgentName(request);
-    sendJson(request, response, 200, { issues: await listIssues(workspace) });
-    return;
-  }
-  const issueReplyId = routeId(url.pathname, "issues", "/replies");
-  if (method === "POST" && issueReplyId) {
-    sendJson(request, response, 200, await replyToIssue(workspace, issueReplyId, await readJsonBody(request)));
-    return;
-  }
-  const issueStateId = routeId(url.pathname, "issues", "/state");
-  if (method === "POST" && issueStateId) {
-    sendJson(request, response, 200, await updateIssueState(workspace, issueStateId, await readJsonBody(request)));
-    return;
-  }
-  const agentIssueClaimId = routeId(url.pathname, "agent/issues", "/claim");
-  if (method === "POST" && agentIssueClaimId) {
-    const agentName = requiredAgentName(request);
-    sendJson(request, response, 200, await claimIssue(workspace, agentIssueClaimId, agentName));
-    return;
-  }
-  const agentIssueReplyId = routeId(url.pathname, "agent/issues", "/replies");
-  if (method === "POST" && agentIssueReplyId) {
-    const agentName = requiredAgentName(request);
-    sendJson(request, response, 200, await replyToIssue(workspace, agentIssueReplyId, await readJsonBody(request), { agentName }));
-    return;
-  }
-  const agentIssueStateId = routeId(url.pathname, "agent/issues", "/state");
-  if (method === "POST" && agentIssueStateId) {
-    const agentName = requiredAgentName(request);
-    sendJson(request, response, 200, await updateIssueState(workspace, agentIssueStateId, await readJsonBody(request), { agentName }));
-    return;
-  }
-  const agentIssueId = routeId(url.pathname, "agent/issues");
-  if (method === "GET" && agentIssueId) {
-    requiredAgentName(request);
-    sendJson(request, response, 200, await getIssue(workspace, agentIssueId));
-    return;
-  }
-  const issueId = routeId(url.pathname, "issues");
-  if (method === "GET" && issueId) {
-    sendJson(request, response, 200, await getIssue(workspace, issueId));
-    return;
-  }
-  if (method === "GET" && url.pathname === "/api/ideas") {
-    sendJson(request, response, 200, { ideas: await listIdeas(workspace) });
-    return;
-  }
-  if (method === "POST" && url.pathname === "/api/ideas") {
-    const body = await readJsonBody(request);
-    const projects = await discoverProjects(workspace.root);
-    sendJson(request, response, 201, await createIdea(workspace, body, projects));
-    return;
-  }
-  const ideaId = routeId(url.pathname, "ideas");
-  if (method === "PATCH" && ideaId) {
-    const body = await readJsonBody(request);
-    const projects = await discoverProjects(workspace.root);
-    sendJson(request, response, 200, await updateIdea(workspace, ideaId, body, projects));
-    return;
-  }
-  if (method === "DELETE" && ideaId) {
-    await deleteIdea(workspace, ideaId);
-    sendEmpty(request, response);
-    return;
-  }
-  if (method === "GET" && url.pathname === "/api/decisions") {
-    sendJson(request, response, 200, { decisions: await listDecisions(workspace) });
-    return;
-  }
-  if (method === "POST" && url.pathname === "/api/decisions") {
-    const body = await readJsonBody(request);
-    const projects = await discoverProjects(workspace.root);
-    sendJson(request, response, 201, await createDecision(workspace, body, projects));
-    return;
-  }
-  const decisionId = routeId(url.pathname, "decisions", "/actions");
-  if (method === "POST" && decisionId) {
-    const body = await readJsonBody(request);
-    const projects = await discoverProjects(workspace.root);
-    sendJson(request, response, 200, await applyDecisionAction(workspace, decisionId, body, projects));
+    })];
+  }),
+  route("PATCH", "/api/agent/notes/{id}", async (c) => {
+    const agentName = requiredAgentName(c.request);
+    return [200, await updateNote(c.workspace, c.id, await c.body(), { agentName })];
+  }),
+  route("DELETE", "/api/agent/notes/{id}", async (c) => {
+    const agentName = requiredAgentName(c.request);
+    await deleteNote(c.workspace, c.id, { agentName });
+    sendEmpty(c.request, c.response);
+  }),
+  route("POST", "/api/notes", async (c) => [201, await createNote(c.workspace, await c.body(), await c.projects())]),
+  route("PATCH", "/api/notes/{id}", async (c) => [200, await updateNote(c.workspace, c.id, await c.body())]),
+  route("DELETE", "/api/notes/{id}", async (c) => {
+    await deleteNote(c.workspace, c.id);
+    sendEmpty(c.request, c.response);
+  }),
+  route("GET", "/api/issues", async (c) => [200, { issues: filterUpdatedSince(await listIssues(c.workspace), c.url) }]),
+  route("POST", "/api/issues", async (c) => [201, await createIssue(c.workspace, await c.body(), await c.projects())]),
+  route("GET", "/api/agent/issues", async (c) => {
+    requiredAgentName(c.request);
+    return [200, { issues: filterUpdatedSince(await listIssues(c.workspace), c.url) }];
+  }),
+  route("POST", "/api/agent/issues", async (c) => {
+    const agentName = requiredAgentName(c.request);
+    return [201, await createIssue(c.workspace, await c.body(), await c.projects(), { agentName })];
+  }),
+  route("POST", "/api/issues/{id}/replies", async (c) => [200, await replyToIssue(c.workspace, c.id, await c.body())]),
+  route("POST", "/api/issues/{id}/state", async (c) => [200, await updateIssueState(c.workspace, c.id, await c.body())]),
+  route("POST", "/api/agent/issues/{id}/claim", async (c) => [200, await claimIssue(c.workspace, c.id, requiredAgentName(c.request))]),
+  route("POST", "/api/agent/issues/{id}/replies", async (c) => {
+    const agentName = requiredAgentName(c.request);
+    return [200, await replyToIssue(c.workspace, c.id, await c.body(), { agentName })];
+  }),
+  route("POST", "/api/agent/issues/{id}/state", async (c) => {
+    const agentName = requiredAgentName(c.request);
+    return [200, await updateIssueState(c.workspace, c.id, await c.body(), { agentName })];
+  }),
+  route("GET", "/api/agent/issues/{id}", async (c) => {
+    requiredAgentName(c.request);
+    return [200, await getIssue(c.workspace, c.id)];
+  }),
+  route("GET", "/api/issues/{id}", async (c) => [200, await getIssue(c.workspace, c.id)]),
+  route("PATCH", "/api/issues/{id}", async (c) => [200, await updateIssue(c.workspace, c.id, await c.body())]),
+  route("GET", "/api/decisions", async (c) => [200, { decisions: await listDecisions(c.workspace) }]),
+  route("POST", "/api/decisions", async (c) => [201, await createDecision(c.workspace, await c.body(), await c.projects())]),
+  route("POST", "/api/decisions/{id}/actions", async (c) => [200, await applyDecisionAction(c.workspace, c.id, await c.body(), await c.projects())]),
+  route("GET", "/api/tasks", async (c) => [200, { tasks: filterUpdatedSince(await listTasks(c.workspace), c.url) }]),
+  route("POST", "/api/tasks", async (c) => [201, await createTask(c.workspace, await c.body(), await c.projects())]),
+  route("GET", "/api/tasks/{id}", async (c) => [200, await getTask(c.workspace, c.id)]),
+  route("PATCH", "/api/tasks/{id}", async (c) => [200, await updateTask(c.workspace, c.id, await c.body(), await c.projects(), { agentName: optionalAgentName(c.request) })]),
+  route("POST", "/api/tasks/{id}/move", async (c) => {
+    const agentName = optionalAgentName(c.request);
+    return [200, await moveTask(c.workspace, c.id, await c.body(), { agentName })];
+  }),
+  route("POST", "/api/tasks/{id}/checklist", async (c) => [200, await toggleTaskChecklist(c.workspace, c.id, await c.body())]),
+  route("POST", "/api/tasks/{id}/log", async (c) => [200, await appendTaskLog(c.workspace, c.id, await c.body())]),
+];
+
+async function handleRequest(workspaces, service, request, response) {
+  const url = new URL(request.url ?? "/", `http://${request.headers.host}`);
+  assertLocalRequest(request, service.host);
+
+  if (url.pathname === "/mcp" || url.pathname === "/mcp/") {
+    proxyMcpRequest(service, request, response);
     return;
   }
 
-  if (method === "GET" && url.pathname === "/api/tasks") {
-    sendJson(request, response, 200, { tasks: await listTasks(workspace) });
+  if (request.method === "OPTIONS") {
+    response.writeHead(
+      204,
+      responseHeaders(request, {
+        "Access-Control-Allow-Headers": "Content-Type, If-None-Match, X-Work-Agent, X-Work-Folder-Picker, X-Work-Restart, X-Work-Unregister, X-Work-Workspace",
+        "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
+        "Access-Control-Max-Age": "600",
+      }),
+    );
+    response.end();
     return;
   }
-  if (method === "POST" && url.pathname === "/api/tasks") {
-    const body = await readJsonBody(request);
-    const projects = await discoverProjects(workspace.root);
-    sendJson(request, response, 201, await createTask(workspace, body, projects));
-    return;
-  }
-  const taskId = routeId(url.pathname, "tasks");
-  if (method === "GET" && taskId) {
-    sendJson(request, response, 200, await getTask(workspace, taskId));
-    return;
-  }
-  if (method === "PATCH" && taskId) {
-    const body = await readJsonBody(request);
-    const projects = await discoverProjects(workspace.root);
-    sendJson(request, response, 200, await updateTask(workspace, taskId, body, projects));
-    return;
-  }
-  const moveTaskId = routeId(url.pathname, "tasks", "/move");
-  if (method === "POST" && moveTaskId) {
-    sendJson(request, response, 200, await moveTask(workspace, moveTaskId, await readJsonBody(request)));
-    return;
-  }
-  const checklistTaskId = routeId(url.pathname, "tasks", "/checklist");
-  if (method === "POST" && checklistTaskId) {
-    sendJson(request, response, 200, await toggleTaskChecklist(workspace, checklistTaskId, await readJsonBody(request)));
-    return;
-  }
-  const logTaskId = routeId(url.pathname, "tasks", "/log");
-  if (method === "POST" && logTaskId) {
-    sendJson(request, response, 200, await appendTaskLog(workspace, logTaskId, await readJsonBody(request)));
-    return;
-  }
+
+  const base = { request, response, url, service, workspaces, body: () => readJsonBody(request) };
+  if (await dispatch(SERVICE_ROUTES, base)) return;
+
+  const workspace = selectedWorkspace(workspaces, service.defaultWorkspace, request);
+  if (await dispatch(WORKSPACE_ROUTES, { ...base, workspace, projects: () => discoverProjects(workspace.root) })) return;
 
   sendJson(request, response, 404, { error: { code: "not_found", message: "API route not found." } });
 }
@@ -1051,21 +640,12 @@ export async function startLocalApi({
   defaultWorkspaceId = null,
   port = DEFAULT_PORT,
   host = LOOPBACK_HOST,
-  forceNewWorkspace = false,
   onRestart = null,
   version = null,
   checkForUpdate = null,
   onUpdate = null,
   pickWorkspaceDirectory = chooseWorkspaceDirectory,
   registryPath = undefined,
-  aiConfigFile = undefined,
-  aiFetch = fetch,
-  aiRequestTimeoutMs = 30_000,
-  aiCredentialStore = undefined,
-  federationConfigFile = null,
-  federationCredentialStore = undefined,
-  federationFetch = fetch,
-  federationRequestTimeoutMs = 5_000,
   fallbackOnPortConflict = false,
 } = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
@@ -1074,40 +654,11 @@ export async function startLocalApi({
   if (host !== LOOPBACK_HOST && !isTailscaleIPv4(host)) {
     throw new WorkspaceError("host must be 127.0.0.1 or a Tailscale IPv4 address.", { code: "invalid_listen_host" });
   }
-  if (onRestart != null && typeof onRestart !== "function") {
-    throw new WorkspaceError("onRestart must be a function.", { code: "invalid_restart_handler" });
-  }
-  if (checkForUpdate != null && typeof checkForUpdate !== "function") {
-    throw new WorkspaceError("checkForUpdate must be a function.", { code: "invalid_update_checker" });
-  }
-  if (onUpdate != null && typeof onUpdate !== "function") {
-    throw new WorkspaceError("onUpdate must be a function.", { code: "invalid_update_handler" });
-  }
-  if (typeof pickWorkspaceDirectory !== "function") {
-    throw new WorkspaceError("pickWorkspaceDirectory must be a function.", { code: "invalid_folder_picker" });
-  }
-  if (typeof aiFetch !== "function") throw new WorkspaceError("aiFetch must be a function.", { code: "invalid_ai_fetch" });
-  if (aiCredentialStore != null && (!["get", "set", "delete"].every((method) => typeof aiCredentialStore[method] === "function"))) {
-    throw new WorkspaceError("aiCredentialStore must provide get, set, and delete methods.", { code: "invalid_ai_credential_store" });
-  }
-  if (!Number.isInteger(aiRequestTimeoutMs) || aiRequestTimeoutMs < 1) throw new WorkspaceError("aiRequestTimeoutMs must be a positive integer.", { code: "invalid_ai_timeout" });
-  if (typeof federationFetch !== "function") throw new WorkspaceError("federationFetch must be a function.", { code: "invalid_federation_fetch" });
-  if (federationCredentialStore != null && (!["get", "set", "delete"].every((method) => typeof federationCredentialStore[method] === "function"))) {
-    throw new WorkspaceError("federationCredentialStore must provide keyed get, set, and delete methods.", { code: "invalid_federation_credential_store" });
-  }
-  if (!Number.isInteger(federationRequestTimeoutMs) || federationRequestTimeoutMs < 1) {
-    throw new WorkspaceError("federationRequestTimeoutMs must be a positive integer.", { code: "invalid_federation_timeout" });
-  }
-  if (typeof fallbackOnPortConflict !== "boolean") {
-    throw new WorkspaceError("fallbackOnPortConflict must be a boolean.", { code: "invalid_port_fallback" });
-  }
   const requestedDirectory = await realpath(root);
   const initialRoots = Array.isArray(roots) && roots.length > 0 ? roots : [root];
   const initialized = [];
   for (const candidate of initialRoots) {
-    initialized.push(await initializeWorkspace(candidate, {
-      force: forceNewWorkspace && resolve(candidate) === resolve(root),
-    }));
+    initialized.push(await initializeWorkspace(candidate));
   }
   const workspaces = new Map(initialized.map((item) => [item.id, item]));
   const workspace = (defaultWorkspaceId && workspaces.get(defaultWorkspaceId)) ?? initialized.find((item) => item.root === requestedDirectory) ?? initialized[0];
@@ -1118,14 +669,6 @@ export async function startLocalApi({
     : relativeStart !== ".." && !relativeStart.startsWith(`..${sep}`) && !isAbsolute(relativeStart)
       ? await validateProjectScopePath(workspace.root, relativeStart.split(sep).join("/"), projects)
       : ".";
-  const federation = await new FederationManager({
-    configPath: federationConfigFile,
-    ...(federationCredentialStore ? { credentialStore: federationCredentialStore } : {}),
-    fetchImpl: federationFetch,
-    timeoutMs: federationRequestTimeoutMs,
-    serviceVersion: version,
-    localWorkspaces: () => [...workspaces.values()],
-  }).initialize();
   const service = {
     instanceId: randomUUID(),
     host,
@@ -1139,11 +682,6 @@ export async function startLocalApi({
     updateStatus: null,
     pickWorkspaceDirectory,
     registryPath,
-    aiConfigFile,
-    aiFetch,
-    aiRequestTimeoutMs,
-    aiCredentialStore,
-    federation,
     mcp: null,
   };
   const server = createServer((request, response) => {
@@ -1177,7 +715,6 @@ export async function startLocalApi({
   const address = server.address();
   const selectedPort = typeof address === "object" && address ? address.port : port;
   const origin = `http://${host}:${selectedPort}`;
-  service.origin = origin;
   return {
     server,
     origin,

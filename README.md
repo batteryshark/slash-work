@@ -1,14 +1,15 @@
 # Work
 
-![Work logo](public/logo.svg)
+![Work logo](docs/logo.svg)
 
-![Work: capture anything and continue without reconstructing context](public/og.png)
+![Work: capture anything and continue without reconstructing context](docs/og.png)
 
-Work stores project tasks, captures, ideas, notes, issues, and decisions as local
-files for people and agent teams managing many repositories. The home screen
-prioritizes capture and resumption; Issues provide durable human-agent
-conversations, while Ideas, Board, Files, and Activity expose possibilities,
-current work, a read-only source reference, and durable history.
+Work stores project tasks, captures, notes, issues, and decisions as local
+files for people managing many repositories. Agents connect as attributed
+clients through the MCP server, the REST API, or the `work` CLI. The home screen
+prioritizes capture and resumption; Issues provide durable conversations, while
+Notes, Board, Files, and Activity expose reference material, current work, a
+read-only source reference, and durable history.
 
 Requires Node.js 22.13 or newer and npm.
 
@@ -29,7 +30,7 @@ included.
     </td>
     <td width="50%">
       <strong>Keep reference notes beside the project</strong><br><br>
-      <img src="docs/screenshots/notes.jpg" alt="Work notes view showing reference notes and an explicit agent review request">
+      <img src="docs/screenshots/notes.jpg" alt="Work notes view showing plain-text reference notes beside the project">
     </td>
   </tr>
   <tr>
@@ -98,16 +99,15 @@ permit to reach the machine can use and modify the selected Work roots.
 
 The repository includes a first-class SwiftUI client in the
 [`ios/` source directory](https://github.com/batteryshark/slash-work/tree/main/ios).
-It connects to the API URL printed by `work --tailscale`, discovers local and
-federated workspaces, and provides native Home, Board, Capture, Ideas, Notes,
+It connects to the API URL printed by `work --tailscale`, discovers the
+registered workspaces, and provides native Home, Board, Capture, Notes,
 Issues, Inbox, task, and decision experiences. The app remembers multiple Work
 instances, uses conditional snapshot refreshes, and retains the last snapshot
 for clearly marked read-only access when a machine is offline.
 
 Open `ios/Work.xcodeproj` in Xcode, select your development team, and install it
 on an iPhone or iPad connected to the same tailnet. The app relies on the same
-Tailscale membership and ACL boundary as the browser UI; it does not copy
-federation credentials or AI provider keys onto the phone.
+Tailscale membership and ACL boundary as the browser UI.
 
 On first launch, the selected directory becomes the workspace root. On later
 launches inside one of its descendants, Work finds the nearest ancestor
@@ -155,40 +155,6 @@ projects below it, but it does not scan its parent or siblings. Switching the
 picker changes the boundary for that browser; records from different roots are
 never combined.
 
-### Connect another Work instance
-
-Work can use one local instance as a gateway to selected workspaces owned by
-another machine. Open the slash system menu and choose **Manage connections**.
-On the owning machine, create a labeled access key and select the roots it may
-expose. On the consuming machine, paste the owner's reachable Work URL and that
-key. Its workspaces then appear in the ordinary workspace picker with their
-instance name and online state.
-
-The owner must already be reachable through infrastructure you control, such
-as the tailnet API URL printed by `work --tailscale`. The connection panel on
-that instance also shows the exact URL to copy. Work never establishes a relay
-or binds a wildcard or ordinary LAN address. Connections are one-way; repeat
-the exchange in reverse when each machine should act as a gateway to the other.
-
-These are two related but different access boundaries. Tailscale membership
-and ACLs determine who can reach the full Work UI and API on that machine. The
-federation access key determines which selected roots another Work instance
-may import through its own gateway; it does not narrow direct access already
-permitted by your Tailscale ACLs.
-
-Remote files are never copied or synchronized. Browser and agent requests keep
-using the local Work origin and the exact workspace ID returned by
-`GET /api/workspaces`; the local service forwards each allowlisted operation to
-the owning instance. Access is limited to one hop, so a connected server never
-exposes its own peers. Keys are individually revocable and workspace-scoped.
-The owner stores only a key hash, while the consuming instance keeps the full
-outgoing key in the operating system credential store.
-
-Federation is never on the local startup path. Work opens with local roots and
-cached remote names immediately, refreshes peers in the background, and marks
-only the affected peer unavailable when its server or native credential store
-cannot respond within a bounded deadline.
-
 Projects are explicit. The preferred marker is a project-owned `.work/`
 directory containing `project.json`. Initialize it by creating the directory;
 Work writes the marker the next time it discovers the project. Existing empty
@@ -207,29 +173,18 @@ the CLI or UI is launched from a linked worktree.
 ## What is saved
 
 Work keeps human-readable Markdown beside the thing it describes. The selected
-root's `.work/` contains `workspace.json` plus unassigned captures, ideas,
+root's `.work/` contains `workspace.json` plus unassigned captures,
 notes, issues, tasks, and decisions. Every project has its own
-`.work/project.json`, `.work/tasks/`, `.work/captures/`, `.work/ideas/`,
+`.work/project.json`, `.work/tasks/`, `.work/captures/`,
 `.work/notes/`, `.work/issues/`, and `.work/decisions/`.
-Notes use a plain-text body with a small metadata header so both people and
-agents can read them without a special editor. Every note records an explicit
-`agentIntent`: `reference_only` means context, never an instruction, while
-`review_requested` asks an agent to review it promptly without authorizing
-execution. Assigning or reassigning a
+Notes use a plain-text body with a small metadata header so they stay readable
+without a special editor. Notes are context, never instructions; agent-created
+notes record who contributed them. Assigning or reassigning a
 record moves its file to the owning project; moving the whole project folder
 therefore moves its work and history too. Everything survives browser
 refreshes, server restarts, and a different browser on the same computer.
 Browser storage may remember harmless interface preferences, but it is not the
 source of truth for work.
-
-AI credentials are the exception to the Markdown store: the API key stays in
-the machine's native credential store (macOS Keychain, Windows Credential
-Manager, or Linux Secret Service). `~/.work/ai.json` contains only non-secret
-provider settings. A headless service can use `WORK_AI_API_KEY` instead. The
-browser sees whether a key is configured and its last four characters, but the
-service never returns the key itself. This one-shot assistant does not run
-tools or hold a conversation; use your normal agent harness when work needs
-repository access, iterative discussion, or execution.
 
 This means the workspace can be backed up, searched, inspected, and versioned
 with ordinary file tools. Deleting browser data does not delete the work log.
@@ -244,33 +199,18 @@ Do not commit `.work/` if the workspace contains private operational notes.
   opening a form, or promote any Inbox thought with **Make task**.
 - Open **Notes** for longer plain-text thoughts. Create or select an individual
   note, write without formatting, and let Work save it beside the current
-  project. Notes are reference-only by default. **Ask agent to review** marks a
-  note for prompt review; use a task card when you want execution. Deleting a
-  note requires a second confirmation.
-- Open **Ideas** when a thought is worth evaluating but is not yet a proposal,
-  decision, or task. **Ask agent to evaluate** authorizes analysis only—never
-  implementation. Mark an idea **Not now** or **Closed** with a durable reason,
-  or develop it toward a proposal and scoped work later.
-- Open **Issues** when you want an agent to investigate a free-form problem and
-  reply asynchronously. A title, category, priority, and assignee are never
-  required. Issue messages support Markdown and code blocks, and the complete
-  conversation remains beside the project. Filing an issue authorizes
-  investigation and replies, not repository changes; create a task when you
-  authorize execution.
+  project. Notes are reference material, never instructions; use a task card
+  when you want execution. Deleting a note requires a second confirmation.
+- Open **Issues** to record a free-form problem and keep its conversation
+  beside the project. A title, category, priority, and assignee are never
+  required. Issue messages support Markdown and code blocks. Filing an issue
+  authorizes investigation and replies, not repository changes; create a task
+  when you authorize execution.
 - An agent may mark an issue **Resolved** with a resolution summary, but that is
   its assessment rather than a permanent closure. Only a human can choose
   **Close**. **Reopen** remains available after either state, and a human reply
   to an issue needing input, a resolved issue, or a closed issue automatically
   returns it to the queue without discarding any conversation or state history.
-- Open the slash system menu and choose **AI assistance** to configure an
-  OpenAI-compatible or Anthropic-compatible base URL, model, and API key.
-  Magic-wand actions can draft or review a task and expand or evaluate an idea.
-  Work sends bounded context from the current project, shows a field-by-field
-  proposal, and saves only the fields you explicitly select. It never lets the
-  model change lifecycle state or silently mutate a record. Self-hosted AI
-  endpoints may explicitly allow a self-signed HTTPS certificate; certificate
-  verification remains enabled by default and is disabled only for that
-  configured endpoint.
 - Open **Files** for a read-only, scope-bound tree and text preview. Language
   badges and Git markers make modified, added, and untracked files easy to
   spot. A project with linked worktrees gets an explicit checkout selector so
@@ -303,7 +243,6 @@ Agents and terminal users use the same records:
 ```bash
 work agent
 work projects
-work idea "Federate remote Work instances" --detail "Explore read-only project trees across servers"
 work task "Implement the board" --project software/rekit --priority high
 work task "Workspace-wide maintenance" --unassigned
 work move W-0001 in_progress --note "UI team started"
@@ -324,9 +263,7 @@ work agent context --json
 work projects --json
 work agent operations
 work agent instructions tasks.create
-work agent instructions notes.request-review --json
 work agent instructions issues.reply --json
-work agent schema task
 ```
 
 The operation index stays small; the agent loads rules and input schemas only
@@ -354,9 +291,8 @@ filesystem fallback only when needed.
 See [`docs/LOCAL-WORKSPACE.md`](docs/LOCAL-WORKSPACE.md) for discovery,
 containment, storage, and recovery details.
 Automations that write the filesystem records directly should follow the
-[`Work Artifact Markdown Contract`](docs/ARTIFACT-SCHEMA.md) and validate their
-logical payloads with
-[`schemas/work-artifact.schema.json`](schemas/work-artifact.schema.json).
+[`Work Artifact Markdown Contract`](docs/ARTIFACT-SCHEMA.md); the enforced
+input rules for each mutation live in the `work agent instructions` catalog.
 
 ## Development and validation
 

@@ -1,22 +1,25 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { realpath } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { createReadStream } from "node:fs";
+import { realpath, stat } from "node:fs/promises";
+import { createServer, request as httpRequest } from "node:http";
+import { dirname, extname, isAbsolute, join, normalize, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 import {
   WorkspaceError,
   appendTaskLog,
   createCapture,
   createDecision,
-  createIdea,
+  createProject,
   createTask,
+  deleteProject,
   discoverProjects,
   findWorkspaceRoot,
   getTask,
   initializeWorkspace,
   listTasks,
-  listIdeas,
   moveTask,
   projectForScope,
   readWorkspace,
@@ -31,13 +34,10 @@ import {
 import { closeLocalApi, startLocalApi } from "../server/local-api.mjs";
 import { startMcpSidecar } from "../lib/mcp-sidecar.mjs";
 import { createServiceUpdater } from "../lib/service-updater.mjs";
-import { federationConfigPath } from "../lib/instance-federation.mjs";
 import { discoverTailscaleIPv4 } from "../lib/tailscale-network.mjs";
-import { createServer as createViteServer } from "vite";
 import {
   getAgentIndex,
   getAgentOperation,
-  getArtifactSchema,
   listAgentOperations,
   renderAgentIndexMarkdown,
   renderAgentOperationMarkdown,
@@ -58,14 +58,13 @@ Usage:
   work unregister <id|root>           Remove a root from the web workspace picker
   work roots                          List roots available to the web workspace picker
   work projects                       List exact projects in the current workspace
+  work new "Name" [--under rel/path]  Create a project folder and marker from a name
+  work remove <rel-path>              Remove a project from Work (folder deleted only when empty)
   work agent                          Print capabilities and resolved local context
   work agent context                  Print only the resolved local context
   work agent operations               List available task-scoped operations
   work agent instructions <operation> Print instructions for one operation
-  work agent schema <artifact>        Print one artifact's JSON Schema
   work add "thought" [options]        Capture from any workspace descendant
-  work idea "title" [options]         Record something worth evaluating
-  work ideas                           List ideas and their states
   work decision "question" [options] Create a decision from any descendant
   work task "title" [options]         Create a full Kanban work item
   work list                            List work items in the current root
@@ -77,6 +76,7 @@ Usage:
 Options:
   --root <path>       Select a root (otherwise search upward from the current directory)
   --scope <path>      Override the invocation directory's folder scope
+  --under <path>      Parent directory for work new (workspace-relative; default: root)
   --project <path>    Assign to this exact discovered project
   --unassigned        Keep new work at workspace scope instead of the current project
   --kind <kind>       idea, question, or update
@@ -114,94 +114,68 @@ Examples:
   work projects
   work add "check whether the release needs a migration" --scope tools
   work add "validate the parser" --scope tools/parser --project tools/parser
-  work idea "Federate remote Work instances" --detail "Explore read-only project trees across servers"
   work decision "Where should the lab live?" --option "Keep unassigned" --option "Assign later"
   work task "Implement the board" --project tools/runner --type feature --priority high
   work move W-0001 in_progress --note "Agent team started implementation"
   work log W-0001 "API and restart tests pass"
 `;
 
-function parseArguments(argv) {
-  const options = { option: [], agent: [], tag: [], dependsOn: [], blockedBy: [], requirement: [], acceptance: [] };
-  const positionals = [];
-  const valueOptions = new Map([
-    ["--root", "root"],
-    ["--scope", "scope"],
-    ["--project", "project"],
-    ["--kind", "kind"],
-    ["--detail", "detail"],
-    ["--option", "option"],
-    ["--recommend", "recommend"],
-    ["--type", "type"],
-    ["--priority", "priority"],
-    ["--assignee", "assignee"],
-    ["--agent", "agent"],
-    ["--tag", "tag"],
-    ["--depends-on", "dependsOn"],
-    ["--blocked-by", "blockedBy"],
-    ["--status", "status"],
-    ["--goal", "goal"],
-    ["--requirement", "requirement"],
-    ["--acceptance", "acceptance"],
-    ["--plan", "plan"],
-    ["--notes", "notes"],
-    ["--note", "note"],
-    ["--api-port", "apiPort"],
-    ["--ui-port", "uiPort"],
-    ["--format", "format"],
-  ]);
+const repeatable = () => ({ type: "string", multiple: true, default: [] });
+const CLI_FLAGS = {
+  root: { type: "string" },
+  scope: { type: "string" },
+  under: { type: "string" },
+  project: { type: "string" },
+  kind: { type: "string" },
+  detail: { type: "string" },
+  option: repeatable(),
+  recommend: { type: "string" },
+  type: { type: "string" },
+  priority: { type: "string" },
+  assignee: { type: "string" },
+  agent: repeatable(),
+  tag: repeatable(),
+  "depends-on": repeatable(),
+  "blocked-by": repeatable(),
+  status: { type: "string" },
+  goal: { type: "string" },
+  requirement: repeatable(),
+  acceptance: repeatable(),
+  plan: { type: "string" },
+  notes: { type: "string" },
+  note: { type: "string" },
+  "api-port": { type: "string" },
+  "ui-port": { type: "string" },
+  format: { type: "string" },
+  "no-ui": { type: "boolean" },
+  "no-open": { type: "boolean" },
+  tailscale: { type: "boolean" },
+  mcp: { type: "boolean" },
+  unassigned: { type: "boolean" },
+  init: { type: "boolean" },
+  json: { type: "boolean" },
+  help: { type: "boolean", short: "h" },
+};
+const CLI_FLAG_NAMES = {
+  "depends-on": "dependsOn",
+  "blocked-by": "blockedBy",
+  "api-port": "apiPort",
+  "ui-port": "uiPort",
+  "no-ui": "noUi",
+  "no-open": "noOpen",
+  init: "forceInit",
+};
 
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-    if (token === "--") {
-      positionals.push(...argv.slice(index + 1));
-      break;
-    }
-    if (token === "--no-ui") {
-      options.noUi = true;
-      continue;
-    }
-    if (token === "--no-open") {
-      options.noOpen = true;
-      continue;
-    }
-    if (token === "--tailscale") {
-      options.tailscale = true;
-      continue;
-    }
-    if (token === "--mcp") {
-      options.mcp = true;
-      continue;
-    }
-    if (token === "--unassigned") {
-      options.unassigned = true;
-      continue;
-    }
-    if (token === "--init") {
-      options.forceInit = true;
-      continue;
-    }
-    if (token === "--json") {
-      options.json = true;
-      continue;
-    }
-    if (token === "--help" || token === "-h") {
-      options.help = true;
-      continue;
-    }
-    const optionName = valueOptions.get(token);
-    if (optionName) {
-      const value = argv[index + 1];
-      if (value == null || value.startsWith("--")) throw new WorkspaceError(`${token} requires a value.`);
-      if (["option", "agent", "tag", "dependsOn", "blockedBy", "requirement", "acceptance"].includes(optionName)) options[optionName].push(value);
-      else options[optionName] = value;
-      index += 1;
-      continue;
-    }
-    if (token.startsWith("--")) throw new WorkspaceError(`Unknown option: ${token}`);
-    positionals.push(token);
+function parseArguments(argv) {
+  let parsed;
+  try {
+    parsed = parseArgs({ args: argv, options: CLI_FLAGS, allowPositionals: true });
+  } catch (error) {
+    throw new WorkspaceError(error.message.split("\n")[0]);
   }
-  return { options, positionals };
+  const options = {};
+  for (const [flag, value] of Object.entries(parsed.values)) options[CLI_FLAG_NAMES[flag] ?? flag] = value;
+  return { options, positionals: parsed.positionals };
 }
 
 function parsePort(value, fallback, label) {
@@ -211,10 +185,6 @@ function parsePort(value, fallback, label) {
     throw new WorkspaceError(`${label} must be an integer between 0 and 65535.`);
   }
   return port;
-}
-
-async function selectedRoot(options, positionalRoot) {
-  return options.root ?? positionalRoot ?? process.cwd();
 }
 
 async function invocationScope(workspace) {
@@ -294,7 +264,7 @@ async function defaultProjectPath(options, workspace, projects) {
 
 async function runInit(options, positionals) {
   if (positionals.length > 1) throw new WorkspaceError("init accepts only one root path.");
-  const root = await selectedRoot(options, positionals[0]);
+  const root = options.root ?? positionals[0] ?? process.cwd();
   const workspace = await initializeWorkspace(root, { force: true });
   console.log(`Initialized Work at ${workspace.root}`);
   console.log(`Data: ${workspace.dataDir}`);
@@ -302,7 +272,7 @@ async function runInit(options, positionals) {
 
 async function runRegister(options, positionals) {
   if (positionals.length > 1) throw new WorkspaceError("register accepts only one root path.");
-  const workspace = await registerWorkspace(await selectedRoot(options, positionals[0]), { force: true });
+  const workspace = await registerWorkspace(options.root ?? positionals[0] ?? process.cwd(), { force: true });
   console.log(`Registered ${workspace.name}`);
   console.log(`Root: ${workspace.root}`);
 }
@@ -342,8 +312,8 @@ async function runProjects(options, positionals) {
   }
 }
 
-function agentOutputFormat(options, fallback = "markdown") {
-  const format = options.json ? "json" : options.format ?? fallback;
+function agentOutputFormat(options) {
+  const format = options.json ? "json" : options.format ?? "markdown";
   if (!new Set(["markdown", "json"]).has(format)) {
     throw new WorkspaceError("--format must be markdown or json.");
   }
@@ -352,59 +322,43 @@ function agentOutputFormat(options, fallback = "markdown") {
 
 async function runAgent(options, positionals) {
   const [command, value, ...extra] = positionals;
-  if (extra.length > 0) throw new WorkspaceError("agent accepts only a command and one operation or artifact name.");
+  if (extra.length > 0) throw new WorkspaceError("agent accepts only a command and one operation name.");
+  const emit = (json, markdown) => process.stdout.write(agentOutputFormat(options) === "json" ? `${JSON.stringify(json, null, 2)}\n` : markdown);
 
   if (command == null) {
-    if (value != null) throw new WorkspaceError("Unexpected agent argument.");
-    const format = agentOutputFormat(options);
     const context = await resolveLocalContext(options);
-    process.stdout.write(format === "json"
-      ? `${JSON.stringify({ ...getAgentIndex(), localContext: context }, null, 2)}\n`
-      : `${renderAgentIndexMarkdown()}\n${renderLocalContext(context)}`);
-    return;
+    return emit({ ...getAgentIndex(), localContext: context }, `${renderAgentIndexMarkdown()}\n${renderLocalContext(context)}`);
   }
-
   if (command === "context") {
     if (value != null) throw new WorkspaceError("agent context does not accept an operation name.");
     const context = await resolveLocalContext(options);
-    const format = agentOutputFormat(options);
-    process.stdout.write(format === "json" ? `${JSON.stringify(context, null, 2)}\n` : renderLocalContext(context));
-    return;
+    return emit(context, renderLocalContext(context));
   }
-
   if (command === "operations") {
     if (value != null) throw new WorkspaceError("agent operations does not accept an operation name.");
-    const format = agentOutputFormat(options);
-    process.stdout.write(format === "json" ? `${JSON.stringify(listAgentOperations(), null, 2)}\n` : renderAgentOperationsMarkdown());
-    return;
+    return emit(listAgentOperations(), renderAgentOperationsMarkdown());
   }
-
   if (command === "instructions") {
     if (!value) throw new WorkspaceError("agent instructions requires an operation name. Run `work agent operations` first.");
     const operation = getAgentOperation(value);
     if (!operation) throw new WorkspaceError(`Unknown agent operation: ${value}. Run \`work agent operations\` first.`);
-    const format = agentOutputFormat(options);
-    process.stdout.write(format === "json" ? `${JSON.stringify(operation, null, 2)}\n` : renderAgentOperationMarkdown(value));
-    return;
+    return emit(operation, renderAgentOperationMarkdown(value));
   }
+  throw new WorkspaceError(`Unknown agent command: ${command}. Use context, operations, or instructions.`);
+}
 
-  if (command === "schema") {
-    if (!value) throw new WorkspaceError("agent schema requires capture, note, idea, decision, or task.");
-    const schema = getArtifactSchema(value);
-    if (!schema) throw new WorkspaceError(`Unknown artifact type: ${value}.`);
-    const format = agentOutputFormat(options, "json");
-    const json = JSON.stringify(schema, null, 2);
-    process.stdout.write(format === "json" ? `${json}\n` : `# ${value} artifact schema\n\n\`\`\`json\n${json}\n\`\`\`\n`);
-    return;
-  }
-
-  throw new WorkspaceError(`Unknown agent command: ${command}. Use context, operations, instructions, or schema.`);
+async function runNew(options, positionals) {
+  if (positionals.length === 0) throw new WorkspaceError('new requires a project name in quotes.');
+  const workspace = await existingWorkspace(options);
+  const project = await createProject(workspace, { name: positionals.join(" "), parentPath: options.under });
+  console.log(`Created project ${project.path} (${project.name})`);
+  console.log(`Folder: ${workspace.root}/${project.path}`);
 }
 
 async function runAdd(options, positionals) {
   if (positionals.length === 0) throw new WorkspaceError("add requires a thought in quotes.");
   const text = positionals.join(" ");
-  const workspace = await initializeWorkspace(await selectedRoot(options));
+  const workspace = await currentWorkspace(options);
   const projects = await discoverProjects(workspace.root);
   const scopePath = options.scope ?? (await invocationScope(workspace));
   const projectPath = await defaultProjectPath(options, workspace, projects);
@@ -425,7 +379,7 @@ async function runAdd(options, positionals) {
 async function runDecision(options, positionals) {
   if (positionals.length === 0) throw new WorkspaceError("decision requires a question in quotes.");
   const title = positionals.join(" ");
-  const workspace = await initializeWorkspace(await selectedRoot(options));
+  const workspace = await currentWorkspace(options);
   const projects = await discoverProjects(workspace.root);
   const projectPath = await defaultProjectPath(options, workspace, projects);
   const decision = await createDecision(
@@ -443,35 +397,23 @@ async function runDecision(options, positionals) {
   console.log(decision.projectPath ? `Project: ${decision.projectPath}` : "Unassigned");
 }
 
-async function runIdea(options, positionals) {
-  if (positionals.length === 0) throw new WorkspaceError("idea requires a title in quotes.");
-  const workspace = await initializeWorkspace(await selectedRoot(options));
-  const projects = await discoverProjects(workspace.root);
-  const scopePath = options.scope ?? (await invocationScope(workspace));
-  const projectPath = await defaultProjectPath(options, workspace, projects);
-  const idea = await createIdea(workspace, {
-    title: positionals.join(" "),
-    opportunity: options.detail ?? "",
-    scopePath,
-    projectPath,
-    tags: options.tag,
-  }, projects);
-  console.log(`Created idea ${idea.id}: ${idea.title}`);
-  console.log(`${idea.status} · ${idea.projectPath ?? idea.scopePath}`);
-}
-
-async function runIdeas(options, positionals) {
-  if (positionals.length > 0) throw new WorkspaceError("ideas does not accept positional arguments.");
-  const ideas = await listIdeas(await currentWorkspace(options));
-  if (ideas.length === 0) {
-    console.log("No ideas in this root.");
-    return;
+async function runRemove(options, positionals) {
+  if (positionals.length !== 1) throw new WorkspaceError("remove requires exactly one project path.");
+  const workspace = await currentWorkspace(options);
+  const removed = await deleteProject(workspace, positionals[0]);
+  if (removed.folderRemoved) {
+    console.log(`Removed project ${removed.projectPath}. The empty folder was deleted.`);
+  } else {
+    console.log(`Removed project ${removed.projectPath} from Work. The folder was kept because it still has files.`);
   }
-  for (const idea of ideas) console.log(`${idea.id}\t${idea.status}\t${idea.projectPath ?? idea.scopePath}\t${idea.title}`);
 }
 
 async function currentWorkspace(options) {
-  return initializeWorkspace(await selectedRoot(options));
+  const root = options.root ?? process.cwd();
+  if (!(await findWorkspaceRoot(root))) {
+    throw new WorkspaceError("No Work workspace contains this directory. Run `work init` first, or run this command from inside a workspace.");
+  }
+  return initializeWorkspace(root);
 }
 
 async function runTask(options, positionals) {
@@ -536,6 +478,100 @@ async function runLog(options, positionals) {
   console.log(`Logged progress on ${task.id}`);
 }
 
+const UI_MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".ico": "image/x-icon",
+  ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".woff2": "font/woff2",
+};
+
+// Serves the prebuilt dist/ statically and proxies /api to the local API,
+// mirroring the host discipline of server/local-api.mjs. The API keeps its own
+// Host/Origin validation for the proxied requests.
+async function startUiServer({ distRoot, host, port, apiOrigin }) {
+  await stat(join(distRoot, "index.html")).catch(() => {
+    throw new WorkspaceError("The built interface is missing. Run `npm run build` in this checkout first.", { code: "ui_build_missing" });
+  });
+  const server = createServer((request, response) => {
+    void handleUiRequest(request, response).catch(() => {
+      if (!response.headersSent) response.writeHead(500);
+      response.end();
+    });
+  });
+  async function handleUiRequest(request, response) {
+    const url = new URL(request.url ?? "/", `http://${request.headers.host ?? host}`);
+    let hostname = null;
+    try {
+      hostname = new URL(`http://${request.headers.host}`).hostname;
+    } catch {}
+    if (hostname !== "localhost" && hostname !== "127.0.0.1" && hostname !== "[::1]" && hostname !== "::1" && hostname !== host) {
+      response.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+      response.end("This interface only accepts requests for its configured host.");
+      return;
+    }
+    if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
+      const upstream = httpRequest(new URL(url.pathname + url.search, apiOrigin), { method: request.method, headers: request.headers }, (upstreamResponse) => {
+        response.writeHead(upstreamResponse.statusCode ?? 502, upstreamResponse.headers);
+        upstreamResponse.pipe(response);
+      });
+      upstream.once("error", () => {
+        if (!response.headersSent) response.writeHead(502);
+        response.end();
+      });
+      request.pipe(upstream);
+      return;
+    }
+    const relativePath = normalize(decodeURIComponent(url.pathname)).replace(/^([/\\])+/, "");
+    let filePath = join(distRoot, relativePath);
+    if (relativePath.split(sep).includes("..")) filePath = join(distRoot, "index.html");
+    let info = await stat(filePath).catch(() => null);
+    if (!info || info.isDirectory()) {
+      if (extname(filePath) && !filePath.endsWith(`${sep}index.html`)) {
+        response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+        response.end("Not found.");
+        return;
+      }
+      filePath = join(distRoot, "index.html");
+      info = await stat(filePath);
+    }
+    response.writeHead(200, {
+      "Content-Type": UI_MIME[extname(filePath)] ?? "application/octet-stream",
+      "Content-Length": info.size,
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+    });
+    createReadStream(filePath).pipe(response);
+  }
+  const listen = (selectedPort) => new Promise((resolvePromise, rejectPromise) => {
+    const onError = (error) => {
+      server.off("listening", onListening);
+      rejectPromise(error);
+    };
+    const onListening = () => {
+      server.off("error", onError);
+      resolvePromise();
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(selectedPort, host);
+  });
+  try {
+    await listen(port);
+  } catch (error) {
+    // The UI port is a preference, never a hard requirement; any free port
+    // still proxies to the pinned API origin.
+    if (port === 0 || error?.code !== "EADDRINUSE") throw error;
+    await listen(0);
+  }
+  const address = server.address();
+  return { server, port: typeof address === "object" && address ? address.port : port };
+}
+
 function openLocalUrl(url) {
   const command = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
   const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
@@ -544,30 +580,15 @@ function openLocalUrl(url) {
   child.unref();
 }
 
-async function stopUiServer(server) {
-  if (!server) return;
-  await server.close();
-}
-
 async function runServer(options, positionals) {
   if (positionals.length > 1) throw new WorkspaceError("serve accepts only one root path.");
   const explicitRoot = options.root ?? positionals[0] ?? null;
-  let registered = await listRegisteredWorkspaces();
-  let activeWorkspace;
-  if (explicitRoot) {
-    activeWorkspace = await registerWorkspace(explicitRoot, { force: options.forceInit === true });
-  } else {
-    const nearbyRoot = await findWorkspaceRoot(process.cwd());
-    activeWorkspace = registered.find((workspace) => workspace.root === nearbyRoot);
-    if (!activeWorkspace && nearbyRoot && registered.length === 0) {
-      activeWorkspace = await registerWorkspace(nearbyRoot);
-    }
-  }
-  if (!activeWorkspace && registered.length === 0) {
-    activeWorkspace = await registerWorkspace(process.cwd(), { force: options.forceInit === true });
-    registered = [activeWorkspace];
-  }
-  activeWorkspace ??= registered.at(-1);
+  const registered = await listRegisteredWorkspaces();
+  const nearbyRoot = explicitRoot ? null : await findWorkspaceRoot(process.cwd());
+  const activeWorkspace = explicitRoot
+    ? await registerWorkspace(explicitRoot, { force: options.forceInit === true })
+    : registered.find((workspace) => workspace.root === nearbyRoot)
+      ?? (registered.length === 0 ? await registerWorkspace(nearbyRoot ?? process.cwd()) : registered.at(-1));
   if (!registered.some((workspace) => workspace.id === activeWorkspace.id)) registered.push(activeWorkspace);
   const root = activeWorkspace.root;
   const apiPort = parsePort(options.apiPort, DEFAULT_API_PORT, "--api-port");
@@ -584,7 +605,6 @@ async function runServer(options, positionals) {
     version: updater.currentVersion,
     checkForUpdate: updater.checkForUpdate,
     onUpdate: updater.installUpdate,
-    federationConfigFile: federationConfigPath(),
     fallbackOnPortConflict: options.apiPort == null,
   });
   console.log(`[work] Workspace: ${localApi.workspace.root}`);
@@ -617,7 +637,12 @@ async function runServer(options, positionals) {
   async function shutdown(exitCode = 0, { restart = false } = {}) {
     if (shuttingDown) return;
     shuttingDown = true;
-    await stopUiServer(uiServer);
+    if (uiServer?.listening) {
+      await new Promise((resolvePromise) => {
+        uiServer.close(() => resolvePromise());
+        uiServer.closeIdleConnections?.();
+      });
+    }
     await mcpSidecar?.stop().catch((error) => console.error(`[work:mcp] ${error.message}`));
     await closeLocalApi(localApi.server).catch((error) => console.error(`[work] ${error.message}`));
     if (restart) {
@@ -645,24 +670,14 @@ async function runServer(options, positionals) {
 
   if (!options.noUi) {
     try {
-      uiServer = await createViteServer({
-        root: APP_ROOT,
-        server: {
-          host: listenHost,
-          port: uiPort,
-          allowedHosts: [listenHost],
-          proxy: {
-            "/api": {
-              target: localApi.origin,
-              changeOrigin: false,
-            },
-          },
-        },
+      const ui = await startUiServer({
+        distRoot: join(APP_ROOT, "dist"),
+        host: listenHost,
+        port: uiPort,
+        apiOrigin: localApi.origin,
       });
-      await uiServer.listen();
-      const address = uiServer.httpServer?.address();
-      const selectedUiPort = typeof address === "object" && address ? address.port : uiPort;
-      const uiUrl = `http://${listenHost}:${selectedUiPort}/`;
+      uiServer = ui.server;
+      const uiUrl = `http://${listenHost}:${ui.port}/`;
       console.log(`[work] UI ready at ${uiUrl}`);
       if (!options.noOpen) openLocalUrl(uiUrl);
     } catch (error) {
@@ -672,32 +687,36 @@ async function runServer(options, positionals) {
   }
 }
 
+const COMMANDS = {
+  serve: runServer,
+  init: runInit,
+  register: runRegister,
+  unregister: runUnregister,
+  roots: runRoots,
+  projects: runProjects,
+  new: runNew,
+  remove: runRemove,
+  agent: runAgent,
+  add: runAdd,
+  decision: runDecision,
+  task: runTask,
+  create: runTask,
+  list: runList,
+  show: runShow,
+  move: runMove,
+  assign: runAssign,
+  log: runLog,
+};
+
 async function main() {
   const argv = process.argv.slice(2);
-  const knownCommands = new Set(["serve", "init", "register", "unregister", "roots", "projects", "agent", "add", "idea", "ideas", "decision", "task", "create", "list", "show", "move", "assign", "log"]);
-  const command = knownCommands.has(argv[0]) ? argv.shift() : "serve";
+  const run = Object.hasOwn(COMMANDS, argv[0]) ? COMMANDS[argv.shift()] : runServer;
   const { options, positionals } = parseArguments(argv);
   if (options.help) {
     process.stdout.write(HELP);
     return;
   }
-  if (command === "init") return runInit(options, positionals);
-  if (command === "register") return runRegister(options, positionals);
-  if (command === "unregister") return runUnregister(options, positionals);
-  if (command === "roots") return runRoots(options, positionals);
-  if (command === "projects") return runProjects(options, positionals);
-  if (command === "agent") return runAgent(options, positionals);
-  if (command === "add") return runAdd(options, positionals);
-  if (command === "idea") return runIdea(options, positionals);
-  if (command === "ideas") return runIdeas(options, positionals);
-  if (command === "decision") return runDecision(options, positionals);
-  if (command === "task" || command === "create") return runTask(options, positionals);
-  if (command === "list") return runList(options, positionals);
-  if (command === "show") return runShow(options, positionals);
-  if (command === "move") return runMove(options, positionals);
-  if (command === "assign") return runAssign(options, positionals);
-  if (command === "log") return runLog(options, positionals);
-  return runServer(options, positionals);
+  return run(options, positionals);
 }
 
 main().catch((error) => {

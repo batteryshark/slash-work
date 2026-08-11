@@ -39,7 +39,6 @@ type ProjectNote = {
   text: string;
   scopePath: string;
   projectPath: string | null;
-  agentIntent: "reference_only" | "review_requested";
   createdBy: { kind: "human"; name: null } | { kind: "agent"; name: string };
   createdAt: string;
   updatedAt: string;
@@ -74,34 +73,6 @@ type Issue = {
   }>;
   createdAt: string;
   updatedAt: string;
-};
-
-type IdeaStatus = "open" | "exploring" | "deferred" | "proposed" | "adopted" | "declined";
-
-type ProjectIdea = {
-  id: string;
-  title: string;
-  status: IdeaStatus;
-  scopePath: string;
-  projectPath: string | null;
-  tags: string[];
-  source: string | null;
-  revisitAt: string | null;
-  agentIntent: "consideration_only" | "evaluation_requested";
-  history: Array<{ from: IdeaStatus; to: IdeaStatus; reason: string | null; at: string }>;
-  createdAt: string;
-  updatedAt: string;
-  sections: {
-    opportunity: string;
-    whyItMightMatter: string;
-    hypothesis: string;
-    unknowns: string;
-    potentialShape: string;
-    evidence: string;
-    risksAndConstraints: string;
-    nextEvaluation: string;
-    outcome: string;
-  };
 };
 
 type GitFileStatus = "conflict" | "deleted" | "added" | "untracked" | "modified" | "renamed";
@@ -215,7 +186,7 @@ type WorkTask = {
 type ScheduledItem = {
   key: string;
   id: string;
-  kind: "task" | "idea" | "decision";
+  kind: "task" | "decision";
   title: string;
   projectPath: string | null;
   scheduledAt: string;
@@ -223,7 +194,7 @@ type ScheduledItem = {
   detail: string;
 };
 
-type AppView = "home" | "board" | "issues" | "ideas" | "notes" | "files" | "activity";
+type AppView = "home" | "board" | "issues" | "notes" | "files" | "activity";
 type ThemePreference = "system" | "light" | "dark";
 
 type WorkspacePayload = {
@@ -235,15 +206,11 @@ type WorkspacePayload = {
     dataDir: string;
     startScopePath?: string;
     statuses: string[];
-    location?: "local" | "remote";
-    available?: boolean;
-    peer?: { id: string; name: string; baseUrl: string };
   };
   projects: Project[];
   captures: Capture[];
   decisions: Decision[];
   issues: Issue[];
-  ideas: ProjectIdea[];
   notes: ProjectNote[];
   tasks: WorkTask[];
 };
@@ -252,9 +219,6 @@ type WorkspaceSummary = {
   id: string;
   name: string;
   root: string;
-  location?: "local" | "remote";
-  available?: boolean;
-  peer?: { id: string; name: string; baseUrl: string };
 };
 
 type WorkspaceDirectory = {
@@ -266,43 +230,6 @@ type WorkspaceDirectory = {
 type WorkspacePickerReceipt = {
   cancelled: boolean;
   workspace?: WorkspaceSummary;
-  workspaces?: WorkspaceSummary[];
-};
-
-type WorkspaceRemovalReceipt = WorkspaceDirectory & {
-  removedWorkspaceId: string;
-};
-
-type FederationGrant = {
-  id: string;
-  label: string;
-  workspaceIds: string[];
-  createdAt: string;
-  lastUsedAt: string | null;
-};
-
-type FederationPeer = {
-  id: string;
-  name: string;
-  baseUrl: string;
-  version: string | null;
-  available: boolean;
-  lastSeenAt: string | null;
-  workspaceCount: number;
-  error: string | null;
-};
-
-type FederationSettings = {
-  protocolVersion: string;
-  instance: { id: string; name: string; version: string | null };
-  network: { mode: "loopback" | "tailscale"; reachableUrl: string | null };
-  grants: FederationGrant[];
-  peers: FederationPeer[];
-};
-
-type FederationGrantReceipt = {
-  grant: FederationGrant;
-  accessKey: string;
 };
 
 type DecisionDraft = {
@@ -323,10 +250,8 @@ type DecisionReceipt = {
   message: string;
 };
 
-type ServiceRestartReceipt = {
-  restarting: true;
-  serviceInstanceId: string;
-};
+// Restart and update accept-receipts only matter for their instance id.
+type ServiceReceipt = { serviceInstanceId: string };
 
 type ServiceHealth = {
   ok: boolean;
@@ -339,43 +264,6 @@ type ServiceUpdateStatus = {
   updateAvailable: boolean;
   installable: boolean;
   checkedAt: string;
-};
-
-type ServiceUpdateReceipt = {
-  updating: true;
-  installedVersion: string;
-  serviceInstanceId: string;
-};
-
-type AiSettings = {
-  configured: boolean;
-  provider: "openai-compatible" | "anthropic-compatible";
-  baseUrl: string;
-  model: string;
-  allowSelfSigned: boolean;
-  hasApiKey: boolean;
-  apiKeyHint: string | null;
-  credentialSource: "system" | "environment" | "none";
-};
-
-type AiProposalField = {
-  field: string;
-  label: string;
-  current: unknown;
-  proposed: unknown;
-};
-
-type AiProposal = {
-  version: 1;
-  artifactType: "task" | "idea";
-  artifactId: string;
-  artifactUpdatedAt: string;
-  operation: "draft" | "review" | "expand" | "evaluate";
-  summary: string;
-  explanation: string;
-  questions: string[];
-  fields: AiProposalField[];
-  context: { project: { name: string; path: string; description: string } | null; truncation: Record<string, { included: number; total: number }> };
 };
 
 const emptyDraft: DecisionDraft = {
@@ -432,14 +320,15 @@ function shortTime(iso: string) {
 
 const ISSUE_STATE_LABELS: Record<IssueState, string> = {
   queued: "Queued",
-  in_progress: "Agent working",
+  in_progress: "In progress",
   needs_human: "Needs you",
   resolved: "Resolved",
   closed: "Closed",
 };
 
-function issueStateLabel(state: IssueState) {
-  return ISSUE_STATE_LABELS[state];
+function scopeLabelFor(projects: Project[], projectPath: string | null, fallback: string) {
+  if (!projectPath) return fallback;
+  return projects.find((project) => project.path === projectPath)?.name ?? projectPath;
 }
 
 function safeLinkTarget(target: string) {
@@ -504,18 +393,6 @@ function Markdown({ children }: { children: string }) {
       continue;
     }
 
-    const heading = /^(#{1,3})\s+(.+)$/.exec(line);
-    if (heading) {
-      const content = <InlineMarkdown text={heading[2]} />;
-      blocks.push(heading[1].length === 1
-        ? <h2 key={`heading-${index}`}>{content}</h2>
-        : heading[1].length === 2
-          ? <h3 key={`heading-${index}`}>{content}</h3>
-          : <h4 key={`heading-${index}`}>{content}</h4>);
-      index += 1;
-      continue;
-    }
-
     const list = /^(\s*)([-*]|\d+\.)\s+(.+)$/.exec(line);
     if (list) {
       const ordered = /\d+\./.test(list[2]);
@@ -533,25 +410,13 @@ function Markdown({ children }: { children: string }) {
       continue;
     }
 
-    if (/^>\s?/.test(line)) {
-      const quote: string[] = [];
-      while (index < lines.length && /^>\s?/.test(lines[index])) {
-        quote.push(lines[index].replace(/^>\s?/, ""));
-        index += 1;
-      }
-      blocks.push(<blockquote key={`quote-${index}`}><Markdown>{quote.join("\n")}</Markdown></blockquote>);
-      continue;
-    }
-
     const paragraph = [line];
     index += 1;
     while (
       index < lines.length
       && lines[index].trim()
       && !/^```/.test(lines[index])
-      && !/^(#{1,3})\s+/.test(lines[index])
       && !/^(\s*)([-*]|\d+\.)\s+/.test(lines[index])
-      && !/^>\s?/.test(lines[index])
     ) {
       paragraph.push(lines[index]);
       index += 1;
@@ -561,6 +426,31 @@ function Markdown({ children }: { children: string }) {
 
   return <div className="markdown-body">{blocks}</div>;
 }
+
+const ISSUE_STATE_NOTES: Partial<Record<IssueState, { className: string; title: (issue: Issue) => string; body: (issue: Issue) => ReactNode }>> = {
+  in_progress: {
+    className: "",
+    title: (issue) => `In progress${issue.claimedBy ? ` · ${issue.claimedBy.name}` : ""}`,
+    body: () => <span>The issue stays open while it is investigated.</span>,
+  },
+  needs_human: {
+    className: "needs-human",
+    title: () => "Needs you.",
+    body: () => <span>Reply below. Only issues in this state appear in the bounded Needs you list.</span>,
+  },
+  resolved: {
+    className: "resolved",
+    title: () => "Resolution — awaiting your review.",
+    body: (issue) => issue.resolutionSummary
+      ? <Markdown>{issue.resolutionSummary}</Markdown>
+      : <span>If the result is incomplete, reply or reopen the issue.</span>,
+  },
+  closed: {
+    className: "closed",
+    title: () => "Closed by a human.",
+    body: () => <span>You can reopen it at any time. Nothing in this conversation is discarded.</span>,
+  },
+};
 
 function calendarDate(iso: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
@@ -657,6 +547,24 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+// Shared mutation wrapper: flips the saving flag, clears then reports the
+// error state, and rethrows so callers can keep their own control flow.
+async function run<T>(
+  work: () => Promise<T>,
+  handlers: { saving?: (value: boolean) => void; error: (message: string | null) => void; fallback: string },
+): Promise<T> {
+  handlers.saving?.(true);
+  handlers.error(null);
+  try {
+    return await work();
+  } catch (cause) {
+    handlers.error(cause instanceof Error ? cause.message : handlers.fallback);
+    throw cause;
+  } finally {
+    handlers.saving?.(false);
+  }
+}
+
 export default function Home() {
   const [data, setData] = useState<WorkspacePayload | null>(null);
   const [workspaceDirectory, setWorkspaceDirectory] = useState<WorkspaceDirectory | null>(null);
@@ -676,6 +584,9 @@ export default function Home() {
   const [captureMoveSearch, setCaptureMoveSearch] = useState("");
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [captureReceipt, setCaptureReceipt] = useState<CaptureReceipt | null>(null);
+  // Session-only, never persisted: captures go to the root Inbox unless the
+  // user explicitly flips the dock destination to the current project.
+  const [captureToProject, setCaptureToProject] = useState(false);
   const [captureDockCollapsed, setCaptureDockCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     return localStorage.getItem("work.captureDockCollapsed") === "true";
@@ -685,25 +596,13 @@ export default function Home() {
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [pickingWorkspace, setPickingWorkspace] = useState(false);
   const [workspacePickerError, setWorkspacePickerError] = useState<string | null>(null);
-  const [workspaceRemovalTarget, setWorkspaceRemovalTarget] = useState<string | null>(null);
   const [removingWorkspace, setRemovingWorkspace] = useState<string | null>(null);
-  const [restartArmed, setRestartArmed] = useState(false);
   const [restartingService, setRestartingService] = useState(false);
   const [serviceRestartError, setServiceRestartError] = useState<string | null>(null);
   const [updateStatus, setUpdateStatus] = useState<ServiceUpdateStatus | null>(null);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [installingUpdate, setInstallingUpdate] = useState(false);
-  const [updateArmed, setUpdateArmed] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
-  const [aiSettings, setAiSettings] = useState<AiSettings | null>(null);
-  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
-  const [aiProposal, setAiProposal] = useState<AiProposal | null>(null);
-  const [aiBusy, setAiBusy] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-  const [federationSettings, setFederationSettings] = useState<FederationSettings | null>(null);
-  const [federationOpen, setFederationOpen] = useState(false);
-  const [federationBusy, setFederationBusy] = useState(false);
-  const [federationError, setFederationError] = useState<string | null>(null);
   const [projectSearch, setProjectSearch] = useState("");
   const [expandedDecision, setExpandedDecision] = useState<string | null>(null);
   const [decisionDrafts, setDecisionDrafts] = useState<Record<string, DecisionDraft>>({});
@@ -715,10 +614,6 @@ export default function Home() {
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const [creatingNote, setCreatingNote] = useState(false);
   const [noteError, setNoteError] = useState<string | null>(null);
-  const [selectedIdeaId, setSelectedIdeaId] = useState<string | null>(null);
-  const [creatingIdea, setCreatingIdea] = useState(false);
-  const [savingIdea, setSavingIdea] = useState(false);
-  const [ideaError, setIdeaError] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [creatingTask, setCreatingTask] = useState(false);
   const [taskError, setTaskError] = useState<string | null>(null);
@@ -747,7 +642,7 @@ export default function Home() {
         headers: { accept: "application/json" },
       });
       const rememberedId = localStorage.getItem("work.workspace");
-      const selectedId = directory.workspaces.some((workspace) => workspace.id === rememberedId && workspace.available !== false)
+      const selectedId = directory.workspaces.some((workspace) => workspace.id === rememberedId)
         ? rememberedId
         : directory.activeWorkspaceId;
       if (selectedId) localStorage.setItem("work.workspace", selectedId);
@@ -775,211 +670,12 @@ export default function Home() {
       });
       setUpdateStatus(status);
       setUpdateError(null);
-      if (!status.updateAvailable) setUpdateArmed(false);
     } catch (error) {
       if (!quiet) setUpdateError(error instanceof Error ? error.message : "Work could not check npm for updates.");
     } finally {
       if (!quiet) setCheckingUpdate(false);
     }
   }, []);
-
-  async function openAiSettings() {
-    setAiError(null);
-    setAiSettingsOpen(true);
-    setSystemMenuOpen(false);
-    try {
-      setAiSettings(await requestJson<AiSettings>("/api/ai/settings"));
-    } catch (error) {
-      setAiError(error instanceof Error ? error.message : "AI settings could not be loaded.");
-    }
-  }
-
-  async function openFederationSettings() {
-    setFederationError(null);
-    setFederationOpen(true);
-    setSystemMenuOpen(false);
-    try {
-      setFederationSettings(await requestJson<FederationSettings>("/api/federation?refresh=1"));
-    } catch (error) {
-      setFederationError(error instanceof Error ? error.message : "Connected instances could not be loaded.");
-    }
-  }
-
-  async function updateFederationName(name: string) {
-    setFederationBusy(true);
-    setFederationError(null);
-    try {
-      const settings = await requestJson<FederationSettings>("/api/federation", {
-        method: "PATCH",
-        headers: { "x-work-federation-settings": "confirm" },
-        body: JSON.stringify({ name }),
-      });
-      setFederationSettings(settings);
-      return settings;
-    } catch (error) {
-      setFederationError(error instanceof Error ? error.message : "The instance name could not be saved.");
-      throw error;
-    } finally {
-      setFederationBusy(false);
-    }
-  }
-
-  async function createFederationGrant(label: string, workspaceIds: string[]) {
-    setFederationBusy(true);
-    setFederationError(null);
-    try {
-      const receipt = await requestJson<FederationGrantReceipt>("/api/federation/grants", {
-        method: "POST",
-        headers: { "x-work-federation-settings": "confirm" },
-        body: JSON.stringify({ label, workspaceIds }),
-      });
-      setFederationSettings((current) => current ? { ...current, grants: [...current.grants, receipt.grant] } : current);
-      return receipt;
-    } catch (error) {
-      setFederationError(error instanceof Error ? error.message : "The access key could not be created.");
-      throw error;
-    } finally {
-      setFederationBusy(false);
-    }
-  }
-
-  async function revokeFederationGrant(id: string) {
-    setFederationBusy(true);
-    setFederationError(null);
-    try {
-      await requestJson<null>(`/api/federation/grants/${encodeURIComponent(id)}`, {
-        method: "DELETE",
-        headers: { "x-work-federation-settings": "confirm" },
-      });
-      setFederationSettings((current) => current ? { ...current, grants: current.grants.filter((grant) => grant.id !== id) } : current);
-    } catch (error) {
-      setFederationError(error instanceof Error ? error.message : "The access key could not be revoked.");
-      throw error;
-    } finally {
-      setFederationBusy(false);
-    }
-  }
-
-  async function connectFederationPeer(baseUrl: string, accessKey: string) {
-    setFederationBusy(true);
-    setFederationError(null);
-    try {
-      await requestJson<FederationPeer>("/api/federation/peers", {
-        method: "POST",
-        headers: { "x-work-federation-settings": "confirm" },
-        body: JSON.stringify({ baseUrl, accessKey }),
-      });
-      setFederationSettings(await requestJson<FederationSettings>("/api/federation?refresh=1"));
-      await loadWorkspace(true);
-    } catch (error) {
-      setFederationError(error instanceof Error ? error.message : "The Work instance could not be connected.");
-      throw error;
-    } finally {
-      setFederationBusy(false);
-    }
-  }
-
-  async function removeFederationPeer(id: string) {
-    setFederationBusy(true);
-    setFederationError(null);
-    try {
-      await requestJson<null>(`/api/federation/peers/${encodeURIComponent(id)}`, {
-        method: "DELETE",
-        headers: { "x-work-federation-settings": "confirm" },
-      });
-      setFederationSettings((current) => current ? { ...current, peers: current.peers.filter((peer) => peer.id !== id) } : current);
-      if (data?.workspace.peer?.id === id) localStorage.removeItem("work.workspace");
-      await loadWorkspace(true);
-    } catch (error) {
-      setFederationError(error instanceof Error ? error.message : "The connected instance could not be removed.");
-      throw error;
-    } finally {
-      setFederationBusy(false);
-    }
-  }
-
-  async function refreshFederation() {
-    setFederationBusy(true);
-    setFederationError(null);
-    try {
-      setFederationSettings(await requestJson<FederationSettings>("/api/federation?refresh=1"));
-      await loadWorkspace(true);
-    } catch (error) {
-      setFederationError(error instanceof Error ? error.message : "Connected instances could not be refreshed.");
-    } finally {
-      setFederationBusy(false);
-    }
-  }
-
-  async function saveAiSettings(input: { provider: AiSettings["provider"]; baseUrl: string; model: string; allowSelfSigned: boolean; apiKey?: string; clearApiKey?: boolean }) {
-    setAiBusy(true);
-    setAiError(null);
-    try {
-      const settings = await requestJson<AiSettings>("/api/ai/settings", {
-        method: "PATCH",
-        headers: { "x-work-ai-settings": "confirm" },
-        body: JSON.stringify(input),
-      });
-      setAiSettings(settings);
-      return settings;
-    } catch (error) {
-      setAiError(error instanceof Error ? error.message : "AI settings could not be saved.");
-      throw error;
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
-  async function testAiSettings() {
-    setAiBusy(true);
-    setAiError(null);
-    try {
-      await requestJson<{ ok: true }>("/api/ai/settings/test", { method: "POST", body: JSON.stringify({}) });
-      return true;
-    } catch (error) {
-      setAiError(error instanceof Error ? error.message : "The AI connection test failed.");
-      return false;
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
-  async function requestAiProposal(artifactType: "task" | "idea", artifactId: string, operation: AiProposal["operation"]) {
-    setAiBusy(true);
-    setAiError(null);
-    try {
-      setAiProposal(await requestJson<AiProposal>("/api/ai/proposals", {
-        method: "POST",
-        body: JSON.stringify({ artifactType, artifactId, operation }),
-      }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "The AI proposal could not be created.";
-      setAiError(message);
-      if (/configure an ai/i.test(message)) await openAiSettings();
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
-  async function applyAiProposal(proposal: AiProposal, selectedFields: string[]) {
-    setAiBusy(true);
-    setAiError(null);
-    try {
-      const updated = await requestJson<WorkTask | ProjectIdea>("/api/ai/apply", {
-        method: "POST",
-        headers: { "x-work-ai-apply": "confirm" },
-        body: JSON.stringify({ proposal, selectedFields, confirm: true }),
-      });
-      if (proposal.artifactType === "task") replaceTask(updated as WorkTask);
-      else replaceIdea(updated as ProjectIdea);
-      setAiProposal(null);
-    } catch (error) {
-      setAiError(error instanceof Error ? error.message : "The AI proposal could not be applied.");
-      throw error;
-    } finally {
-      setAiBusy(false);
-    }
-  }
 
   async function switchWorkspace(workspaceId: string) {
     if (workspaceId === data?.workspace.id) {
@@ -991,7 +687,6 @@ export default function Home() {
     setProjectMenuOpen(false);
     setSelectedNoteId(null);
     setSelectedIssueId(null);
-    setSelectedIdeaId(null);
     setSelectedTaskId(null);
     setScopePath(".");
     setView("home");
@@ -1009,6 +704,35 @@ export default function Home() {
       projects: current.projects.map((item) => item.path === project.path ? project : item),
     } : current);
     return project;
+  }
+
+  const [confirmingProjectDelete, setConfirmingProjectDelete] = useState(false);
+  const [deletingProject, setDeletingProject] = useState(false);
+  const [projectDeleteError, setProjectDeleteError] = useState<string | null>(null);
+
+  async function confirmProjectDelete() {
+    if (!selectedProject || deletingProject) return;
+    setDeletingProject(true);
+    setProjectDeleteError(null);
+    try {
+      await deleteWorkProject(selectedProject.path);
+      setConfirmingProjectDelete(false);
+    } catch (error) {
+      setProjectDeleteError(error instanceof Error ? error.message : "The project could not be deleted.");
+    } finally {
+      setDeletingProject(false);
+    }
+  }
+
+  async function deleteWorkProject(projectPath: string) {
+    await requestJson<{ projectPath: string; folderRemoved: boolean }>(
+      `/api/projects?projectPath=${encodeURIComponent(projectPath)}`,
+      { method: "DELETE" },
+    );
+    setSelectedTaskId(null);
+    setScopePath(".");
+    setView("home");
+    await loadWorkspace();
   }
 
   function rememberProject(project: Project) {
@@ -1038,7 +762,6 @@ export default function Home() {
       setProjectMenuOpen(false);
       setSelectedNoteId(null);
       setSelectedIssueId(null);
-      setSelectedIdeaId(null);
       setSelectedTaskId(null);
       setScopePath(".");
       setView("home");
@@ -1056,7 +779,7 @@ export default function Home() {
     setRemovingWorkspace(workspaceId);
     setWorkspacePickerError(null);
     try {
-      const receipt = await requestJson<WorkspaceRemovalReceipt>(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+      const receipt = await requestJson<WorkspaceDirectory>(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
         method: "DELETE",
         headers: { "x-work-unregister": "confirm" },
       });
@@ -1065,7 +788,6 @@ export default function Home() {
         activeWorkspaceId: receipt.activeWorkspaceId,
         workspaces: receipt.workspaces,
       });
-      setWorkspaceRemovalTarget(null);
     } catch (error) {
       setWorkspacePickerError(error instanceof Error ? error.message : "The workspace root could not be removed from the list.");
     } finally {
@@ -1099,14 +821,13 @@ export default function Home() {
     setRestartingService(true);
     setServiceRestartError(null);
     try {
-      const accepted = await requestJson<ServiceRestartReceipt>("/api/service/restart", {
+      const accepted = await requestJson<ServiceReceipt>("/api/service/restart", {
         method: "POST",
         headers: { "x-work-restart": "confirm" },
         body: JSON.stringify({ confirm: true }),
       });
       await waitForServiceRestart(accepted.serviceInstanceId);
       await loadWorkspace();
-      setRestartArmed(false);
       setSystemMenuOpen(false);
     } catch (error) {
       setServiceRestartError(error instanceof Error ? error.message : "Work could not restart.");
@@ -1120,7 +841,7 @@ export default function Home() {
     setInstallingUpdate(true);
     setUpdateError(null);
     try {
-      const accepted = await requestJson<ServiceUpdateReceipt>("/api/service/update", {
+      const accepted = await requestJson<ServiceReceipt>("/api/service/update", {
         method: "POST",
         headers: { "x-work-update": "confirm" },
         body: JSON.stringify({ confirm: true }),
@@ -1135,8 +856,6 @@ export default function Home() {
 
   useEffect(() => {
     void loadWorkspace();
-    void requestJson<AiSettings>("/api/ai/settings").then(setAiSettings).catch(() => undefined);
-    void requestJson<FederationSettings>("/api/federation").then(setFederationSettings).catch(() => undefined);
     const interval = window.setInterval(() => void loadWorkspace(true), 12_000);
     const onFocus = () => void loadWorkspace(true);
     window.addEventListener("focus", onFocus);
@@ -1309,18 +1028,6 @@ export default function Home() {
     setSelectedIssueId(scopedIssues[0]?.id ?? null);
   }, [view, selectedIssueId, scopedIssues]);
 
-  const scopedIdeas = useMemo(() => {
-    return (data?.ideas ?? [])
-      .filter((idea) => scopePath === "." || pathContains(idea.scopePath, scopePath) || pathContains(idea.projectPath, scopePath))
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  }, [data, scopePath]);
-
-  useEffect(() => {
-    if (view !== "ideas") return;
-    if (selectedIdeaId && scopedIdeas.some((idea) => idea.id === selectedIdeaId)) return;
-    setSelectedIdeaId(scopedIdeas[0]?.id ?? null);
-  }, [view, selectedIdeaId, scopedIdeas]);
-
   const scopedTasks = useMemo(() => {
     return (data?.tasks ?? [])
       .filter((task) => scopePath === "." || pathContains(task.projectPath, scopePath))
@@ -1338,9 +1045,11 @@ export default function Home() {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [data, scopePath]);
   const humanIssues = scopedIssues.filter((issue) => issue.state === "needs_human");
+  const blockedTasks = scopedTasks.filter((task) => task.status === "blocked");
   const visibleHumanIssues = humanIssues.slice(0, 3);
-  const visibleDecisions = activeDecisions.slice(0, Math.max(0, 3 - visibleHumanIssues.length));
-  const attentionCount = activeDecisions.length + humanIssues.length;
+  const visibleBlockedTasks = blockedTasks.slice(0, Math.max(0, 3 - visibleHumanIssues.length));
+  const visibleDecisions = activeDecisions.slice(0, Math.max(0, 3 - visibleHumanIssues.length - visibleBlockedTasks.length));
+  const attentionCount = activeDecisions.length + humanIssues.length + blockedTasks.length;
 
   const scheduledItems = useMemo(() => {
     const tasks: ScheduledItem[] = scopedTasks
@@ -1354,18 +1063,6 @@ export default function Home() {
         scheduledAt: task.dueAt as string,
         allDay: true,
         detail: `${task.id} · ${statusLabel(task.status)}`,
-      }));
-    const ideas: ScheduledItem[] = scopedIdeas
-      .filter((idea) => idea.revisitAt && !["adopted", "declined"].includes(idea.status))
-      .map((idea) => ({
-        key: `idea:${idea.id}`,
-        id: idea.id,
-        kind: "idea",
-        title: idea.title,
-        projectPath: idea.projectPath,
-        scheduledAt: idea.revisitAt as string,
-        allDay: true,
-        detail: idea.status === "deferred" ? "Idea · Not now" : `Idea · ${displaySegment(idea.status)}`,
       }));
     const decisions: ScheduledItem[] = (data?.decisions ?? [])
       .filter((decision) => decision.status === "deferred")
@@ -1384,10 +1081,10 @@ export default function Home() {
           detail: "Decision returns",
         }];
       });
-    return [...tasks, ...ideas, ...decisions]
+    return [...tasks, ...decisions]
       .filter((item) => !Number.isNaN(scheduleDate(item).valueOf()))
       .sort((left, right) => scheduleDate(left).getTime() - scheduleDate(right).getTime());
-  }, [data?.decisions, scopedIdeas, scopedTasks, scopePath]);
+  }, [data?.decisions, scopedTasks, scopePath]);
 
   const filteredProjectMenu = useMemo(() => {
     const query = projectSearch.trim().toLowerCase();
@@ -1432,322 +1129,144 @@ export default function Home() {
     return `Folder inbox: ${displaySegment(pathParts(capture.scopePath).at(-1) ?? capture.scopePath)} · Unassigned`;
   }
 
-  function findNavigationTarget(text: string) {
-    const normalized = text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-    return data?.projects.find((project) => {
-      const name = project.name.toLowerCase().replace(/[^a-z0-9]+/g, " ");
-      const path = project.path.toLowerCase().replace(/[^a-z0-9]+/g, " ");
-      return normalized.includes(name) || normalized.includes(path);
-    });
-  }
-
-  function replaceTask(task: WorkTask) {
+  function replaceIn<K extends "tasks" | "notes" | "issues">(key: K, record: WorkspacePayload[K][number]) {
     setData((current) => current ? {
       ...current,
-      tasks: [task, ...(current.tasks ?? []).filter((item) => item.id !== task.id)],
+      [key]: [record, ...(current[key] ?? []).filter((item) => item.id !== record.id)],
     } : current);
   }
 
-  function replaceNote(note: ProjectNote) {
-    setData((current) => current ? {
-      ...current,
-      notes: [note, ...(current.notes ?? []).filter((item) => item.id !== note.id)],
-    } : current);
-  }
-
-  function replaceIssue(issue: Issue) {
-    setData((current) => current ? {
-      ...current,
-      issues: [issue, ...(current.issues ?? []).filter((item) => item.id !== issue.id)],
-    } : current);
-  }
-
-  async function createIssue(body: string) {
-    setSavingIssue(true);
-    setIssueError(null);
-    try {
+  function createIssue(body: string) {
+    return run(async () => {
       const issue = await requestJson<Issue>("/api/issues", {
         method: "POST",
-        body: JSON.stringify({
-          body,
-          scopePath,
-          projectPath: selectedProject?.path ?? null,
-        }),
+        body: JSON.stringify({ body, scopePath, projectPath: selectedProject?.path ?? null }),
       });
-      replaceIssue(issue);
+      replaceIn("issues", issue);
       setSelectedIssueId(issue.id);
       setView("issues");
       return issue;
-    } catch (error) {
-      setIssueError(error instanceof Error ? error.message : "The issue could not be submitted.");
-      throw error;
-    } finally {
-      setSavingIssue(false);
-    }
+    }, { saving: setSavingIssue, error: setIssueError, fallback: "The issue could not be submitted." });
   }
 
-  async function replyToIssue(issueId: string, body: string) {
-    setSavingIssue(true);
-    setIssueError(null);
-    try {
+  function replyToIssue(issueId: string, body: string) {
+    return run(async () => {
       const issue = await requestJson<Issue>(`/api/issues/${encodeURIComponent(issueId)}/replies`, {
         method: "POST",
         body: JSON.stringify({ body }),
       });
-      replaceIssue(issue);
+      replaceIn("issues", issue);
       return issue;
-    } catch (error) {
-      setIssueError(error instanceof Error ? error.message : "The reply could not be submitted.");
-      throw error;
-    } finally {
-      setSavingIssue(false);
-    }
+    }, { saving: setSavingIssue, error: setIssueError, fallback: "The reply could not be submitted." });
   }
 
-  async function setIssueState(issueId: string, state: "queued" | "closed") {
-    setSavingIssue(true);
-    setIssueError(null);
-    try {
+  function setIssueState(issueId: string, state: "queued" | "closed") {
+    return run(async () => {
       const issue = await requestJson<Issue>(`/api/issues/${encodeURIComponent(issueId)}/state`, {
         method: "POST",
         body: JSON.stringify({ state }),
       });
-      replaceIssue(issue);
+      replaceIn("issues", issue);
       return issue;
-    } catch (error) {
-      setIssueError(error instanceof Error ? error.message : "The issue state could not be changed.");
-      throw error;
-    } finally {
-      setSavingIssue(false);
-    }
+    }, { saving: setSavingIssue, error: setIssueError, fallback: "The issue state could not be changed." });
   }
 
-  function replaceIdea(idea: ProjectIdea) {
-    setData((current) => current ? {
-      ...current,
-      ideas: [idea, ...(current.ideas ?? []).filter((item) => item.id !== idea.id)],
-    } : current);
-  }
-
-  async function createProjectIdea(input: { title?: string; opportunity?: string; tags?: string[]; source?: string | null } = {}) {
-    setCreatingIdea(true);
-    setIdeaError(null);
-    try {
-      const idea = await requestJson<ProjectIdea>("/api/ideas", {
-        method: "POST",
-        body: JSON.stringify({
-          title: input.title ?? "Untitled idea",
-          opportunity: input.opportunity ?? "",
-          scopePath,
-          projectPath: selectedProject?.path ?? null,
-          tags: input.tags ?? [],
-          source: input.source ?? null,
-        }),
-      });
-      replaceIdea(idea);
-      setSelectedIdeaId(idea.id);
-      setView("ideas");
-      return idea;
-    } catch (error) {
-      setIdeaError(error instanceof Error ? error.message : "The idea could not be created.");
-      throw error;
-    } finally {
-      setCreatingIdea(false);
-    }
-  }
-
-  async function updateProjectIdea(ideaId: string, patch: Record<string, unknown>) {
-    setSavingIdea(true);
-    setIdeaError(null);
-    try {
-      const idea = await requestJson<ProjectIdea>(`/api/ideas/${encodeURIComponent(ideaId)}`, {
-        method: "PATCH",
-        body: JSON.stringify(patch),
-      });
-      replaceIdea(idea);
-      return idea;
-    } catch (error) {
-      setIdeaError(error instanceof Error ? error.message : "The idea could not be saved.");
-      throw error;
-    } finally {
-      setSavingIdea(false);
-    }
-  }
-
-  async function deleteProjectIdea(ideaId: string) {
-    setIdeaError(null);
-    try {
-      await requestJson<{ ok: boolean }>(`/api/ideas/${encodeURIComponent(ideaId)}`, { method: "DELETE" });
-      setData((current) => current ? {
-        ...current,
-        ideas: (current.ideas ?? []).filter((item) => item.id !== ideaId),
-      } : current);
-      setSelectedIdeaId((current) => current === ideaId ? null : current);
-    } catch (error) {
-      setIdeaError(error instanceof Error ? error.message : "The idea could not be deleted.");
-      throw error;
-    }
-  }
-
-  async function scopeIdeaAsWork(idea: ProjectIdea) {
-    return createWorkTask({
-      title: idea.title,
-      projectPath: idea.projectPath,
-      status: "backlog",
-      type: "epic",
-      source: idea.id,
-      goal: [idea.sections.opportunity, idea.sections.whyItMightMatter].filter(Boolean).join("\n\n"),
-      notes: [
-        idea.sections.hypothesis && `Hypothesis\n${idea.sections.hypothesis}`,
-        idea.sections.potentialShape && `Potential shape\n${idea.sections.potentialShape}`,
-        idea.sections.risksAndConstraints && `Risks and constraints\n${idea.sections.risksAndConstraints}`,
-      ].filter(Boolean).join("\n\n"),
-    });
-  }
-
-  async function createProjectNote() {
-    setCreatingNote(true);
-    setNoteError(null);
-    try {
+  function createProjectNote(input: { title?: string; text?: string } = {}) {
+    return run(async () => {
       const note = await requestJson<ProjectNote>("/api/notes", {
         method: "POST",
         body: JSON.stringify({
-          title: "Untitled note",
-          text: "",
+          title: input.title ?? "Untitled note",
+          text: input.text ?? "",
           scopePath,
           projectPath: selectedProject?.path ?? null,
-          agentIntent: "reference_only",
         }),
       });
-      replaceNote(note);
+      replaceIn("notes", note);
       setSelectedNoteId(note.id);
       setView("notes");
       return note;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "The note could not be created.";
-      setNoteError(message);
-      throw error;
-    } finally {
-      setCreatingNote(false);
-    }
+    }, { saving: setCreatingNote, error: setNoteError, fallback: "The note could not be created." });
   }
 
-  async function updateProjectNote(noteId: string, patch: { title?: string; text?: string; agentIntent?: ProjectNote["agentIntent"] }) {
-    setNoteError(null);
-    try {
+  function updateProjectNote(noteId: string, patch: { title?: string; text?: string }) {
+    return run(async () => {
       const note = await requestJson<ProjectNote>(`/api/notes/${encodeURIComponent(noteId)}`, {
         method: "PATCH",
         body: JSON.stringify(patch),
       });
-      replaceNote(note);
+      replaceIn("notes", note);
       return note;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "The note could not be saved.";
-      setNoteError(message);
-      throw error;
-    }
+    }, { error: setNoteError, fallback: "The note could not be saved." });
   }
 
-  async function deleteProjectNote(noteId: string) {
-    setNoteError(null);
-    try {
+  function deleteProjectNote(noteId: string) {
+    return run(async () => {
       await requestJson<{ ok: boolean }>(`/api/notes/${encodeURIComponent(noteId)}`, { method: "DELETE" });
       setData((current) => current ? {
         ...current,
         notes: (current.notes ?? []).filter((item) => item.id !== noteId),
       } : current);
       setSelectedNoteId((current) => current === noteId ? null : current);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "The note could not be deleted.";
-      setNoteError(message);
-      throw error;
-    }
+    }, { error: setNoteError, fallback: "The note could not be deleted." });
   }
 
-  async function createWorkTask(input: Record<string, unknown>, open = true) {
-    setSavingTask(true);
-    setTaskError(null);
-    try {
+  function createWorkTask(input: Record<string, unknown>, open = true) {
+    return run(async () => {
       const task = await requestJson<WorkTask>("/api/tasks", {
         method: "POST",
         body: JSON.stringify(input),
       });
-      replaceTask(task);
+      replaceIn("tasks", task);
       setCreatingTask(false);
       if (open) {
         setView("board");
         setSelectedTaskId(task.id);
       }
       return task;
-    } catch (error) {
-      setTaskError(error instanceof Error ? error.message : "The work item could not be created.");
-      throw error;
-    } finally {
-      setSavingTask(false);
-    }
+    }, { saving: setSavingTask, error: setTaskError, fallback: "The work item could not be created." });
   }
 
-  async function moveWorkTask(taskId: string, status: string, note?: string) {
-    setSavingTask(true);
-    setTaskError(null);
-    try {
+  function moveWorkTask(taskId: string, status: string, note?: string) {
+    return run(async () => {
       const task = await requestJson<WorkTask>(`/api/tasks/${encodeURIComponent(taskId)}/move`, {
         method: "POST",
         body: JSON.stringify({ status, note }),
       });
-      replaceTask(task);
+      replaceIn("tasks", task);
       return task;
-    } catch (error) {
-      setTaskError(error instanceof Error ? error.message : "The card could not be moved.");
-      throw error;
-    } finally {
-      setSavingTask(false);
-    }
+    }, { saving: setSavingTask, error: setTaskError, fallback: "The card could not be moved." });
   }
 
-  async function patchWorkTask(taskId: string, patch: Record<string, unknown>) {
-    setSavingTask(true);
-    setTaskError(null);
-    try {
+  function patchWorkTask(taskId: string, patch: Record<string, unknown>) {
+    return run(async () => {
       const task = await requestJson<WorkTask>(`/api/tasks/${encodeURIComponent(taskId)}`, {
         method: "PATCH",
         body: JSON.stringify(patch),
       });
-      replaceTask(task);
+      replaceIn("tasks", task);
       return task;
-    } catch (error) {
-      setTaskError(error instanceof Error ? error.message : "The work item could not be updated.");
-      throw error;
-    } finally {
-      setSavingTask(false);
-    }
+    }, { saving: setSavingTask, error: setTaskError, fallback: "The work item could not be updated." });
   }
 
   async function toggleWorkChecklist(taskId: string, section: "requirements" | "acceptance", index: number, checked: boolean) {
-    setTaskError(null);
-    try {
+    await run(async () => {
       const task = await requestJson<WorkTask>(`/api/tasks/${encodeURIComponent(taskId)}/checklist`, {
         method: "POST",
         body: JSON.stringify({ section, index, checked }),
       });
-      replaceTask(task);
-    } catch (error) {
-      setTaskError(error instanceof Error ? error.message : "The checklist could not be updated.");
-    }
+      replaceIn("tasks", task);
+    }, { error: setTaskError, fallback: "The checklist could not be updated." }).catch(() => {});
   }
 
-  async function logWorkProgress(taskId: string, message: string) {
-    setTaskError(null);
-    try {
+  function logWorkProgress(taskId: string, message: string) {
+    return run(async () => {
       const task = await requestJson<WorkTask>(`/api/tasks/${encodeURIComponent(taskId)}/log`, {
         method: "POST",
         body: JSON.stringify({ message }),
       });
-      replaceTask(task);
-    } catch (error) {
-      setTaskError(error instanceof Error ? error.message : "The progress entry could not be saved.");
-      throw error;
-    }
+      replaceIn("tasks", task);
+    }, { error: setTaskError, fallback: "The progress entry could not be saved." });
   }
 
   async function promoteCaptureToTask(capture: Capture) {
@@ -1765,15 +1284,10 @@ export default function Home() {
     });
   }
 
-  async function promoteCaptureToIdea(capture: Capture) {
+  async function promoteCaptureToNote(capture: Capture) {
     const firstLine = capture.text.split("\n").find((line) => line.trim())?.trim() ?? capture.text;
-    const title = firstLine.length > 500 ? `${firstLine.slice(0, 497)}…` : firstLine;
-    await createProjectIdea({
-      title,
-      opportunity: capture.text,
-      tags: capture.kind === "idea" ? [] : [capture.kind],
-      source: capture.id,
-    });
+    const title = firstLine.length > 300 ? `${firstLine.slice(0, 297)}…` : firstLine;
+    await createProjectNote({ title, text: capture.text });
   }
 
   async function runCommand() {
@@ -1784,7 +1298,6 @@ export default function Home() {
       return;
     }
 
-    const lower = text.toLowerCase();
     const isMultiline = text.includes("\n");
     const taskCommand = isMultiline ? null : text.match(/^(?:task|todo)\s*:?\s+(.+)$/i);
     if (taskCommand) {
@@ -1802,64 +1315,18 @@ export default function Home() {
       }
       return;
     }
-    const navigationTarget = findNavigationTarget(text);
-    if (!isMultiline && /\b(show|focus|open|take me to)\b/.test(lower)) {
-      if (/\b(board|kanban)\b/.test(lower)) {
-        setView("board");
-        setCommand("");
-        return;
-      }
-      if (/\b(issues?|requests?|problems?)\b/.test(lower)) {
-        setView("issues");
-        setCommand("");
-        return;
-      }
-      if (/\b(notes?|notebook)\b/.test(lower)) {
-        setView("notes");
-        setCommand("");
-        return;
-      }
-      if (/\b(ideas?|possibilities)\b/.test(lower)) {
-        setView("ideas");
-        setCommand("");
-        return;
-      }
-      if (/\b(activity|history|log)\b/.test(lower)) {
-        setView("activity");
-        setCommand("");
-        return;
-      }
-      if (/\b(everything|all work|this root|root)\b/.test(lower)) {
-        navigate(".");
-        setCommand("");
-        return;
-      }
-      if (navigationTarget) {
-        navigate(navigationTarget.path);
-        setCommand("");
-        return;
-      }
-      if (/\binbox\b/.test(lower)) {
-        openHomeSection("inbox");
-        setCommand("");
-        return;
-      }
-      if (/\b(needs you|decisions?)\b/.test(lower)) {
-        openHomeSection("needs-you");
-        setCommand("");
-        return;
-      }
-    }
-
+    // Plain typed text is ALWAYS a capture. Navigation lives in the tabs and
+    // breadcrumbs; "show board" saved as a thought beats a discarded thought.
     setSavingCapture(true);
     setCaptureError(null);
     try {
+      const toProject = captureToProject && selectedProject ? selectedProject.path : null;
       const response = await requestJson<Capture | { capture: Capture }>("/api/captures", {
         method: "POST",
         body: JSON.stringify({
           text,
-          scopePath,
-          projectPath: selectedProject?.path ?? null,
+          scopePath: toProject ? scopePath : ".",
+          projectPath: toProject,
         }),
       });
       const capture = "capture" in response ? response.capture : response;
@@ -1959,15 +1426,12 @@ export default function Home() {
         ...current,
         decisions: current.decisions.map((item) => item.id === updated.id ? updated : item),
       } : current);
-      const assignedProject = draft.action === "assign"
-        ? data?.projects.find((project) => project.path === draft.projectPath)?.name
-        : null;
       const labels: Record<Exclude<DecisionAction, "reopen">, string> = {
         approve: draft.selectedOption ? `Selected “${draft.selectedOption}”` : "Decision recorded",
         reject: "Rejected",
         defer: `Deferred until ${new Date(choice?.until as string).toLocaleDateString([], { month: "short", day: "numeric" })}`,
         cancel: "Cancelled and retained in history",
-        assign: `Assigned to ${assignedProject ?? draft.projectPath}`,
+        assign: `Assigned to ${scopeLabelFor(data?.projects ?? [], draft.projectPath, draft.projectPath)}`,
         keep_unassigned: "Kept unassigned",
       };
       setDecisionReceipt({ decisionId: decision.id, message: labels[draft.action] });
@@ -2028,11 +1492,12 @@ export default function Home() {
     );
   }
 
-  const destination = destinationForCurrentScope();
+  const captureDestinationProject = captureToProject ? selectedProject : null;
+  const captureDestination = captureDestinationProject
+    ? `Project inbox: ${captureDestinationProject.name}`
+    : `Inbox: ${data.workspace.name} · Unassigned`;
   const rootProject = data.projects.find((project) => project.path === ".");
-  const workspaceLocationLabel = data.workspace.location === "remote"
-    ? `${data.workspace.peer?.name ?? "Remote instance"} · Remote workspace`
-    : data.workspace.root;
+  const workspaceLocationLabel = data.workspace.root;
 
   return (
     <div className={`app-shell ${captureDockCollapsed ? "capture-collapsed" : ""}`}>
@@ -2095,7 +1560,6 @@ export default function Home() {
           <button type="button" className={view === "home" ? "selected" : ""} onClick={() => setView("home")}>Home</button>
           <button type="button" className={view === "board" ? "selected" : ""} onClick={() => setView("board")}>Board</button>
           <button type="button" className={view === "issues" ? "selected" : ""} onClick={() => setView("issues")}>Issues</button>
-          <button type="button" className={view === "ideas" ? "selected" : ""} onClick={() => setView("ideas")}>Ideas</button>
           <button type="button" className={view === "notes" ? "selected" : ""} onClick={() => setView("notes")}>Notes</button>
           <button type="button" className={view === "files" ? "selected" : ""} onClick={() => setView("files")}>Files</button>
           <button type="button" className={view === "activity" ? "selected" : ""} onClick={() => setView("activity")}>Activity</button>
@@ -2189,14 +1653,18 @@ export default function Home() {
               </div>
               <div className="update-actions">
                 <button type="button" onClick={() => void checkForUpdates(false, true)} disabled={checkingUpdate || installingUpdate}>{checkingUpdate ? "Checking…" : "Check now"}</button>
-                {updateStatus?.updateAvailable && updateStatus.installable && !updateArmed && (
-                  <button type="button" className="update-install" onClick={() => setUpdateArmed(true)} disabled={installingUpdate}>Install & restart</button>
-                )}
-                {updateStatus?.updateAvailable && updateStatus.installable && updateArmed && (
-                  <div className="update-confirm">
-                    <button type="button" onClick={() => setUpdateArmed(false)} disabled={installingUpdate}>Cancel</button>
-                    <button type="button" className="primary-action" onClick={() => void installServiceUpdate()} disabled={installingUpdate}>{installingUpdate ? "Installing…" : `Install ${updateStatus.latestVersion}`}</button>
-                  </div>
+                {updateStatus?.updateAvailable && updateStatus.installable && (
+                  <ConfirmAction
+                    label="Install & restart"
+                    triggerClassName="update-install"
+                    confirmLabel={`Install ${updateStatus.latestVersion}`}
+                    busyLabel="Installing…"
+                    busy={installingUpdate}
+                    disabled={installingUpdate}
+                    confirmClassName="update-confirm"
+                    confirmButtonClassName="primary-action"
+                    onConfirm={() => void installServiceUpdate()}
+                  />
                 )}
               </div>
               {updateStatus?.updateAvailable && !updateStatus.installable && <small className="update-source-note">This copy is running from source; update its Git checkout instead.</small>}
@@ -2207,32 +1675,17 @@ export default function Home() {
                 <strong>Local service</strong>
                 <small>Reload the Work API and interface without changing project files.</small>
               </div>
-              {!restartArmed ? (
-                <button type="button" onClick={() => { setRestartArmed(true); setServiceRestartError(null); }}>Restart Work</button>
-              ) : (
-                <div className="service-restart-confirm">
-                  <span>Restart now?</span>
-                  <button type="button" onClick={() => setRestartArmed(false)} disabled={restartingService}>Cancel</button>
-                  <button type="button" className="danger-action" onClick={() => void restartLocalService()} disabled={restartingService}>
-                    {restartingService ? "Restarting…" : "Confirm restart"}
-                  </button>
-                </div>
-              )}
+              <ConfirmAction
+                label="Restart Work"
+                message="Restart now?"
+                confirmLabel="Confirm restart"
+                busyLabel="Restarting…"
+                busy={restartingService}
+                confirmClassName="service-restart-confirm"
+                onArm={() => setServiceRestartError(null)}
+                onConfirm={() => void restartLocalService()}
+              />
               {serviceRestartError && <small className="service-restart-error" role="alert">{serviceRestartError}</small>}
-            </section>
-            <section className="service-control ai-control" aria-label="AI assistance settings">
-              <div>
-                <strong>AI assistance {aiSettings?.configured && <span className="update-badge">Ready</span>}</strong>
-                <small>{aiSettings?.configured ? `${aiSettings.model} · ${aiSettings.baseUrl}` : "Configure one-shot drafting and review without enabling autonomous tools."}</small>
-              </div>
-              <button type="button" onClick={() => void openAiSettings()}>{aiSettings?.configured ? "Configure AI" : "Set up AI"}</button>
-            </section>
-            <section className="service-control federation-control" aria-label="Connected Work instances">
-              <div>
-                <strong>Connected instances {federationSettings?.peers.some((peer) => peer.available) && <span className="update-badge">Linked</span>}</strong>
-                <small>Browse another Work instance through this one without copying its files.</small>
-              </div>
-              <button type="button" onClick={() => void openFederationSettings()}>Manage connections</button>
             </section>
           </div>
         )}
@@ -2250,40 +1703,33 @@ export default function Home() {
             <div className="workspace-menu-list">
               {workspaceDirectory.workspaces.map((workspace) => {
                 const current = workspace.id === data.workspace.id;
-                const confirmingRemoval = workspaceRemovalTarget === workspace.id;
-                const remote = workspace.location === "remote";
                 return (
-                  <div className={`workspace-menu-item${current ? " selected" : ""}${remote ? " remote" : ""}${workspace.available === false ? " offline" : ""}`} role="group" key={workspace.id}>
+                  <div className={`workspace-menu-item${current ? " selected" : ""}`} role="group" key={workspace.id}>
                     <button
                       className="workspace-select"
                       type="button"
                       role="menuitemradio"
                       aria-checked={current}
-                      disabled={workspace.available === false}
                       onClick={() => void switchWorkspace(workspace.id)}
                     >
-                      <span className="workspace-icon" aria-hidden="true">{remote ? "↗" : workspace.name.slice(0, 1).toUpperCase()}</span>
-                      <span><strong>{workspace.name}</strong><small>{remote ? `${workspace.peer?.name ?? "Remote instance"} · ${workspace.available === false ? "Offline" : "Remote"}` : workspace.root}</small></span>
+                      <span className="workspace-icon" aria-hidden="true">{workspace.name.slice(0, 1).toUpperCase()}</span>
+                      <span><strong>{workspace.name}</strong><small>{workspace.root}</small></span>
                       {current && <span className="current-root">Current</span>}
                     </button>
-                    {!remote && !current && !confirmingRemoval && (
-                      <button
-                        type="button"
-                        className="workspace-remove"
-                        aria-label={`Remove ${workspace.name} from the workspace list`}
-                        onClick={() => { setWorkspaceRemovalTarget(workspace.id); setWorkspacePickerError(null); }}
-                      >
-                        Remove
-                      </button>
-                    )}
-                    {!current && confirmingRemoval && (
-                      <div className="workspace-remove-confirm" role="alert">
-                        <span>Remove from list? Files stay untouched.</span>
-                        <button type="button" onClick={() => setWorkspaceRemovalTarget(null)} disabled={removingWorkspace === workspace.id}>Cancel</button>
-                        <button type="button" className="danger-action" onClick={() => void removeWorkspace(workspace.id)} disabled={removingWorkspace === workspace.id}>
-                          {removingWorkspace === workspace.id ? "Removing…" : "Confirm"}
-                        </button>
-                      </div>
+                    {!current && (
+                      <ConfirmAction
+                        label="Remove"
+                        triggerClassName="workspace-remove"
+                        triggerAriaLabel={`Remove ${workspace.name} from the workspace list`}
+                        message="Remove from list? Files stay untouched."
+                        confirmLabel="Confirm"
+                        busyLabel="Removing…"
+                        busy={removingWorkspace === workspace.id}
+                        confirmClassName="workspace-remove-confirm"
+                        alert
+                        onArm={() => setWorkspacePickerError(null)}
+                        onConfirm={() => void removeWorkspace(workspace.id)}
+                      />
                     )}
                   </div>
                 );
@@ -2339,24 +1785,6 @@ export default function Home() {
             onReply={replyToIssue}
             onSetState={setIssueState}
           />
-        ) : view === "ideas" ? (
-          <IdeasView
-            scopeLabel={scopeLabel}
-            scopeKind={scopeKind}
-            ideas={scopedIdeas}
-            projects={data.projects}
-            selectedIdeaId={selectedIdeaId}
-            creating={creatingIdea}
-            saving={savingIdea}
-            error={ideaError}
-            onSelect={setSelectedIdeaId}
-            onCreate={createProjectIdea}
-            onUpdate={updateProjectIdea}
-            onDelete={deleteProjectIdea}
-            onScopeWork={scopeIdeaAsWork}
-            onAskAi={(ideaId, operation) => requestAiProposal("idea", ideaId, operation)}
-            aiBusy={aiBusy}
-          />
         ) : view === "notes" ? (
           <NotesView
             scopeLabel={scopeLabel}
@@ -2399,20 +1827,20 @@ export default function Home() {
               onUpdateProfile={updateProjectProfile}
             />
           ) : (
-            <ScopeOverview
-              rootName={data.workspace.name}
-              scopeLabel={scopeLabel}
-              scopeKind={scopeKind}
-              scopePath={scopePath}
-              projectCount={visibleProjects.length + (scopePath === "." && rootProject ? 1 : 0)}
-              captureCount={scopedCaptures.length}
-              ideaCount={scopedIdeas.length}
-              decisionCount={activeDecisions.length}
-              taskCount={scopedTasks.length}
-              inFlightCount={scopedTasks.filter((task) => ["in_progress", "blocked", "review"].includes(task.status)).length}
-              doneCount={scopedTasks.filter((task) => task.status === "done").length}
-              rootPath={workspaceLocationLabel}
-            />
+            <div className="portfolio-intro">
+              <p className="continue-label"><span aria-hidden="true" /> {scopeKind === "root" ? "One root" : "Folder scope"}</p>
+              <h1>{scopeKind === "root" ? `All in ${data.workspace.name}` : scopeLabel}</h1>
+              <p>See the shape of this directory without pulling in unrelated work. Everything here stays under one filesystem boundary.</p>
+              <p className="scope-path" title={scopeKind === "root" ? workspaceLocationLabel : `${workspaceLocationLabel}/${scopePath}`}>{scopeKind === "root" ? workspaceLocationLabel : scopePath}</p>
+              <div className="portfolio-stats" aria-label="Scope summary">
+                <span><strong>{visibleProjects.length + (scopePath === "." && rootProject ? 1 : 0)}</strong> projects</span>
+                <span><strong>{scopedTasks.length}</strong> work items</span>
+                <span><strong>{scopedTasks.filter((task) => ["in_progress", "blocked", "review"].includes(task.status)).length}</strong> in flight</span>
+                <span><strong>{scopedTasks.filter((task) => task.status === "done").length}</strong> completed</span>
+                <span><strong>{scopedCaptures.length}</strong> captured</span>
+                <span><strong>{activeDecisions.length}</strong> need you</span>
+              </div>
+            </div>
           )}
 
           {(scopeKind !== "project" || childGroups.length > 0 || directProjects.length > 0) && (
@@ -2422,7 +1850,11 @@ export default function Home() {
                 <span className="count-badge">{visibleProjects.length}</span>
               </div>
               {childGroups.length === 0 && directProjects.length === 0 ? (
-                <div className="empty-panel"><strong>No marked projects found here.</strong><span>Add an empty `.project` file or `.project/` folder inside each project directory, then refresh.</span></div>
+                <div className="empty-panel project-create-panel">
+                  <strong>No projects here yet.</strong>
+                  <span>Name your first project. Work creates the folder and its marker for you.</span>
+                  <InlineProjectCreate parentPath={scopePath} onCreated={(project) => { rememberProject(project); navigate(project.path); }} />
+                </div>
               ) : (
                 <div className="project-grid">
                   {childGroups.map((group) => (
@@ -2439,6 +1871,13 @@ export default function Home() {
                       <span className="project-card-meta">Open<span aria-hidden="true">→</span></span>
                     </button>
                   ))}
+                  <div className="project-card new-project-card">
+                    <span className="project-card-code" aria-hidden="true">＋</span>
+                    <span className="project-card-copy">
+                      <small>+ New project</small>
+                      <InlineProjectCreate parentPath={scopePath} onCreated={rememberProject} />
+                    </span>
+                  </div>
                 </div>
               )}
             </div>
@@ -2449,7 +1888,6 @@ export default function Home() {
           items={scheduledItems}
           projects={data.projects}
           onOpenTask={(taskId) => { setView("board"); setSelectedTaskId(taskId); }}
-          onOpenIdea={(ideaId) => { setView("ideas"); setSelectedIdeaId(ideaId); }}
         />
 
         <div className="home-support-grid">
@@ -2470,22 +1908,34 @@ export default function Home() {
             <div className="empty-panel"><strong>Nothing needs a decision in this scope.</strong><span>Ordinary work stays out of this list.</span></div>
           ) : (
             <div className="attention-list">
-              {visibleHumanIssues.map((issue) => (
-                <article className="attention-item issue-attention-item" key={issue.id}>
-                  <button
-                    type="button"
-                    className="attention-summary"
-                    onClick={() => {
-                      setSelectedIssueId(issue.id);
-                      setView("issues");
-                    }}
-                  >
-                    <span className="attention-check" aria-hidden="true">↩</span>
+              {[
+                ...visibleHumanIssues.map((issue) => ({
+                  key: `issue-${issue.id}`,
+                  icon: "↩",
+                  kind: "Issue",
+                  title: issue.title,
+                  projectPath: issue.projectPath,
+                  action: "Reply",
+                  open: () => { setSelectedIssueId(issue.id); setView("issues"); },
+                })),
+                ...visibleBlockedTasks.map((task) => ({
+                  key: `task-${task.id}`,
+                  icon: "■",
+                  kind: "Blocked task",
+                  title: task.title,
+                  projectPath: task.projectPath,
+                  action: "Unblock",
+                  open: () => { setSelectedTaskId(task.id); setView("board"); },
+                })),
+              ].map((item) => (
+                <article className="attention-item issue-attention-item" key={item.key}>
+                  <button type="button" className="attention-summary" onClick={item.open}>
+                    <span className="attention-check" aria-hidden="true">{item.icon}</span>
                     <span className="attention-copy">
-                      <small>Issue · {issue.projectPath ? data.projects.find((project) => project.path === issue.projectPath)?.name ?? issue.projectPath : `${data.workspace.name} · Unassigned`}</small>
-                      <strong>{issue.title}</strong>
+                      <small>{item.kind} · {scopeLabelFor(data.projects, item.projectPath, `${data.workspace.name} · Unassigned`)}</small>
+                      <strong>{item.title}</strong>
                     </span>
-                    <span className="review-label">Reply</span>
+                    <span className="review-label">{item.action}</span>
                   </button>
                 </article>
               ))}
@@ -2510,7 +1960,7 @@ export default function Home() {
                     <button type="button" className="attention-summary" onClick={() => setExpandedDecision(open ? null : decision.id)} aria-expanded={open}>
                       <span className="attention-check" aria-hidden="true">?</span>
                       <span className="attention-copy">
-                        <small>{decision.projectPath ? data.projects.find((project) => project.path === decision.projectPath)?.name ?? decision.projectPath : `${data.workspace.name} · Unassigned`}</small>
+                        <small>{scopeLabelFor(data.projects, decision.projectPath, `${data.workspace.name} · Unassigned`)}</small>
                         <strong>{decision.title}</strong>
                       </span>
                       <span className="review-label">{open ? "Close" : "Choose"}</span>
@@ -2532,7 +1982,7 @@ export default function Home() {
                               />
                               <span>
                                 <strong>{option}</strong>
-                                {option === decision.recommendedOption && <small className="decision-recommended">Agent recommendation</small>}
+                                {option === decision.recommendedOption && <small className="decision-recommended">Recommendation</small>}
                                 {option === "Other" && <small>Write a different answer below.</small>}
                               </span>
                             </label>
@@ -2596,8 +2046,8 @@ export default function Home() {
                   </article>
                 );
               })}
-              {attentionCount > visibleHumanIssues.length + visibleDecisions.length && (
-                <p className="more-decisions">{attentionCount - visibleHumanIssues.length - visibleDecisions.length} more waiting safely in this scope. Reply, finish, or defer one to bring the next forward.</p>
+              {attentionCount > visibleHumanIssues.length + visibleBlockedTasks.length + visibleDecisions.length && (
+                <p className="more-decisions">{attentionCount - visibleHumanIssues.length - visibleBlockedTasks.length - visibleDecisions.length} more waiting safely in this scope. Reply, finish, or defer one to bring the next forward.</p>
               )}
             </div>
           )}
@@ -2620,7 +2070,7 @@ export default function Home() {
                     <div><strong>{capture.text}</strong><small>{destinationLabel} · {shortTime(capture.createdAt)}</small></div>
                     <div className="capture-row-actions">
                       <button type="button" className="capture-icon-action" title="Move to another inbox" onClick={() => { setCaptureToMove(capture); setCaptureMoveSearch(""); }} aria-label={`Move thought to another inbox: ${capture.text}`}><span aria-hidden="true">↗</span></button>
-                      <button type="button" className="capture-icon-action promote-idea" title="Develop this as an idea" onClick={() => void promoteCaptureToIdea(capture).catch(() => {})} aria-label={`Make idea from thought: ${capture.text}`}><span aria-hidden="true">◇</span></button>
+                      <button type="button" className="capture-icon-action promote-note" title="Keep this as a note" onClick={() => void promoteCaptureToNote(capture).catch(() => {})} aria-label={`Make note from thought: ${capture.text}`}><span aria-hidden="true">◇</span></button>
                       <button type="button" className="capture-icon-action promote-capture" title="Make this a task" onClick={() => void promoteCaptureToTask(capture).catch(() => {})} aria-label={`Make task from thought: ${capture.text}`}><span aria-hidden="true">＋</span></button>
                       <button type="button" className="capture-icon-action remove-capture" title="Remove this thought" onClick={() => void deleteCapture(capture.id)} aria-label={`Remove capture: ${capture.text}`}><span aria-hidden="true">×</span></button>
                     </div>
@@ -2631,9 +2081,36 @@ export default function Home() {
           )}
         </section>
         </div>
+
+        {scopeKind === "project" && selectedProject && (
+          <section className="danger-zone" aria-label="Danger zone">
+            <button type="button" className="danger-zone-button" onClick={() => { setProjectDeleteError(null); setConfirmingProjectDelete(true); }}>
+              {TRASH_GLYPH} Delete project
+            </button>
+          </section>
+        )}
           </>
         )}
       </main>
+
+      {confirmingProjectDelete && selectedProject && (
+        <div className="capture-move-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !deletingProject) setConfirmingProjectDelete(false); }}>
+          <section className="project-delete-panel" role="dialog" aria-modal="true" aria-labelledby="project-delete-heading">
+            <div className="capture-move-heading">
+              <div><p className="eyebrow">Danger zone</p><h2 id="project-delete-heading">Delete {selectedProject.name}?</h2></div>
+              <button type="button" onClick={() => setConfirmingProjectDelete(false)} aria-label="Close delete confirmation" disabled={deletingProject}>×</button>
+            </div>
+            <p className="project-delete-copy">Removes the project and its Work records. Your files stay unless the folder is empty.</p>
+            {projectDeleteError && <p className="field-error" role="alert">{projectDeleteError}</p>}
+            <div className="project-delete-actions">
+              <button type="button" onClick={() => setConfirmingProjectDelete(false)} disabled={deletingProject}>Cancel</button>
+              <button type="button" className="danger-zone-button" disabled={deletingProject} onClick={() => void confirmProjectDelete()}>
+                {TRASH_GLYPH} {deletingProject ? "Deleting…" : "Delete project"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {captureToMove && (
         <div className="capture-move-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCaptureToMove(null); }}>
@@ -2679,33 +2156,7 @@ export default function Home() {
           onPatch={(patch) => void patchWorkTask(selectedTask.id, patch).catch(() => {})}
           onToggle={(section, index, checked) => void toggleWorkChecklist(selectedTask.id, section, index, checked)}
           onLog={(message) => logWorkProgress(selectedTask.id, message)}
-          onAskAi={(taskId, operation) => requestAiProposal("task", taskId, operation)}
-          aiBusy={aiBusy}
         />
-      )}
-
-      {aiSettingsOpen && (
-        <AiSettingsPanel settings={aiSettings} busy={aiBusy} error={aiError} onClose={() => { setAiSettingsOpen(false); setAiError(null); }} onSave={saveAiSettings} onTest={testAiSettings} />
-      )}
-
-      {federationOpen && (
-        <FederationPanel
-          settings={federationSettings}
-          localWorkspaces={workspaceDirectory?.workspaces.filter((workspace) => workspace.location !== "remote") ?? []}
-          busy={federationBusy}
-          error={federationError}
-          onClose={() => { setFederationOpen(false); setFederationError(null); }}
-          onRename={updateFederationName}
-          onCreateGrant={createFederationGrant}
-          onRevokeGrant={revokeFederationGrant}
-          onConnect={connectFederationPeer}
-          onRemovePeer={removeFederationPeer}
-          onRefresh={refreshFederation}
-        />
-      )}
-
-      {aiProposal && (
-        <AiProposalPanel proposal={aiProposal} busy={aiBusy} error={aiError} onClose={() => { setAiProposal(null); setAiError(null); }} onApply={applyAiProposal} />
       )}
 
       {captureDockCollapsed ? (
@@ -2729,9 +2180,9 @@ export default function Home() {
         {captureReceipt && (
           <div className="capture-receipt" role="status" aria-live="polite">
             <span className="receipt-check" aria-hidden="true">✓</span>
-            <div><strong>Saved: “{captureReceipt.capture.text}”</strong><small>{captureReceipt.destination} · Available to agents in this root</small></div>
+            <div><strong>Saved: “{captureReceipt.capture.text}”</strong><small>{captureReceipt.destination} · Waiting in your inbox</small></div>
             <div className="receipt-actions">
-              <button type="button" onClick={() => void promoteCaptureToIdea(captureReceipt.capture).catch(() => {})}>Make idea</button>
+              <button type="button" onClick={() => void promoteCaptureToNote(captureReceipt.capture).catch(() => {})}>Make note</button>
               <button type="button" onClick={() => void promoteCaptureToTask(captureReceipt.capture).catch(() => {})}>Make task</button>
               <button type="button" onClick={() => void deleteCapture(captureReceipt.capture.id)}>Undo</button>
               <button type="button" onClick={() => openHomeSection("inbox")}>Open inbox</button>
@@ -2742,7 +2193,21 @@ export default function Home() {
         <form onSubmit={handleCommandSubmit} aria-label="Universal work command">
           <div className="capture-context">
             <span className="capture-symbol" aria-hidden="true">/</span>
-            <div><strong>Capture anything</strong><small>Going to {destination}</small></div>
+            <div>
+              <strong>Capture anything</strong>
+              <button
+                type="button"
+                className={`capture-destination-toggle ${captureDestinationProject ? "to-project" : ""}`}
+                onClick={() => setCaptureToProject((current) => !current)}
+                disabled={!selectedProject}
+                aria-pressed={Boolean(captureDestinationProject)}
+                title={selectedProject
+                  ? `Capture into ${captureDestinationProject ? "the root Inbox instead" : selectedProject.name} `
+                  : "Open a project to capture into it instead of the Inbox"}
+              >
+                Going to {captureDestinationProject ? captureDestinationProject.name : "Inbox"}{selectedProject ? " · switch" : ""}
+              </button>
+            </div>
           </div>
           <label className="sr-only" htmlFor="work-command">Tell Work anything you want remembered</label>
           <textarea
@@ -2761,7 +2226,7 @@ export default function Home() {
         </form>
         <div className="capture-meta">
           <span className={captureError ? "capture-error" : ""} aria-live="polite">
-            {captureError ?? `Exact destination: ${destination}. Project names in the thought never reroute it.`}
+            {captureError ?? `Exact destination: ${captureDestination}. Project names in the thought never reroute it.`}
           </span>
           <div>
             <button type="button" onClick={() => openHomeSection("inbox")}>{scopedCaptures.length} in {selectedProject ? `${selectedProject.name} inbox` : scopePath === "." ? "root inbox" : `${scopeLabel} inbox`}</button>
@@ -2771,6 +2236,115 @@ export default function Home() {
           </div>
         </div>
       </div>}
+    </div>
+  );
+}
+
+function InlineProjectCreate({
+  parentPath,
+  onCreated,
+}: {
+  parentPath: string;
+  onCreated: (project: Project) => void;
+}) {
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function create(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const project = await requestJson<Project>("/api/projects", {
+        method: "POST",
+        body: JSON.stringify({ name: trimmed, ...(parentPath === "." ? {} : { parentPath }) }),
+      });
+      setName("");
+      onCreated(project);
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "The project could not be created.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form className="project-create-form" onSubmit={create}>
+      <input
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        placeholder="Project name…"
+        aria-label="New project name"
+        maxLength={120}
+      />
+      <button type="submit" disabled={saving || !name.trim()}>{saving ? "Creating…" : "Create project"}</button>
+      {error && <span className="capture-error" role="alert">{error}</span>}
+    </form>
+  );
+}
+
+const TRASH_GLYPH = (
+  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+    <path d="M2.5 4.5h11m-8-2h5m-6.6 2 .7 8.3a1 1 0 0 0 1 .9h4.8a1 1 0 0 0 1-.9l.7-8.3M6.6 7v4.5M9.4 7v4.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+function ConfirmAction({
+  label,
+  message,
+  confirmLabel,
+  busyLabel,
+  busy = false,
+  disabled = false,
+  triggerClassName,
+  triggerAriaLabel,
+  confirmClassName,
+  confirmButtonClassName = "danger-action",
+  alert = false,
+  onArm,
+  onConfirm,
+}: {
+  label: ReactNode;
+  message?: string;
+  confirmLabel: string;
+  busyLabel?: string;
+  busy?: boolean;
+  disabled?: boolean;
+  triggerClassName?: string;
+  triggerAriaLabel?: string;
+  confirmClassName?: string;
+  confirmButtonClassName?: string;
+  alert?: boolean;
+  onArm?: () => void;
+  onConfirm: () => void;
+}) {
+  const [armed, setArmed] = useState(false);
+  if (!armed) {
+    return (
+      <button
+        type="button"
+        className={triggerClassName}
+        aria-label={triggerAriaLabel}
+        disabled={disabled}
+        onClick={() => {
+          setArmed(true);
+          onArm?.();
+        }}
+      >
+        {label}
+      </button>
+    );
+  }
+  return (
+    <div className={confirmClassName} role={alert ? "alert" : undefined}>
+      {message && <span>{message}</span>}
+      <button type="button" onClick={() => setArmed(false)} disabled={busy}>Cancel</button>
+      <button type="button" className={confirmButtonClassName} disabled={busy} onClick={onConfirm}>
+        {busy && busyLabel ? busyLabel : confirmLabel}
+      </button>
     </div>
   );
 }
@@ -2795,52 +2369,6 @@ function DecisionChoice({
       <input type="radio" name={`decision-${decisionId}`} value={action} checked={draft.action === action} onChange={() => onChange(decisionId, { action })} />
       <span><strong>{label}</strong><small>{detail}</small></span>
     </label>
-  );
-}
-
-function ScopeOverview({
-  rootName,
-  scopeLabel,
-  scopeKind,
-  scopePath,
-  projectCount,
-  captureCount,
-  ideaCount,
-  decisionCount,
-  taskCount,
-  inFlightCount,
-  doneCount,
-  rootPath,
-}: {
-  rootName: string;
-  scopeLabel: string;
-  scopeKind: "root" | "group" | "project";
-  scopePath: string;
-  projectCount: number;
-  captureCount: number;
-  ideaCount: number;
-  decisionCount: number;
-  taskCount: number;
-  inFlightCount: number;
-  doneCount: number;
-  rootPath: string;
-}) {
-  return (
-    <div className="portfolio-intro">
-      <p className="continue-label"><span aria-hidden="true" /> {scopeKind === "root" ? "One root" : "Folder scope"}</p>
-      <h1>{scopeKind === "root" ? `All in ${rootName}` : scopeLabel}</h1>
-      <p>See the shape of this directory without pulling in unrelated work. Everything here stays under one filesystem boundary.</p>
-      <p className="scope-path" title={scopeKind === "root" ? rootPath : `${rootPath}/${scopePath}`}>{scopeKind === "root" ? rootPath : scopePath}</p>
-      <div className="portfolio-stats" aria-label="Scope summary">
-        <span><strong>{projectCount}</strong> projects</span>
-        <span><strong>{taskCount}</strong> work items</span>
-        <span><strong>{inFlightCount}</strong> in flight</span>
-        <span><strong>{doneCount}</strong> completed</span>
-        <span><strong>{captureCount}</strong> captured</span>
-        <span><strong>{ideaCount}</strong> ideas</span>
-        <span><strong>{decisionCount}</strong> need you</span>
-      </div>
-    </div>
   );
 }
 
@@ -2945,7 +2473,7 @@ function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpd
             <div><button type="button" onClick={() => { setPurpose(project.description ?? ""); setEditingPurpose(false); setPurposeError(null); }}>Cancel</button><button type="button" className="primary-action" disabled={savingPurpose} onClick={() => void savePurpose()}>{savingPurpose ? "Saving…" : "Save purpose"}</button></div>
           </div>
         ) : (
-          <p className={project.description ? "" : "project-purpose-empty"}>{project.description || "Add a short description so people and agents understand what this project is trying to make possible."}</p>
+          <p className={project.description ? "" : "project-purpose-empty"}>{project.description || "Add a short description of what this project is trying to make possible."}</p>
         )}
         {purposeError && <p className="field-error" role="alert">{purposeError}</p>}
       </section>
@@ -2987,6 +2515,7 @@ function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpd
           <small>{progressSource}</small>
         </aside>
       </div>
+
     </article>
   );
 }
@@ -3282,19 +2811,6 @@ function FilesView({ scopeLabel, scopePath, project, onProjectCreated }: {
   );
 }
 
-const IDEA_STATUS_OPTIONS: Array<{ value: IdeaStatus; label: string }> = [
-  { value: "open", label: "Open" },
-  { value: "exploring", label: "Exploring" },
-  { value: "deferred", label: "Not now" },
-  { value: "proposed", label: "Proposed" },
-  { value: "adopted", label: "Adopted" },
-  { value: "declined", label: "Closed" },
-];
-
-function ideaStatusLabel(status: IdeaStatus) {
-  return IDEA_STATUS_OPTIONS.find((option) => option.value === status)?.label ?? displaySegment(status);
-}
-
 function IssuesView({
   scopeLabel,
   scopePath,
@@ -3323,14 +2839,13 @@ function IssuesView({
   onSetState: (issueId: string, state: "queued" | "closed") => Promise<Issue>;
 }) {
   const selectedIssue = issues.find((issue) => issue.id === selectedIssueId) ?? null;
+  const stateNote = selectedIssue ? ISSUE_STATE_NOTES[selectedIssue.state] : undefined;
   const [draft, setDraft] = useState("");
   const [reply, setReply] = useState("");
   const [search, setSearch] = useState("");
-  const [closeArmed, setCloseArmed] = useState(false);
 
   useEffect(() => {
     setReply("");
-    setCloseArmed(false);
   }, [selectedIssue?.id]);
 
   const filteredIssues = useMemo(() => {
@@ -3345,9 +2860,7 @@ function IssuesView({
   }, [issues, search]);
 
   function issueLocation(issue: Issue) {
-    if (issue.projectPath) return projects.find((project) => project.path === issue.projectPath)?.name ?? issue.projectPath;
-    if (issue.scopePath === ".") return "Workspace";
-    return `Folder · ${issue.scopePath}`;
+    return scopeLabelFor(projects, issue.projectPath, issue.scopePath === "." ? "Workspace" : `Folder · ${issue.scopePath}`);
   }
 
   async function submitIssue(event?: FormEvent) {
@@ -3380,7 +2893,7 @@ function IssuesView({
     <section className="issues-view" aria-labelledby="issues-heading">
       <header className="issues-toolbar">
         <div>
-          <p className="eyebrow">A durable conversation with an agent</p>
+          <p className="eyebrow">A durable conversation beside the work</p>
           <h1 id="issues-heading">{scopeLabel} issues</h1>
           <p>Write what is wrong, unclear, or worth investigating. No title or categorization required.</p>
         </div>
@@ -3425,7 +2938,7 @@ function IssuesView({
           {filteredIssues.length === 0 ? (
             <div className="notes-list-empty">
               <strong>{issues.length === 0 ? "No issues yet." : "No issues match."}</strong>
-              <span>{issues.length === 0 ? "Use the free-form box above whenever an agent should pick something up." : "Try a different search."}</span>
+              <span>{issues.length === 0 ? "Use the free-form box above whenever something needs investigation." : "Try a different search."}</span>
             </div>
           ) : (
             <div className="issue-list" role="listbox" aria-label="Select an issue">
@@ -3439,7 +2952,7 @@ function IssuesView({
                   onClick={() => onSelect(issue.id)}
                 >
                   <span className="issue-list-title"><strong>{issue.title}</strong></span>
-                  <span className={`issue-state state-${issue.state}`}>{issueStateLabel(issue.state)}</span>
+                  <span className={`issue-state state-${issue.state}`}>{ISSUE_STATE_LABELS[issue.state]}</span>
                   <small>{issueLocation(issue)} · {shortTime(issue.updatedAt)}</small>
                 </button>
               ))}
@@ -3452,7 +2965,7 @@ function IssuesView({
             <>
               <header className="issue-thread-heading">
                 <div>
-                  <span className={`issue-state state-${selectedIssue.state}`}>{issueStateLabel(selectedIssue.state)}</span>
+                  <span className={`issue-state state-${selectedIssue.state}`}>{ISSUE_STATE_LABELS[selectedIssue.state]}</span>
                   <h2>{selectedIssue.title}</h2>
                   <small>{issueLocation(selectedIssue)} · Opened {new Date(selectedIssue.createdAt).toLocaleString()}</small>
                 </div>
@@ -3460,43 +2973,26 @@ function IssuesView({
                   {(selectedIssue.state === "resolved" || selectedIssue.state === "closed") && (
                     <button type="button" className="secondary-action" disabled={saving} onClick={() => void onSetState(selectedIssue.id, "queued").catch(() => {})}>Reopen</button>
                   )}
-                  {selectedIssue.state !== "closed" && !closeArmed && (
-                    <button type="button" className="issue-close-action" disabled={saving} onClick={() => setCloseArmed(true)}>Close issue</button>
-                  )}
-                  {selectedIssue.state !== "closed" && closeArmed && (
-                    <span className="issue-close-confirm">
-                      <span>Close this issue?</span>
-                      <button type="button" disabled={saving} onClick={() => setCloseArmed(false)}>Cancel</button>
-                      <button type="button" className="danger-action" disabled={saving} onClick={() => void onSetState(selectedIssue.id, "closed").catch(() => {})}>Close</button>
-                    </span>
+                  {selectedIssue.state !== "closed" && (
+                    <ConfirmAction
+                      key={selectedIssue.id}
+                      label="Close issue"
+                      triggerClassName="issue-close-action"
+                      message="Close this issue?"
+                      confirmLabel="Close"
+                      busy={saving}
+                      disabled={saving}
+                      confirmClassName="issue-close-confirm"
+                      onConfirm={() => void onSetState(selectedIssue.id, "closed").catch(() => {})}
+                    />
                   )}
                 </div>
               </header>
 
-              {selectedIssue.state === "in_progress" && (
-                <div className="issue-state-note">
-                  <strong>Agent working{selectedIssue.claimedBy ? ` · ${selectedIssue.claimedBy.name}` : ""}</strong>
-                  <span>The issue remains open while the agent investigates.</span>
-                </div>
-              )}
-              {selectedIssue.state === "needs_human" && (
-                <div className="issue-state-note needs-human">
-                  <strong>The agent needs your input.</strong>
-                  <span>Reply below. Only issues in this state appear in the bounded Needs you list.</span>
-                </div>
-              )}
-              {selectedIssue.state === "resolved" && (
-                <div className="issue-state-note resolved">
-                  <strong>Agent resolution — an opinion, not a final judgment.</strong>
-                  {selectedIssue.resolutionSummary
-                    ? <Markdown>{selectedIssue.resolutionSummary}</Markdown>
-                    : <span>If the result is incomplete, reply or reopen the issue.</span>}
-                </div>
-              )}
-              {selectedIssue.state === "closed" && (
-                <div className="issue-state-note closed">
-                  <strong>Closed by a human.</strong>
-                  <span>You can reopen it at any time. Nothing in this conversation is discarded.</span>
+              {stateNote && (
+                <div className={`issue-state-note ${stateNote.className}`}>
+                  <strong>{stateNote.title(selectedIssue)}</strong>
+                  {stateNote.body(selectedIssue)}
                 </div>
               )}
 
@@ -3527,8 +3023,8 @@ function IssuesView({
                       <header>
                         <strong>
                           {change.from
-                            ? `${issueStateLabel(change.from)} → ${issueStateLabel(change.to)}`
-                            : issueStateLabel(change.to)}
+                            ? `${ISSUE_STATE_LABELS[change.from]} → ${ISSUE_STATE_LABELS[change.to]}`
+                            : ISSUE_STATE_LABELS[change.to]}
                         </strong>
                         <time dateTime={change.at}>{new Date(change.at).toLocaleString()}</time>
                       </header>
@@ -3548,7 +3044,7 @@ function IssuesView({
               <form className="issue-reply" onSubmit={(event) => void submitReply(event).catch(() => {})}>
                 <label htmlFor={`issue-reply-${selectedIssue.id}`}>
                   <strong>Reply</strong>
-                  {selectedIssue.state === "needs_human" && <span>Replying returns this issue to Queued so the agent can continue.</span>}
+                  {selectedIssue.state === "needs_human" && <span>Replying returns this issue to Queued so work can continue.</span>}
                   {(selectedIssue.state === "resolved" || selectedIssue.state === "closed") && <span>Replying automatically reopens this issue and returns it to Queued.</span>}
                 </label>
                 <textarea
@@ -3556,7 +3052,7 @@ function IssuesView({
                   value={reply}
                   onChange={(event) => setReply(event.target.value)}
                   onKeyDown={(event) => submitOnShortcut(event, () => submitReply())}
-                  placeholder="Add context, answer the agent, or say what still is not right…"
+                  placeholder="Add context, answer questions, or say what still is not right…"
                 />
                 <footer>
                   <span>Markdown supported · <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
@@ -3586,246 +3082,6 @@ function IssuesView({
   );
 }
 
-function IdeasView({
-  scopeLabel,
-  scopeKind,
-  ideas,
-  projects,
-  selectedIdeaId,
-  creating,
-  saving,
-  error,
-  onSelect,
-  onCreate,
-  onUpdate,
-  onDelete,
-  onScopeWork,
-  onAskAi,
-  aiBusy,
-}: {
-  scopeLabel: string;
-  scopeKind: "root" | "group" | "project";
-  ideas: ProjectIdea[];
-  projects: Project[];
-  selectedIdeaId: string | null;
-  creating: boolean;
-  saving: boolean;
-  error: string | null;
-  onSelect: (ideaId: string) => void;
-  onCreate: (input?: { title?: string; opportunity?: string; tags?: string[]; source?: string | null }) => Promise<ProjectIdea>;
-  onUpdate: (ideaId: string, patch: Record<string, unknown>) => Promise<ProjectIdea>;
-  onDelete: (ideaId: string) => Promise<void>;
-  onScopeWork: (idea: ProjectIdea) => Promise<WorkTask>;
-  onAskAi: (ideaId: string, operation: "expand" | "evaluate") => void;
-  aiBusy: boolean;
-}) {
-  const selectedIdea = ideas.find((idea) => idea.id === selectedIdeaId) ?? null;
-  const [search, setSearch] = useState("");
-  const [deleteArmed, setDeleteArmed] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [draft, setDraft] = useState({
-    title: "",
-    status: "open" as IdeaStatus,
-    tags: "",
-    revisitAt: "",
-    reason: "",
-    opportunity: "",
-    whyItMightMatter: "",
-    hypothesis: "",
-    unknowns: "",
-    potentialShape: "",
-    evidence: "",
-    risksAndConstraints: "",
-    nextEvaluation: "",
-    outcome: "",
-  });
-
-  useEffect(() => {
-    setDraft({
-      title: selectedIdea?.title ?? "",
-      status: selectedIdea?.status ?? "open",
-      tags: selectedIdea?.tags.join(", ") ?? "",
-      revisitAt: selectedIdea?.revisitAt?.slice(0, 10) ?? "",
-      reason: "",
-      opportunity: selectedIdea?.sections.opportunity ?? "",
-      whyItMightMatter: selectedIdea?.sections.whyItMightMatter ?? "",
-      hypothesis: selectedIdea?.sections.hypothesis ?? "",
-      unknowns: selectedIdea?.sections.unknowns ?? "",
-      potentialShape: selectedIdea?.sections.potentialShape ?? "",
-      evidence: selectedIdea?.sections.evidence ?? "",
-      risksAndConstraints: selectedIdea?.sections.risksAndConstraints ?? "",
-      nextEvaluation: selectedIdea?.sections.nextEvaluation ?? "",
-      outcome: selectedIdea?.sections.outcome ?? "",
-    });
-    setDeleteArmed(false);
-  }, [selectedIdea?.id, selectedIdea?.updatedAt]);
-
-  const filteredIdeas = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return ideas;
-    return ideas.filter((idea) => `${idea.title} ${idea.status} ${idea.tags.join(" ")} ${Object.values(idea.sections).join(" ")}`.toLowerCase().includes(query));
-  }, [ideas, search]);
-
-  function setField(field: keyof typeof draft, value: string) {
-    setDraft((current) => ({ ...current, [field]: value }));
-  }
-
-  function ideaLocation(idea: ProjectIdea) {
-    if (!idea.projectPath) return idea.scopePath === "." ? "Workspace idea" : `${displaySegment(pathParts(idea.scopePath).at(-1) ?? idea.scopePath)} idea`;
-    return projects.find((project) => project.path === idea.projectPath)?.name ?? idea.projectPath;
-  }
-
-  function draftPatch(status = draft.status, reason = draft.reason) {
-    return {
-      title: draft.title.trim() || "Untitled idea",
-      status,
-      reason,
-      tags: draft.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
-      revisitAt: draft.revisitAt || null,
-      opportunity: draft.opportunity,
-      whyItMightMatter: draft.whyItMightMatter,
-      hypothesis: draft.hypothesis,
-      unknowns: draft.unknowns,
-      potentialShape: draft.potentialShape,
-      evidence: draft.evidence,
-      risksAndConstraints: draft.risksAndConstraints,
-      nextEvaluation: draft.nextEvaluation,
-      outcome: draft.outcome,
-    };
-  }
-
-  async function saveIdea(event: FormEvent) {
-    event.preventDefault();
-    if (!selectedIdea) return;
-    await onUpdate(selectedIdea.id, draftPatch());
-  }
-
-  async function toggleEvaluationRequest() {
-    if (!selectedIdea) return;
-    const requested = selectedIdea.agentIntent === "evaluation_requested";
-    const shouldExplore = ["open", "deferred", "adopted", "declined"].includes(draft.status);
-    const nextStatus = !requested && shouldExplore ? "exploring" : draft.status;
-    const transitionReason = nextStatus !== draft.status
-      ? (draft.status === "open" ? "Evaluation requested." : "Evaluation reopened.")
-      : draft.reason;
-    await onUpdate(selectedIdea.id, {
-      ...draftPatch(nextStatus, transitionReason),
-      ...(requested
-        ? { agentIntent: "consideration_only" }
-        : {
-          agentIntent: "evaluation_requested",
-        }),
-    });
-  }
-
-  async function removeIdea() {
-    if (!selectedIdea || deleting) return;
-    setDeleting(true);
-    try {
-      await onDelete(selectedIdea.id);
-      setDeleteArmed(false);
-    } finally {
-      setDeleting(false);
-    }
-  }
-
-  const reasonNeeded = selectedIdea && draft.status !== selectedIdea.status && ["deferred", "declined"].includes(draft.status);
-  const sectionFields: Array<{ key: keyof typeof draft; label: string; placeholder: string }> = [
-    { key: "opportunity", label: "Opportunity", placeholder: "What might become possible?" },
-    { key: "whyItMightMatter", label: "Why it might matter", placeholder: "Who benefits, and what improves?" },
-    { key: "hypothesis", label: "Hypothesis", placeholder: "What do we believe could be true?" },
-    { key: "unknowns", label: "Unknowns", placeholder: "Questions that need investigation." },
-    { key: "potentialShape", label: "Potential shape", placeholder: "A possible approach, without committing to it." },
-    { key: "evidence", label: "Evidence", placeholder: "Research, examples, experiments, or observations." },
-    { key: "risksAndConstraints", label: "Risks and constraints", placeholder: "Security, cost, complexity, or boundary concerns." },
-    { key: "nextEvaluation", label: "Next evaluation", placeholder: "What should we learn or discuss next?" },
-    { key: "outcome", label: "Outcome", placeholder: "What did we conclude, and why?" },
-  ];
-
-  return (
-    <section className="notes-view ideas-view" aria-labelledby="ideas-heading">
-      <header className="notes-toolbar">
-        <div>
-          <p className="eyebrow">{scopeKind === "project" ? "Project possibilities" : "Possibilities worth keeping"}</p>
-          <h1 id="ideas-heading">{scopeLabel} ideas</h1>
-          <p>Explore value and feasibility without authorizing implementation. Promote an idea only when you are ready to decide or scope work.</p>
-        </div>
-        <button type="button" className="primary-action" disabled={creating} onClick={() => void onCreate()}>
-          {creating ? "Creating…" : "New idea"}<span aria-hidden="true">＋</span>
-        </button>
-      </header>
-
-      {error && <p className="note-error" role="alert">{error}</p>}
-
-      <div className="notes-workspace ideas-workspace">
-        <aside className="notes-list-panel" aria-label="Ideas in this scope">
-          <div className="notes-list-heading"><div><strong>Ideas</strong><small>{ideas.length} in this scope</small></div><span className="count-badge">{ideas.length}</span></div>
-          <label className="notes-search"><span className="sr-only">Find an idea</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find an idea…" /></label>
-          {filteredIdeas.length === 0 ? (
-            <div className="notes-list-empty"><strong>{ideas.length === 0 ? "No ideas yet." : "No ideas match."}</strong><span>{ideas.length === 0 ? "Promote an inbox thought or record something worth considering." : "Try a different search."}</span></div>
-          ) : (
-            <div className="notes-list idea-list" role="listbox" aria-label="Select an idea">
-              {filteredIdeas.map((idea) => (
-                <button type="button" role="option" aria-selected={idea.id === selectedIdea?.id} className={idea.id === selectedIdea?.id ? "selected" : ""} key={idea.id} onClick={() => onSelect(idea.id)}>
-                  <span className="note-list-title"><strong>{idea.title}</strong>{idea.agentIntent === "evaluation_requested" && <em>Evaluate</em>}</span>
-                  <span className={`idea-status status-${idea.status}`}>{ideaStatusLabel(idea.status)}</span>
-                  <small>{ideaLocation(idea)} · {shortTime(idea.updatedAt)}</small>
-                </button>
-              ))}
-            </div>
-          )}
-        </aside>
-
-        <article className="idea-editor" aria-label={selectedIdea ? `Develop idea: ${selectedIdea.title}` : "Idea editor"}>
-          {selectedIdea ? (
-            <form onSubmit={(event) => void saveIdea(event).catch(() => {})}>
-              <div className={`idea-intent ${selectedIdea.agentIntent === "evaluation_requested" ? "evaluation-requested" : "consideration-only"}`}>
-                <div><strong>{selectedIdea.agentIntent === "evaluation_requested" ? "Evaluation requested" : "Consideration only"}</strong><span>{selectedIdea.agentIntent === "evaluation_requested" ? "An agent may assess feasibility, value, unknowns, and options. Implementation is not authorized." : "This preserves a possibility. It is not a task, decision, or approval to implement."}</span></div>
-                <div className="ai-action-group">
-                  <button type="button" className="magic-action" disabled={saving || aiBusy} onClick={() => onAskAi(selectedIdea.id, "expand")}><span aria-hidden="true">✦</span> Expand with AI</button>
-                  <button type="button" className="magic-action" disabled={saving || aiBusy} onClick={() => onAskAi(selectedIdea.id, "evaluate")}><span aria-hidden="true">✦</span> Evaluate with AI</button>
-                  {(selectedIdea.status !== "adopted" || selectedIdea.agentIntent === "evaluation_requested") && <button type="button" disabled={saving} onClick={() => void toggleEvaluationRequest().catch(() => {})}>{selectedIdea.agentIntent === "evaluation_requested" ? "Clear request" : "Ask agent to evaluate"}</button>}
-                </div>
-              </div>
-              <label className="idea-title"><span>Idea</span><input value={draft.title} maxLength={500} onChange={(event) => setField("title", event.target.value)} /></label>
-              <div className="idea-state-fields">
-                <label><span>State</span><select value={draft.status} onChange={(event) => setField("status", event.target.value)}>{IDEA_STATUS_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
-                <label><span>Revisit date</span><input type="date" value={draft.revisitAt} onChange={(event) => setField("revisitAt", event.target.value)} /></label>
-                <label><span>Tags</span><input value={draft.tags} onChange={(event) => setField("tags", event.target.value)} placeholder="remote, architecture" /></label>
-              </div>
-              {draft.status !== selectedIdea.status && (
-                <label className="idea-transition-reason"><span>{reasonNeeded ? "Why? Required for this state" : "Reason for this state change"}</span><textarea value={draft.reason} onChange={(event) => setField("reason", event.target.value)} placeholder={draft.status === "deferred" ? "Why not now, and what could change?" : draft.status === "declined" ? "Why is this not worth pursuing?" : "What changed?"} /></label>
-              )}
-              <div className="idea-sections">
-                {sectionFields.map((field) => <label key={field.key}><span>{field.label}</span><textarea value={draft[field.key]} onChange={(event) => setField(field.key, event.target.value)} placeholder={field.placeholder} /></label>)}
-              </div>
-              {selectedIdea.history.length > 0 && <section className="idea-history"><h3>State history</h3><ol>{[...selectedIdea.history].reverse().map((entry, index) => <li key={`${entry.at}-${index}`}><strong>{ideaStatusLabel(entry.from)} → {ideaStatusLabel(entry.to)}</strong><span>{entry.reason ?? "No reason recorded."}</span><small>{new Date(entry.at).toLocaleString()}</small></li>)}</ol></section>}
-              <footer className="idea-editor-footer">
-                <span>{ideaLocation(selectedIdea)} · Updated {shortTime(selectedIdea.updatedAt)}</span>
-                <div>
-                  {deleteArmed ? (
-                    <div className="idea-delete-confirm">
-                      <span>Delete this idea?</span>
-                      <button type="button" onClick={() => setDeleteArmed(false)} disabled={deleting}>Cancel</button>
-                      <button type="button" className="danger-action" onClick={() => void removeIdea().catch(() => {})} disabled={deleting}>{deleting ? "Deleting…" : "Delete"}</button>
-                    </div>
-                  ) : (
-                    <button type="button" className="idea-delete" disabled={saving} onClick={() => setDeleteArmed(true)}>Delete idea</button>
-                  )}
-                  {selectedIdea.status === "adopted" && <button type="button" className="secondary-action" disabled={saving} onClick={() => void onScopeWork(selectedIdea).catch(() => {})}>Scope as work</button>}
-                  <button type="submit" className="primary-action" disabled={saving || !draft.title.trim()}>{saving ? "Saving…" : "Save idea"}</button>
-                </div>
-              </footer>
-            </form>
-          ) : (
-            <div className="note-editor-empty"><span aria-hidden="true">◇</span><strong>{ideas.length === 0 ? "Capture a possibility" : "Select an idea"}</strong><p>{ideas.length === 0 ? "Ideas give you room to evaluate something before deciding or creating work." : "Choose one to continue the conversation."}</p>{ideas.length === 0 && <button type="button" className="primary-action" disabled={creating} onClick={() => void onCreate()}>New idea</button>}</div>
-          )}
-        </article>
-      </div>
-    </section>
-  );
-}
-
 function NotesView({
   scopeLabel,
   scopeKind,
@@ -3848,7 +3104,7 @@ function NotesView({
   error: string | null;
   onSelect: (noteId: string) => void;
   onCreate: () => Promise<ProjectNote>;
-  onUpdate: (noteId: string, patch: { title?: string; text?: string; agentIntent?: ProjectNote["agentIntent"] }) => Promise<ProjectNote>;
+  onUpdate: (noteId: string, patch: { title?: string; text?: string }) => Promise<ProjectNote>;
   onDelete: (noteId: string) => Promise<void>;
 }) {
   const selectedNote = notes.find((note) => note.id === selectedNoteId) ?? null;
@@ -3857,9 +3113,7 @@ function NotesView({
   const [draftText, setDraftText] = useState("");
   const [dirty, setDirty] = useState(false);
   const [saveState, setSaveState] = useState<"idle" | "editing" | "saving" | "saved" | "error">("idle");
-  const [deleteArmed, setDeleteArmed] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [updatingAgentIntent, setUpdatingAgentIntent] = useState(false);
   const revisionRef = useRef(0);
   const saveTimerRef = useRef<number | null>(null);
 
@@ -3877,7 +3131,6 @@ function NotesView({
     setDraftText(selectedNote?.text ?? "");
     setDirty(false);
     setSaveState(selectedNote ? "saved" : "idle");
-    setDeleteArmed(false);
   }, [selectedNote?.id]);
 
   async function persistDraft() {
@@ -3956,7 +3209,6 @@ function NotesView({
     setDeleting(true);
     try {
       await onDelete(selectedNote.id);
-      setDeleteArmed(false);
     } catch {
       setSaveState("error");
     } finally {
@@ -3964,24 +3216,12 @@ function NotesView({
     }
   }
 
-  async function toggleAgentReview() {
-    if (!selectedNote || updatingAgentIntent) return;
-    if (!(await persistDraft())) return;
-    setUpdatingAgentIntent(true);
-    try {
-      await onUpdate(selectedNote.id, {
-        agentIntent: selectedNote.agentIntent === "review_requested" ? "reference_only" : "review_requested",
-      });
-    } catch {
-      setSaveState("error");
-    } finally {
-      setUpdatingAgentIntent(false);
-    }
-  }
-
   function noteLocation(note: ProjectNote) {
-    if (!note.projectPath) return note.scopePath === "." ? "Workspace note" : `${displaySegment(pathParts(note.scopePath).at(-1) ?? note.scopePath)} note`;
-    return projects.find((project) => project.path === note.projectPath)?.name ?? note.projectPath;
+    return scopeLabelFor(
+      projects,
+      note.projectPath,
+      note.scopePath === "." ? "Workspace note" : `${displaySegment(pathParts(note.scopePath).at(-1) ?? note.scopePath)} note`,
+    );
   }
 
   const saveLabel = saveState === "saving"
@@ -4039,8 +3279,7 @@ function NotesView({
                   >
                     <span className="note-list-title">
                       <strong>{note.title}</strong>
-                      {note.createdBy.kind === "agent" && <em>Agent · {note.createdBy.name}</em>}
-                      {note.agentIntent === "review_requested" && <em>Agent review</em>}
+                      {note.createdBy.kind === "agent" && <em>Added by {note.createdBy.name}</em>}
                     </span>
                     <span className="note-list-preview">{preview}</span>
                     <small>{noteLocation(note)} · {shortTime(note.updatedAt)}</small>
@@ -4069,21 +3308,6 @@ function NotesView({
                 </label>
                 <span>{noteLocation(selectedNote)}{selectedNote.createdBy.kind === "agent" ? ` · Agent: ${selectedNote.createdBy.name}` : " · Human note"}</span>
               </div>
-              <div className={`note-agent-intent ${selectedNote.agentIntent === "review_requested" ? "review-requested" : "reference-only"}`}>
-                <div>
-                  <strong>{selectedNote.agentIntent === "review_requested" ? "Agent review requested" : "Reference note"}</strong>
-                  <span>{selectedNote.agentIntent === "review_requested"
-                    ? "An agent should review this promptly. This is still not authorization to execute work."
-                    : "Agents may use this as context, but should not treat it as a request or task."}</span>
-                </div>
-                <button type="button" disabled={updatingAgentIntent} onClick={() => void toggleAgentReview()}>
-                  {updatingAgentIntent
-                    ? "Updating…"
-                    : selectedNote.agentIntent === "review_requested"
-                      ? "Clear review request"
-                      : "Ask agent to review"}
-                </button>
-              </div>
               <label className="note-body-field">
                 <span className="sr-only">Note text</span>
                 <textarea
@@ -4098,15 +3322,17 @@ function NotesView({
               <footer className="note-editor-footer">
                 <span className={`note-save-state state-${saveState}`} role="status" aria-live="polite">{saveLabel}</span>
                 <div className="note-editor-actions">
-                  {deleteArmed ? (
-                    <div className="note-delete-confirm">
-                      <span>Delete this note?</span>
-                      <button type="button" onClick={() => setDeleteArmed(false)} disabled={deleting}>Cancel</button>
-                      <button type="button" className="danger-action" onClick={() => void removeNote()} disabled={deleting}>{deleting ? "Deleting…" : "Delete"}</button>
-                    </div>
-                  ) : (
-                    <button type="button" className="note-delete" onClick={() => setDeleteArmed(true)}>Delete note</button>
-                  )}
+                  <ConfirmAction
+                    key={selectedNote.id}
+                    label="Delete note"
+                    triggerClassName="note-delete"
+                    message="Delete this note?"
+                    confirmLabel="Delete"
+                    busyLabel="Deleting…"
+                    busy={deleting}
+                    confirmClassName="note-delete-confirm"
+                    onConfirm={() => void removeNote()}
+                  />
                   <button type="button" className="secondary-action note-save-button" disabled={!dirty || saveState === "saving"} onClick={() => void persistDraft()}>Save now</button>
                 </div>
               </footer>
@@ -4145,11 +3371,10 @@ function checklistProgress(task: WorkTask) {
   return { complete, total: items.length };
 }
 
-function UpcomingSchedule({ items, projects, onOpenTask, onOpenIdea }: {
+function UpcomingSchedule({ items, projects, onOpenTask }: {
   items: ScheduledItem[];
   projects: Project[];
   onOpenTask: (id: string) => void;
-  onOpenIdea: (id: string) => void;
 }) {
   return (
     <section id="upcoming" className="upcoming-section" aria-labelledby="upcoming-heading">
@@ -4163,7 +3388,6 @@ function UpcomingSchedule({ items, projects, onOpenTask, onOpenIdea }: {
         <ol className="upcoming-list" aria-label="Upcoming scheduled dates">
           {items.map((item) => {
             const tone = scheduleTone(item);
-            const project = projects.find((candidate) => candidate.path === item.projectPath);
             const content = (
               <>
                 <time className={`upcoming-date ${tone}`} dateTime={item.scheduledAt}>
@@ -4171,7 +3395,7 @@ function UpcomingSchedule({ items, projects, onOpenTask, onOpenIdea }: {
                   <span>{scheduleDateDetail(item)}</span>
                 </time>
                 <span className="upcoming-copy">
-                  <small><i>{item.kind}</i>{project?.name ?? item.projectPath ?? "Unassigned"}</small>
+                  <small><i>{item.kind}</i>{scopeLabelFor(projects, item.projectPath, "Unassigned")}</small>
                   <strong>{item.title}</strong>
                   <span>{item.detail}</span>
                 </span>
@@ -4184,7 +3408,7 @@ function UpcomingSchedule({ items, projects, onOpenTask, onOpenIdea }: {
                 <button
                   type="button"
                   className="upcoming-item"
-                  onClick={() => item.kind === "task" ? onOpenTask(item.id) : onOpenIdea(item.id)}
+                  onClick={() => onOpenTask(item.id)}
                   aria-label={`Open ${item.kind}: ${item.title}`}
                 >
                   {content}
@@ -4300,8 +3524,7 @@ function KanbanBoard({
                   <div className="kanban-card-list">
                     {columnTasks.map((task) => {
                       const progress = checklistProgress(task);
-                      const project = projects.find((item) => item.path === task.projectPath);
-                      const projectName = project?.name ?? task.projectPath ?? "Unassigned";
+                      const projectName = scopeLabelFor(projects, task.projectPath, "Unassigned");
                       const owners = [task.assignee, ...task.agents].filter(Boolean).join(" · ");
                       const hoverSummary = [
                         `${task.id} · ${statusLabel(task.status)} · ${task.priority}`,
@@ -4368,254 +3591,55 @@ function ActivityView({ scopeLabel, tasks, projects, onOpenTask }: { scopeLabel:
         <div className="empty-panel"><strong>No task activity yet.</strong><span>Creating, moving, editing, and checking work items appends here automatically.</span></div>
       ) : (
         <ol className="activity-list">
-          {events.map((event, index) => {
-            const project = projects.find((item) => item.path === event.task.projectPath);
-            return (
-              <li key={`${event.task.id}-${event.at}-${index}`}>
-                <time dateTime={event.at}>{new Date(event.at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>
-                <button type="button" onClick={() => onOpenTask(event.task.id)}><strong>{event.task.id} · {event.task.title}</strong><span>{event.message}</span><small>{project?.name ?? "Unassigned"} · {statusLabel(event.task.status)}</small></button>
-              </li>
-            );
-          })}
+          {events.map((event, index) => (
+            <li key={`${event.task.id}-${event.at}-${index}`}>
+              <time dateTime={event.at}>{new Date(event.at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>
+              <button type="button" onClick={() => onOpenTask(event.task.id)}><strong>{event.task.id} · {event.task.title}</strong><span>{event.message}</span><small>{scopeLabelFor(projects, event.task.projectPath, "Unassigned")} · {statusLabel(event.task.status)}</small></button>
+            </li>
+          ))}
         </ol>
       )}
     </section>
   );
 }
 
-function FederationPanel({ settings, localWorkspaces, busy, error, onClose, onRename, onCreateGrant, onRevokeGrant, onConnect, onRemovePeer, onRefresh }: {
-  settings: FederationSettings | null;
-  localWorkspaces: WorkspaceSummary[];
-  busy: boolean;
-  error: string | null;
-  onClose: () => void;
-  onRename: (name: string) => Promise<FederationSettings>;
-  onCreateGrant: (label: string, workspaceIds: string[]) => Promise<FederationGrantReceipt>;
-  onRevokeGrant: (id: string) => Promise<void>;
-  onConnect: (baseUrl: string, accessKey: string) => Promise<void>;
-  onRemovePeer: (id: string) => Promise<void>;
-  onRefresh: () => Promise<void>;
-}) {
-  const [instanceName, setInstanceName] = useState(settings?.instance.name ?? "");
-  const [grantLabel, setGrantLabel] = useState("");
-  const [selectedWorkspaces, setSelectedWorkspaces] = useState(() => new Set(localWorkspaces.map((workspace) => workspace.id)));
-  const [newAccessKey, setNewAccessKey] = useState<string | null>(null);
-  const [peerUrl, setPeerUrl] = useState("");
-  const [peerKey, setPeerKey] = useState("");
-  const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
-  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
-  const [receipt, setReceipt] = useState<string | null>(null);
+type TaskFieldValues = {
+  projectPath: string;
+  type: string;
+  priority: string;
+  assignee: string;
+  agents: string;
+  tags: string;
+  parentId: string;
+  dueAt: string;
+};
 
-  useEffect(() => {
-    if (settings) setInstanceName(settings.instance.name);
-  }, [settings?.instance.name]);
-
-  useEffect(() => {
-    setSelectedWorkspaces((current) => current.size > 0 ? current : new Set(localWorkspaces.map((workspace) => workspace.id)));
-  }, [localWorkspaces.map((workspace) => workspace.id).join("|")]);
-
-  function toggleWorkspace(id: string, checked: boolean) {
-    setSelectedWorkspaces((current) => {
-      const next = new Set(current);
-      if (checked) next.add(id); else next.delete(id);
-      return next;
-    });
-  }
-
-  async function createGrant() {
-    setReceipt(null);
-    const result = await onCreateGrant(grantLabel, [...selectedWorkspaces]);
-    setNewAccessKey(result.accessKey);
-    setGrantLabel("");
-  }
-
-  async function copyAccessKey() {
-    if (!newAccessKey) return;
-    try {
-      await navigator.clipboard.writeText(newAccessKey);
-      setReceipt("Access key copied.");
-    } catch {
-      setReceipt("Select and copy the access key manually.");
-    }
-  }
-
-  async function copyReachableUrl() {
-    if (!settings?.network.reachableUrl) return;
-    try {
-      await navigator.clipboard.writeText(settings.network.reachableUrl);
-      setReceipt("Tailnet API URL copied.");
-    } catch {
-      setReceipt("Select and copy the tailnet API URL manually.");
-    }
-  }
-
-  async function connect() {
-    setReceipt(null);
-    await onConnect(peerUrl, peerKey);
-    setPeerUrl("");
-    setPeerKey("");
-    setReceipt("Work instance connected.");
-  }
-
-  return (
-    <div className="ai-panel-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-      <section className="federation-panel" role="dialog" aria-modal="true" aria-labelledby="federation-heading">
-        <header>
-          <div><p className="eyebrow">Direct, paired federation</p><h2 id="federation-heading">Connected Work instances</h2><p>This Work server remains the only endpoint your browser and local agents need. It forwards selected workspace operations to the instance that owns the files.</p></div>
-          <button type="button" onClick={onClose} aria-label="Close connected instances">×</button>
-        </header>
-
-        {!settings ? <div className="federation-loading">Loading connection settings…</div> : <>
-          <section className="federation-section">
-            <div className="federation-section-heading"><div><h3>This instance</h3><p>The name appears beside its workspaces on connected machines.</p></div><code>{settings.instance.id}</code></div>
-            <div className="federation-inline-form">
-              <label><span>Instance name</span><input value={instanceName} onChange={(event) => setInstanceName(event.target.value)} /></label>
-              <button type="button" disabled={busy || !instanceName.trim() || instanceName.trim() === settings.instance.name} onClick={() => void onRename(instanceName).then(() => setReceipt("Instance name saved.")).catch(() => {})}>Save name</button>
-            </div>
-            {settings.network.mode === "tailscale" && settings.network.reachableUrl ? (
-              <div className="federation-network ready"><span className="peer-status" aria-hidden="true" /><div><strong>Ready for tailnet pairing</strong><small>Use this API URL when connecting from another Work instance.</small><code>{settings.network.reachableUrl}</code></div><button type="button" onClick={() => void copyReachableUrl()}>Copy URL</button></div>
-            ) : (
-              <div className="federation-network"><div><strong>Available on this machine only</strong><small>Restart with <code>work --tailscale</code> to get a tailnet API URL for direct instance pairing.</small></div></div>
-            )}
-          </section>
-
-          <section className="federation-section">
-            <div className="federation-section-heading"><div><h3>Let another instance browse this one</h3><p>Create a one-time access key. Only a hash stays here; the receiving Work instance stores the key in its operating system credential store.</p></div></div>
-            <div className="federation-grant-form">
-              <label><span>Key label</span><input value={grantLabel} onChange={(event) => setGrantLabel(event.target.value)} placeholder="Home server or MacBook" /></label>
-              <fieldset><legend>Workspace access</legend>{localWorkspaces.map((workspace) => <label key={workspace.id}><input type="checkbox" checked={selectedWorkspaces.has(workspace.id)} onChange={(event) => toggleWorkspace(workspace.id, event.target.checked)} /><span><strong>{workspace.name}</strong><small>{workspace.root}</small></span></label>)}</fieldset>
-              <button type="button" className="primary-action" disabled={busy || !grantLabel.trim() || selectedWorkspaces.size === 0} onClick={() => void createGrant().catch(() => {})}>Create access key</button>
-            </div>
-            {newAccessKey && <div className="federation-key-receipt" role="status"><strong>Copy this key now—it will not be shown again.</strong><div><input readOnly value={newAccessKey} onFocus={(event) => event.currentTarget.select()} aria-label="New federation access key" /><button type="button" onClick={() => void copyAccessKey()}>Copy</button></div><small>On the other machine, open this panel and use the key under “Browse another instance.”</small></div>}
-            {settings.grants.length > 0 && <div className="federation-list"><h4>Active access keys</h4>{settings.grants.map((grant) => <article key={grant.id}><div><strong>{grant.label}</strong><small>{grant.workspaceIds.length} workspace{grant.workspaceIds.length === 1 ? "" : "s"} · {grant.lastUsedAt ? `Used ${shortTime(grant.lastUsedAt)}` : "Not used yet"}</small></div>{confirmRevoke === grant.id ? <div className="federation-confirm"><button type="button" onClick={() => setConfirmRevoke(null)}>Cancel</button><button type="button" className="danger-action" disabled={busy} onClick={() => void onRevokeGrant(grant.id).then(() => setConfirmRevoke(null)).catch(() => {})}>Confirm revoke</button></div> : <button type="button" onClick={() => setConfirmRevoke(grant.id)}>Revoke</button>}</article>)}</div>}
-          </section>
-
-          <section className="federation-section">
-            <div className="federation-section-heading"><div><h3>Browse another instance here</h3><p>Paste the API URL printed by <code>work --tailscale</code> on that machine and an access key created by that instance.</p></div><button type="button" className="text-action" disabled={busy} onClick={() => void onRefresh()}>Refresh</button></div>
-            <div className="federation-connect-form">
-              <label><span>Reachable Work URL</span><input value={peerUrl} onChange={(event) => setPeerUrl(event.target.value)} placeholder="Paste the API URL shown on that machine" /></label>
-              <label><span>Access key</span><input type="password" value={peerKey} onChange={(event) => setPeerKey(event.target.value)} placeholder="work_peer_…" autoComplete="off" /></label>
-              <button type="button" className="primary-action" disabled={busy || !peerUrl.trim() || !peerKey.trim()} onClick={() => void connect().catch(() => {})}>{busy ? "Connecting…" : "Connect instance"}</button>
-            </div>
-            {settings.peers.length > 0 && <div className="federation-list"><h4>Instances available through this server</h4>{settings.peers.map((peer) => <article key={peer.id} className={peer.available ? "online" : "offline"}><span className="peer-status" aria-label={peer.available ? "Available" : "Offline"} /><div><strong>{peer.name}</strong><small>{peer.available ? `${peer.workspaceCount} workspace${peer.workspaceCount === 1 ? "" : "s"} · Available` : `Offline${peer.lastSeenAt ? ` · Last seen ${shortTime(peer.lastSeenAt)}` : ""}`}</small><small>{peer.baseUrl}</small>{peer.error && !peer.available && <small className="peer-error">{peer.error}</small>}</div>{confirmRemove === peer.id ? <div className="federation-confirm"><button type="button" onClick={() => setConfirmRemove(null)}>Cancel</button><button type="button" className="danger-action" disabled={busy} onClick={() => void onRemovePeer(peer.id).then(() => setConfirmRemove(null)).catch(() => {})}>Confirm remove</button></div> : <button type="button" onClick={() => setConfirmRemove(peer.id)}>Remove</button>}</article>)}</div>}
-            <p className="federation-reverse-note">Connections are deliberately one-way. To browse this machine from the other instance too, create a key here and repeat the connection there.</p>
-          </section>
-        </>}
-        {error && <p className="task-error" role="alert">{error}</p>}
-        {receipt && <p className="ai-receipt" role="status">{receipt}</p>}
-        <footer><button type="button" className="secondary-action" onClick={onClose} disabled={busy}>Done</button></footer>
-      </section>
-    </div>
-  );
+function commaList(value: string) {
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
 
-function AiSettingsPanel({ settings, busy, error, onClose, onSave, onTest }: {
-  settings: AiSettings | null;
-  busy: boolean;
-  error: string | null;
-  onClose: () => void;
-  onSave: (input: { provider: AiSettings["provider"]; baseUrl: string; model: string; allowSelfSigned: boolean; apiKey?: string; clearApiKey?: boolean }) => Promise<AiSettings>;
-  onTest: () => Promise<boolean>;
+// The field grid shared by the create and detail panels. `children` renders
+// the one panel-specific field (Status when creating, Estimate when editing).
+function TaskFields({ projects, values, onChange, children }: {
+  projects: Project[];
+  values: TaskFieldValues;
+  onChange: (patch: Partial<TaskFieldValues>) => void;
+  children?: ReactNode;
 }) {
-  const [provider, setProvider] = useState<AiSettings["provider"]>(settings?.provider ?? "openai-compatible");
-  const [baseUrl, setBaseUrl] = useState(settings?.baseUrl ?? "https://api.openai.com/v1");
-  const [model, setModel] = useState(settings?.model ?? "");
-  const [allowSelfSigned, setAllowSelfSigned] = useState(settings?.allowSelfSigned ?? false);
-  const [apiKey, setApiKey] = useState("");
-  const [clearApiKey, setClearApiKey] = useState(false);
-  const [receipt, setReceipt] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!settings) return;
-    setProvider(settings.provider);
-    setBaseUrl(settings.baseUrl);
-    setModel(settings.model);
-    setAllowSelfSigned(settings.allowSelfSigned);
-  }, [settings?.provider, settings?.baseUrl, settings?.model, settings?.allowSelfSigned]);
-
-  async function save(testAfter = false) {
-    setReceipt(null);
-    await onSave({ provider, baseUrl, model, allowSelfSigned, apiKey: apiKey || undefined, clearApiKey });
-    setApiKey("");
-    setClearApiKey(false);
-    if (testAfter) {
-      const passed = await onTest();
-      if (passed) setReceipt("Connection verified.");
-    } else {
-      onClose();
-    }
-  }
-
   return (
-    <div className="ai-panel-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="ai-settings-panel" role="dialog" aria-modal="true" aria-labelledby="ai-settings-heading">
-        <header><div><p className="eyebrow">One-shot assistance</p><h2 id="ai-settings-heading">AI settings</h2><p>Work sends bounded artifact context and receives proposed edits. It does not grant tools or autonomous execution.</p></div><button type="button" onClick={onClose} aria-label="Close AI settings">×</button></header>
-        <div className="ai-settings-form">
-          <label><span>Provider format</span><select value={provider} onChange={(event) => {
-            const next = event.target.value as AiSettings["provider"];
-            setProvider(next);
-            if (baseUrl === "https://api.openai.com/v1" || baseUrl === "https://api.anthropic.com/v1") setBaseUrl(next === "anthropic-compatible" ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1");
-          }}><option value="openai-compatible">OpenAI-compatible</option><option value="anthropic-compatible">Anthropic-compatible</option></select></label>
-          <label><span>Base URL</span><input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1" autoFocus /></label>
-          <label><span>Model</span><input value={model} onChange={(event) => setModel(event.target.value)} placeholder="gpt-5-mini" /></label>
-          <label><span>API key</span><input type="password" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setClearApiKey(false); }} placeholder={settings?.apiKeyHint ? `${settings.credentialSource === "environment" ? "Environment" : "Keychain"} ${settings.apiKeyHint} · leave blank to keep` : "Required"} autoComplete="off" /></label>
-          <label className="ai-self-signed"><input type="checkbox" checked={allowSelfSigned} onChange={(event) => setAllowSelfSigned(event.target.checked)} /><span><strong>Allow a self-signed HTTPS certificate</strong><small>Disables certificate verification only for requests to this AI endpoint. Use only for a server you control.</small></span></label>
-          {settings?.credentialSource === "system" && <label className="ai-clear-key"><input type="checkbox" checked={clearApiKey} onChange={(event) => { setClearApiKey(event.target.checked); if (event.target.checked) setApiKey(""); }} /><span>Remove the saved API key from the system credential store</span></label>}
-          <p className="ai-secret-note">The key is stored in this machine's native credential store—not in JSON, Markdown, or browser storage. Headless services can provide WORK_AI_API_KEY instead.</p>
-        </div>
-        {error && <p className="task-error" role="alert">{error}</p>}
-        {receipt && <p className="ai-receipt" role="status">{receipt}</p>}
-        <footer><button type="button" className="secondary-action" onClick={onClose}>Cancel</button><button type="button" className="secondary-action" disabled={busy || !baseUrl.trim() || !model.trim() || (!settings?.hasApiKey && !apiKey.trim())} onClick={() => void save(true).catch(() => {})}>{busy ? "Testing…" : "Save & test"}</button><button type="button" className="primary-action" disabled={busy || !baseUrl.trim() || !model.trim() || (!settings?.hasApiKey && !apiKey.trim())} onClick={() => void save(false).catch(() => {})}>{busy ? "Saving…" : "Save settings"}</button></footer>
-      </section>
-    </div>
-  );
-}
-
-function proposalValue(value: unknown) {
-  if (Array.isArray(value)) return value.map((item) => typeof item === "string" ? item : typeof item?.text === "string" ? `${item.checked ? "[x]" : "[ ]"} ${item.text}` : JSON.stringify(item)).join("\n");
-  if (value == null || value === "") return "Not set";
-  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
-}
-
-function AiProposalPanel({ proposal, busy, error, onClose, onApply }: {
-  proposal: AiProposal;
-  busy: boolean;
-  error: string | null;
-  onClose: () => void;
-  onApply: (proposal: AiProposal, selectedFields: string[]) => Promise<void>;
-}) {
-  const [selected, setSelected] = useState(() => new Set(proposal.fields.map((field) => field.field)));
-
-  function toggle(field: string, checked: boolean) {
-    setSelected((current) => {
-      const next = new Set(current);
-      if (checked) next.add(field); else next.delete(field);
-      return next;
-    });
-  }
-
-  return (
-    <div className="ai-panel-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-      <section className="ai-proposal-panel" role="dialog" aria-modal="true" aria-labelledby="ai-proposal-heading">
-        <header><div><p className="eyebrow">AI proposal · {proposal.operation}</p><h2 id="ai-proposal-heading">{proposal.summary}</h2><p>{proposal.explanation || "Review every suggested field before applying it."}</p></div><button type="button" onClick={onClose} disabled={busy} aria-label="Close AI proposal">×</button></header>
-        {proposal.context.project && <p className="ai-context-note">Context: {proposal.context.project.name} · project description, active work, open decisions, and current ideas</p>}
-        {proposal.fields.length === 0 ? (
-          <div className="empty-panel"><strong>No field changes were proposed.</strong><span>The model may need clearer source material or a more specific artifact.</span></div>
-        ) : (
-          <div className="ai-proposal-fields">
-            {proposal.fields.map((field) => (
-              <article key={field.field} className={selected.has(field.field) ? "selected" : ""}>
-                <label><input type="checkbox" checked={selected.has(field.field)} onChange={(event) => toggle(field.field, event.target.checked)} /><strong>{field.label}</strong></label>
-                <div><section><small>Current</small><pre>{proposalValue(field.current)}</pre></section><section><small>Proposed</small><pre>{proposalValue(field.proposed)}</pre></section></div>
-              </article>
-            ))}
-          </div>
-        )}
-        {proposal.questions.length > 0 && <section className="ai-questions"><h3>Questions to consider</h3><ul>{proposal.questions.map((question) => <li key={question}>{question}</li>)}</ul></section>}
-        {error && <p className="task-error" role="alert">{error}</p>}
-        <footer><span>{selected.size} of {proposal.fields.length} fields selected</span><div><button type="button" className="secondary-action" onClick={onClose} disabled={busy}>Discard</button><button type="button" className="primary-action" disabled={busy || selected.size === 0} onClick={() => void onApply(proposal, [...selected]).catch(() => {})}>{busy ? "Applying…" : "Apply selected changes"}</button></div></footer>
-      </section>
-    </div>
+    <>
+      <div className="field-grid">
+        <label><span>Project</span><select value={values.projectPath} onChange={(event) => onChange({ projectPath: event.target.value })}><option value="">Unassigned</option>{projects.filter((project) => project.path !== ".").map((project) => <option key={project.id} value={project.path}>{project.name} — {project.path}</option>)}</select></label>
+        <label><span>Type</span><select value={values.type} onChange={(event) => onChange({ type: event.target.value })}>{["task", "bug", "feature", "research", "admin", "epic", "idea"].map((item) => <option key={item}>{item}</option>)}</select></label>
+        <label><span>Priority</span><select value={values.priority} onChange={(event) => onChange({ priority: event.target.value })}>{["none", "low", "medium", "high", "critical"].map((item) => <option key={item}>{item}</option>)}</select></label>
+        {children}
+        <label><span>Human owner</span><input value={values.assignee} onChange={(event) => onChange({ assignee: event.target.value })} placeholder="Optional" /></label>
+        <label><span>Agents or teams</span><input value={values.agents} onChange={(event) => onChange({ agents: event.target.value })} placeholder="codex, rev-team" /></label>
+        <label><span>Parent task ID</span><input value={values.parentId} onChange={(event) => onChange({ parentId: event.target.value })} placeholder="W-0001" /></label>
+        <label><span>Due date</span><input type="date" value={values.dueAt} onChange={(event) => onChange({ dueAt: event.target.value })} /></label>
+      </div>
+      <label className="field-wide"><span>Tags</span><input value={values.tags} onChange={(event) => onChange({ tags: event.target.value })} placeholder="Comma-separated" /></label>
+    </>
   );
 }
 
@@ -4629,15 +3653,17 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
   onCreate: (input: Record<string, unknown>) => void;
 }) {
   const [title, setTitle] = useState("");
-  const [projectPath, setProjectPath] = useState(defaultProjectPath ?? "");
   const [status, setStatus] = useState(statuses[0] ?? "backlog");
-  const [type, setType] = useState("task");
-  const [priority, setPriority] = useState("none");
-  const [assignee, setAssignee] = useState("");
-  const [agents, setAgents] = useState("");
-  const [tags, setTags] = useState("");
-  const [parentId, setParentId] = useState("");
-  const [dueAt, setDueAt] = useState("");
+  const [fields, setFields] = useState<TaskFieldValues>({
+    projectPath: defaultProjectPath ?? "",
+    type: "task",
+    priority: "none",
+    assignee: "",
+    agents: "",
+    tags: "",
+    parentId: "",
+    dueAt: "",
+  });
   const [goal, setGoal] = useState("");
   const [requirements, setRequirements] = useState("");
   const [acceptance, setAcceptance] = useState("");
@@ -4648,15 +3674,15 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
     if (!title.trim()) return;
     onCreate({
       title: title.trim(),
-      projectPath: projectPath || null,
+      projectPath: fields.projectPath || null,
       status,
-      type,
-      priority,
-      assignee: assignee.trim() || null,
-      agents: agents.split(",").map((item) => item.trim()).filter(Boolean),
-      tags: tags.split(",").map((item) => item.trim()).filter(Boolean),
-      parentId: parentId.trim() || null,
-      dueAt: dueAt || null,
+      type: fields.type,
+      priority: fields.priority,
+      assignee: fields.assignee.trim() || null,
+      agents: commaList(fields.agents),
+      tags: commaList(fields.tags),
+      parentId: fields.parentId.trim() || null,
+      dueAt: fields.dueAt || null,
       goal,
       requirements: requirements.split("\n").map((item) => item.trim()).filter(Boolean),
       acceptanceCriteria: acceptance.split("\n").map((item) => item.trim()).filter(Boolean),
@@ -4669,17 +3695,9 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
       <div className="task-panel-header"><div><p className="eyebrow">New work item</p><h2 id="create-task-heading">Create a complete card</h2></div><button type="button" onClick={onClose} aria-label="Close new work item">×</button></div>
       <form onSubmit={submit} className="task-form">
         <label className="field-wide"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="What outcome or task needs tracking?" autoFocus /></label>
-        <div className="field-grid">
-          <label><span>Project</span><select value={projectPath} onChange={(event) => setProjectPath(event.target.value)}><option value="">Unassigned</option>{projects.filter((project) => project.path !== ".").map((project) => <option key={project.id} value={project.path}>{project.name} — {project.path}</option>)}</select></label>
+        <TaskFields projects={projects} values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))}>
           <label><span>Status</span><select value={status} onChange={(event) => setStatus(event.target.value)}>{statuses.map((item) => <option key={item} value={item}>{statusLabel(item)}</option>)}</select></label>
-          <label><span>Type</span><select value={type} onChange={(event) => setType(event.target.value)}>{["task", "bug", "feature", "research", "admin", "epic", "idea"].map((item) => <option key={item}>{item}</option>)}</select></label>
-          <label><span>Priority</span><select value={priority} onChange={(event) => setPriority(event.target.value)}>{["none", "low", "medium", "high", "critical"].map((item) => <option key={item}>{item}</option>)}</select></label>
-          <label><span>Human owner</span><input value={assignee} onChange={(event) => setAssignee(event.target.value)} placeholder="Optional" /></label>
-          <label><span>Agents or teams</span><input value={agents} onChange={(event) => setAgents(event.target.value)} placeholder="codex, rev-team" /></label>
-          <label><span>Parent task ID</span><input value={parentId} onChange={(event) => setParentId(event.target.value)} placeholder="W-0001" /></label>
-          <label><span>Due date</span><input type="date" value={dueAt} onChange={(event) => setDueAt(event.target.value)} /></label>
-        </div>
-        <label className="field-wide"><span>Tags</span><input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="release, reverse-engineering" /></label>
+        </TaskFields>
         <label className="field-wide"><span>Goal</span><textarea value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="What does done accomplish?" /></label>
         <label className="field-wide"><span>Requirements · one per line</span><textarea value={requirements} onChange={(event) => setRequirements(event.target.value)} placeholder={"Must preserve Markdown\nMust remain root-scoped"} /></label>
         <label className="field-wide"><span>Acceptance criteria · one per line</span><textarea value={acceptance} onChange={(event) => setAcceptance(event.target.value)} placeholder={"Board reflects status\nRestart restores the card"} /></label>
@@ -4691,7 +3709,7 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
   );
 }
 
-function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClose, onMove, onPatch, onToggle, onLog, onAskAi, aiBusy }: {
+function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClose, onMove, onPatch, onToggle, onLog }: {
   task: WorkTask;
   tasks: WorkTask[];
   projects: Project[];
@@ -4703,22 +3721,23 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClo
   onPatch: (patch: Record<string, unknown>) => void;
   onToggle: (section: "requirements" | "acceptance", index: number, checked: boolean) => void;
   onLog: (message: string) => Promise<void>;
-  onAskAi: (taskId: string, operation: "draft" | "review") => void;
-  aiBusy: boolean;
 }) {
+  const taskFieldValues = (): TaskFieldValues => ({
+    projectPath: task.projectPath ?? "",
+    type: task.type,
+    priority: task.priority,
+    assignee: task.assignee ?? "",
+    agents: task.agents.join(", "),
+    tags: task.tags.join(", "),
+    parentId: task.parentId ?? "",
+    dueAt: task.dueAt?.slice(0, 10) ?? "",
+  });
   const [title, setTitle] = useState(task.title);
-  const [projectPath, setProjectPath] = useState(task.projectPath ?? "");
-  const [type, setType] = useState(task.type);
-  const [priority, setPriority] = useState(task.priority);
-  const [assignee, setAssignee] = useState(task.assignee ?? "");
-  const [agents, setAgents] = useState(task.agents.join(", "));
-  const [tags, setTags] = useState(task.tags.join(", "));
+  const [fields, setFields] = useState<TaskFieldValues>(taskFieldValues);
   const [dependsOn, setDependsOn] = useState(task.dependsOn.join(", "));
   const [blockedBy, setBlockedBy] = useState(task.blockedBy.join(", "));
   const [blockedReason, setBlockedReason] = useState(task.blockedReason ?? "");
   const [estimate, setEstimate] = useState(task.estimate ?? "");
-  const [parentId, setParentId] = useState(task.parentId ?? "");
-  const [dueAt, setDueAt] = useState(task.dueAt?.slice(0, 10) ?? "");
   const [goal, setGoal] = useState(task.sections.goal);
   const [plan, setPlan] = useState(task.sections.plan);
   const [notes, setNotes] = useState(task.sections.notes);
@@ -4728,17 +3747,16 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClo
   const [logMessage, setLogMessage] = useState("");
 
   useEffect(() => {
-    setTitle(task.title); setProjectPath(task.projectPath ?? ""); setType(task.type); setPriority(task.priority);
-    setAssignee(task.assignee ?? ""); setAgents(task.agents.join(", ")); setTags(task.tags.join(", "));
+    setTitle(task.title);
+    setFields(taskFieldValues());
     setDependsOn(task.dependsOn.join(", ")); setBlockedBy(task.blockedBy.join(", ")); setBlockedReason(task.blockedReason ?? "");
-    setEstimate(task.estimate ?? ""); setParentId(task.parentId ?? ""); setDueAt(task.dueAt?.slice(0, 10) ?? ""); setGoal(task.sections.goal); setPlan(task.sections.plan); setNotes(task.sections.notes);
+    setEstimate(task.estimate ?? ""); setGoal(task.sections.goal); setPlan(task.sections.plan); setNotes(task.sections.notes);
     setCompletionSummary(task.sections.completionSummary);
   }, [task.id, task.updatedAt]);
 
-  function commaIds(value: string) { return value.split(",").map((item) => item.trim()).filter(Boolean); }
   function saveDetails(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onPatch({ title, projectPath: projectPath || null, type, priority, assignee: assignee.trim() || null, agents: commaIds(agents), tags: commaIds(tags), dependsOn: commaIds(dependsOn), blockedBy: commaIds(blockedBy), blockedReason: blockedReason.trim() || null, estimate: estimate.trim() || null, parentId: parentId.trim() || null, dueAt: dueAt || null, goal, plan, notes, completionSummary });
+    onPatch({ title, projectPath: fields.projectPath || null, type: fields.type, priority: fields.priority, assignee: fields.assignee.trim() || null, agents: commaList(fields.agents), tags: commaList(fields.tags), dependsOn: commaList(dependsOn), blockedBy: commaList(blockedBy), blockedReason: blockedReason.trim() || null, estimate: estimate.trim() || null, parentId: fields.parentId.trim() || null, dueAt: fields.dueAt || null, goal, plan, notes, completionSummary });
   }
 
   const childTasks = tasks.filter((item) => item.parentId === task.id);
@@ -4746,23 +3764,15 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClo
 
   return (
     <aside className="task-panel" aria-labelledby="task-detail-heading">
-      <div className="task-panel-header"><div><p className="eyebrow">{task.id} · {task.type} · {task.priority}</p><h2 id="task-detail-heading">{task.title}</h2></div><div className="task-panel-header-actions"><button type="button" className="magic-action" disabled={saving || aiBusy} onClick={() => onAskAi(task.id, "draft")}><span aria-hidden="true">✦</span> Draft</button><button type="button" className="magic-action" disabled={saving || aiBusy} onClick={() => onAskAi(task.id, "review")}><span aria-hidden="true">✦</span> Review</button><button type="button" onClick={onClose} aria-label="Close work item">×</button></div></div>
+      <div className="task-panel-header"><div><p className="eyebrow">{task.id} · {task.type} · {task.priority}</p><h2 id="task-detail-heading">{task.title}</h2></div><div className="task-panel-header-actions"><button type="button" onClick={onClose} aria-label="Close work item">×</button></div></div>
       <div className="task-state-strip"><label><span>Status</span><select value={task.status} onChange={(event) => onMove(event.target.value)} disabled={saving}>{[...statuses, "cancelled", "archived"].map((status) => <option key={status} value={status} disabled={status === "review" && progress.complete < progress.total}>{status === "review" && progress.complete < progress.total ? "Review — complete checklist first" : statusLabel(status)}</option>)}</select></label><span>{progress.complete}/{progress.total} checks complete</span><span>Updated {shortTime(task.updatedAt)}</span></div>
       {task.status === "review" && progress.complete < progress.total && <div className="task-error" role="status">This legacy review card has unchecked requirements or acceptance criteria. Verify its checklist before treating it as review-ready.</div>}
       {error && <div className="task-error" role="alert">{error}</div>}
       <form className="task-form" onSubmit={saveDetails}>
         <label className="field-wide"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-        <div className="field-grid">
-          <label><span>Project</span><select value={projectPath} onChange={(event) => setProjectPath(event.target.value)}><option value="">Unassigned</option>{projects.filter((project) => project.path !== ".").map((project) => <option key={project.id} value={project.path}>{project.name} — {project.path}</option>)}</select></label>
-          <label><span>Type</span><select value={type} onChange={(event) => setType(event.target.value as WorkTask["type"])}>{["task", "bug", "feature", "research", "admin", "epic", "idea"].map((item) => <option key={item}>{item}</option>)}</select></label>
-          <label><span>Priority</span><select value={priority} onChange={(event) => setPriority(event.target.value as WorkTask["priority"])}>{["none", "low", "medium", "high", "critical"].map((item) => <option key={item}>{item}</option>)}</select></label>
+        <TaskFields projects={projects} values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))}>
           <label><span>Estimate</span><input value={estimate} onChange={(event) => setEstimate(event.target.value)} placeholder="2h, 3 points, unknown" /></label>
-          <label><span>Human owner</span><input value={assignee} onChange={(event) => setAssignee(event.target.value)} /></label>
-          <label><span>Agents or teams</span><input value={agents} onChange={(event) => setAgents(event.target.value)} placeholder="Comma-separated" /></label>
-          <label><span>Parent task ID</span><input value={parentId} onChange={(event) => setParentId(event.target.value)} placeholder="W-0001" /></label>
-          <label><span>Due date</span><input type="date" value={dueAt} onChange={(event) => setDueAt(event.target.value)} /></label>
-        </div>
-        <label className="field-wide"><span>Tags</span><input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="Comma-separated" /></label>
+        </TaskFields>
         <label className="field-wide"><span>Depends on task IDs</span><input value={dependsOn} onChange={(event) => setDependsOn(event.target.value)} placeholder="W-0001, W-0002" /></label>
         <label className="field-wide"><span>Blocked by task IDs</span><input value={blockedBy} onChange={(event) => setBlockedBy(event.target.value)} placeholder="W-0001" /></label>
         <label className="field-wide"><span>Blocker explanation</span><textarea value={blockedReason} onChange={(event) => setBlockedReason(event.target.value)} /></label>

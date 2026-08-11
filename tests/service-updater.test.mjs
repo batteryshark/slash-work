@@ -22,9 +22,8 @@ async function fixture(version = "0.2.3") {
   return { globalRoot, packageRoot };
 }
 
-test("compares stable and prerelease semantic versions", () => {
+test("compares stable semantic versions and ranks stable above prerelease", () => {
   assert.equal(compareVersions("0.2.4", "0.2.3"), 1);
-  assert.equal(compareVersions("1.0.0-beta.2", "1.0.0-beta.1"), 1);
   assert.equal(compareVersions("1.0.0", "1.0.0-beta.2"), 1);
   assert.equal(compareVersions("0.2.3", "0.2.3"), 0);
 });

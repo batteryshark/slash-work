@@ -2,11 +2,10 @@ node_modules/
 dist/
 coverage/
 .work/
-.next/
-.vinext/
-.wrangler/
 .DS_Store
 xcuserdata/
 *.log
 .env*
 !.env.example
+
+__pycache__/

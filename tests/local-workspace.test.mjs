@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { closeLocalApi, startLocalApi } from "../server/local-api.mjs";
-import { discoverProjects } from "../lib/local-workspace.mjs";
+import { discoverProjects, initializeWorkspace } from "../lib/local-workspace.mjs";
 import { chooseWorkspaceDirectory } from "../lib/native-folder-picker.mjs";
 import { registerWorkspace } from "../lib/workspace-registry.mjs";
 
@@ -107,6 +107,13 @@ async function launchApiFromCli(root, { cwd = repositoryRoot, registryPath = roo
   return { child, origin };
 }
 
+async function stopChild(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = once(child, "exit");
+  child.kill("SIGTERM");
+  await exited;
+}
+
 function projectPath(project) {
   return project.path ?? project.projectPath ?? project.relativePath;
 }
@@ -127,8 +134,7 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   });
   assert.match(help.stdout, /work \[root\]/i);
   assert.match(help.stdout, /--init/);
-  assert.match(help.stdout, /work idea "title"/i);
-  assert.match(help.stdout, /work ideas/i);
+  assert.match(help.stdout, /work remove <rel-path>/i);
   assert.match(help.stdout, /work projects/i);
   assert.match(help.stdout, /work agent context/i);
   assert.match(help.stdout, /--project <path>.*exact discovered project/i);
@@ -163,18 +169,6 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   assert.match(markdown, /scopePath: "projects\/one"/);
   assert.match(markdown, /projectPath: null/);
   await assert.rejects(readdir(join(descendant, ".work")), { code: "ENOENT" });
-
-  const idea = await execFile(
-    process.execPath,
-    [launcherPath.pathname, "idea", "Federate remote instances", "--detail", "Evaluate read-only project trees", "--tag", "remote"],
-    { cwd: descendant },
-  );
-  assert.match(idea.stdout, /Created idea idea_/);
-  const ideaFiles = await readdir(join(root, ".work", "ideas"));
-  assert.equal(ideaFiles.length, 1);
-  assert.match(await readFile(join(root, ".work", "ideas", ideaFiles[0]), "utf8"), /## Opportunity\nEvaluate read-only project trees/);
-  const ideas = await execFile(process.execPath, [launcherPath.pathname, "ideas"], { cwd: descendant });
-  assert.match(ideas.stdout, /open.*Federate remote instances/);
 
   const decision = await execFile(
     process.execPath,
@@ -232,9 +226,7 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
     const health = await apiRequest(launched.origin, "/api/health");
     assert.equal(health.response.status, 200);
   } finally {
-    const exited = once(launched.child, "exit");
-    launched.child.kill("SIGTERM");
-    await exited;
+    await stopChild(launched.child);
   }
 });
 
@@ -270,26 +262,23 @@ test("resolves a marked current project for agents and local artifact creation",
 
   const capture = await execFile(process.execPath, [launcherPath.pathname, "add", "Preserve current project context"], { cwd: nested });
   assert.match(capture.stdout, /Project: piu-recomp/);
-  const idea = await execFile(process.execPath, [launcherPath.pathname, "idea", "Improve project routing"], { cwd: nested });
-  assert.match(idea.stdout, /piu-recomp/);
   const decision = await execFile(process.execPath, [launcherPath.pathname, "decision", "Use exact current project?"], { cwd: nested });
   assert.match(decision.stdout, /Project: piu-recomp/);
   const task = await execFile(process.execPath, [launcherPath.pathname, "task", "Route work into this project"], { cwd: nested });
   assert.match(task.stdout, /piu-recomp/);
 
   assert.equal((await readdir(join(project, ".work", "captures"))).length, 1);
-  assert.equal((await readdir(join(project, ".work", "ideas"))).length, 1);
   assert.equal((await readdir(join(project, ".work", "decisions"))).length, 1);
   const projectTasks = await readdir(join(project, ".work", "tasks"));
   assert.equal(projectTasks.length, 1);
-  assert.match(await readFile(join(project, ".work", "tasks", projectTasks[0]), "utf8"), /project_path: "piu-recomp"/);
+  assert.match(await readFile(join(project, ".work", "tasks", projectTasks[0]), "utf8"), /projectPath: "piu-recomp"/);
   assert.deepEqual(await readdir(join(root, ".work", "tasks")), []);
 
   const unassigned = await execFile(process.execPath, [launcherPath.pathname, "task", "Keep this at workspace scope", "--unassigned"], { cwd: nested });
   assert.match(unassigned.stdout, /Unassigned/);
   const rootTasks = await readdir(join(root, ".work", "tasks"));
   assert.equal(rootTasks.length, 1);
-  assert.match(await readFile(join(root, ".work", "tasks", rootTasks[0]), "utf8"), /project_path: null/);
+  assert.match(await readFile(join(root, ".work", "tasks", rootTasks[0]), "utf8"), /projectPath: null/);
 
   await assert.rejects(
     execFile(process.execPath, [launcherPath.pathname, "task", "Conflicting destination", "--project", "piu-recomp", "--unassigned"], { cwd: nested }),
@@ -333,9 +322,7 @@ test("serve does not silently restore an unregistered workspace around the launc
     assert.equal(snapshot.payload.workspace.root, canonicalSelected);
     assert.deepEqual(JSON.parse(await readFile(registryPath, "utf8")).roots.map((entry) => entry.root), [canonicalSelected]);
   } finally {
-    const exited = once(launched.child, "exit");
-    launched.child.kill("SIGTERM");
-    await exited;
+    await stopChild(launched.child);
   }
 });
 
@@ -384,9 +371,7 @@ test("reports the actual UI URL when the requested port is occupied", async () =
     const proxiedHealth = await fetch(new URL("/api/health", actualUrl));
     assert.equal(proxiedHealth.status, 200, "the dynamically selected UI must proxy to the actual API origin");
   } finally {
-    const exited = once(child, "exit");
-    child.kill("SIGTERM");
-    await exited;
+    await stopChild(child);
     await new Promise((resolve, reject) => blocker.close((error) => error ? reject(error) : resolve()));
   }
 });
@@ -491,11 +476,8 @@ test("launches on loopback, discovers only explicit projects, and contains the r
   }
 
   const nestedRoot = join(root, "software", "rekit");
-  const forcedNested = await startLocalApi({
-    root: nestedRoot,
-    port: 0,
-    forceNewWorkspace: true,
-  });
+  await initializeWorkspace(nestedRoot, { force: true });
+  const forcedNested = await startLocalApi({ root: nestedRoot, port: 0 });
   try {
     const expected = await realpath(nestedRoot);
     const actual = await realpath(workspaceRoot(forcedNested.workspace));
@@ -616,7 +598,7 @@ test("starts a project from an eligible file-tree folder without crossing worksp
     const projectDirectory = join(root, "scratch", "package-only", ".work");
     assert.deepEqual(
       (await readdir(projectDirectory)).sort(),
-      ["captures", "decisions", "ideas", "issues", "notes", "project.json", "tasks"],
+      ["captures", "decisions", "issues", "notes", "project.json", "tasks"],
     );
     assert.equal(JSON.parse(await readFile(join(projectDirectory, "project.json"), "utf8")).name, "package-only");
 
@@ -650,6 +632,80 @@ test("starts a project from an eligible file-tree folder without crossing worksp
   }
 });
 
+test("creates the project folder, marker, and human name from one request", async () => {
+  const { root } = await makeWorkspaceFixture();
+  const api = await startLocalApi({ root, port: 0 });
+  try {
+    const created = await apiRequest(api.origin, "/api/projects", {
+      method: "POST",
+      body: { name: "Field Notes!" },
+    });
+    assert.equal(created.response.status, 201);
+    assert.equal(created.payload.path, "field-notes");
+    assert.equal(created.payload.name, "Field Notes!");
+    const marker = JSON.parse(await readFile(join(root, "field-notes", ".work", "project.json"), "utf8"));
+    assert.equal(marker.name, "Field Notes!");
+
+    const nested = await apiRequest(api.origin, "/api/projects", {
+      method: "POST",
+      body: { name: "Sub Project", parentPath: "software" },
+    });
+    assert.equal(nested.response.status, 201);
+    assert.equal(nested.payload.path, "software/sub-project");
+
+    const duplicate = await apiRequest(api.origin, "/api/projects", {
+      method: "POST",
+      body: { name: "Field Notes" },
+    });
+    assert.equal(duplicate.response.status, 409);
+    assert.equal(duplicate.payload.error.code, "project_already_initialized");
+
+    const escape = await apiRequest(api.origin, "/api/projects", {
+      method: "POST",
+      body: { name: "Escape", parentPath: "../outside" },
+    });
+    assert.equal(escape.response.status, 403);
+
+    const unusable = await apiRequest(api.origin, "/api/projects", {
+      method: "POST",
+      body: { name: "!!!" },
+    });
+    assert.equal(unusable.response.status, 400);
+  } finally {
+    await closeLocalApi(api.server);
+  }
+});
+
+test("work new creates a named project and work add refuses to invent a workspace", async () => {
+  const orphan = await temporaryDirectory("work-orphan-");
+  await assert.rejects(
+    execFile(process.execPath, [launcherPath.pathname, "add", "stray thought"], { cwd: orphan }),
+    (error) => /Run `work init` first/.test(error.stderr),
+  );
+  await assert.rejects(
+    execFile(process.execPath, [launcherPath.pathname, "task", "stray task"], { cwd: orphan }),
+    (error) => /Run `work init` first/.test(error.stderr),
+  );
+  await assert.rejects(readdir(join(orphan, ".work")), { code: "ENOENT" });
+
+  await execFile(process.execPath, [launcherPath.pathname, "init", orphan], { cwd: repositoryRoot });
+  const created = await execFile(process.execPath, [launcherPath.pathname, "new", "Field Notes"], { cwd: orphan });
+  assert.match(created.stdout, /Created project field-notes \(Field Notes\)/);
+  const marker = JSON.parse(await readFile(join(orphan, "field-notes", ".work", "project.json"), "utf8"));
+  assert.equal(marker.name, "Field Notes");
+
+  await mkdir(join(orphan, "writing"), { recursive: true });
+  const nested = await execFile(
+    process.execPath,
+    [launcherPath.pathname, "new", "Sub Project", "--under", "writing"],
+    { cwd: orphan },
+  );
+  assert.match(nested.stdout, /Created project writing\/sub-project/);
+
+  const help = await execFile(process.execPath, [launcherPath.pathname, "--help"], { cwd: repositoryRoot });
+  assert.match(help.stdout, /work new "Name" \[--under rel\/path\]/);
+});
+
 test("restarts only after explicit local confirmation", async () => {
   const root = await temporaryDirectory("work-restart-");
   let restartCalls = 0;
@@ -668,10 +724,6 @@ test("restarts only after explicit local confirmation", async () => {
     const health = await apiRequest(api.origin, "/api/health");
     assert.equal(health.payload.service.restartable, true);
     assert.equal(typeof health.payload.service.instanceId, "string");
-    assert.deepEqual(health.payload.api, {
-      version: 1,
-      capabilities: ["workspace-directory", "workspace-snapshot", "workspace-etag", "artifact-mutations"],
-    });
 
     const rejected = await apiRequest(api.origin, "/api/service/restart", {
       method: "POST",
@@ -1229,6 +1281,7 @@ test("keeps editable plain-text notes alongside their project", async () => {
     assert.equal(created.response.status, 201);
     assert.equal(created.payload.title, "Strategy fragments");
     assert.equal(created.payload.projectPath, "software/rekit");
+    // iOS compat shim: responses carry the legacy constant; disk does not.
     assert.equal(created.payload.agentIntent, "reference_only");
     assert.deepEqual(created.payload.createdBy, { kind: "human", name: null });
     noteId = created.payload.id;
@@ -1237,18 +1290,23 @@ test("keeps editable plain-text notes alongside their project", async () => {
     const stored = await readFile(pathname, "utf8");
     assert.match(stored, /type: "note"/);
     assert.match(stored, /title: "Strategy fragments"/);
-    assert.match(stored, /agentIntent: "reference_only"/);
+    assert.doesNotMatch(stored, /agentIntent/);
     assert.match(stored, /createdBy: \{"kind":"human","name":null\}/);
     assert.ok(stored.includes("Questions to revisit:\nKeep this as ordinary text."));
     assert.deepEqual(await readdir(join(root, ".work", "notes")), []);
 
+    // Legacy record migration: a note written before the schema change (with
+    // the removed agentIntent field and no createdBy) must still load and
+    // list, and the rewrite-on-read hook drops the removed field.
     const legacyNoteId = "note_legacy1234";
-    await writeFile(join(root, "software", "rekit", ".work", "notes", `${legacyNoteId}.md`), `---
+    const legacyNotePath = join(root, "software", "rekit", ".work", "notes", `${legacyNoteId}.md`);
+    await writeFile(legacyNotePath, `---
 id: "${legacyNoteId}"
 type: "note"
 title: "Older note"
 scopePath: "software/rekit"
 projectPath: "software/rekit"
+agentIntent: "review_requested"
 createdAt: "2026-01-01T00:00:00.000Z"
 updatedAt: "2026-01-01T00:00:00.000Z"
 ---
@@ -1256,9 +1314,13 @@ updatedAt: "2026-01-01T00:00:00.000Z"
 Existing notes must remain passive by default.
 `);
     const listed = await apiRequest(first.origin, "/api/notes");
-    assert.equal(listed.payload.notes.find((note) => note.id === legacyNoteId)?.agentIntent, "reference_only");
-    assert.deepEqual(listed.payload.notes.find((note) => note.id === legacyNoteId)?.createdBy, { kind: "human", name: null });
-    assert.match(await readFile(join(root, "software", "rekit", ".work", "notes", `${legacyNoteId}.md`), "utf8"), /agentIntent: "reference_only"/);
+    const legacyNote = listed.payload.notes.find((note) => note.id === legacyNoteId);
+    assert.equal(legacyNote?.title, "Older note");
+    assert.equal(legacyNote?.agentIntent, "reference_only");
+    assert.deepEqual(legacyNote?.createdBy, { kind: "human", name: null });
+    const rewritten = await readFile(legacyNotePath, "utf8");
+    assert.doesNotMatch(rewritten, /agentIntent/);
+    assert.match(rewritten, /createdBy: \{"kind":"human","name":null\}/);
     const removedLegacy = await apiRequest(first.origin, `/api/notes/${legacyNoteId}`, { method: "DELETE" });
     assert.equal(removedLegacy.response.status, 204);
 
@@ -1267,19 +1329,11 @@ Existing notes must remain passive by default.
       body: {
         title: "Strategy notes",
         text: "A revised thought.\n\nA second paragraph.",
-        agentIntent: "review_requested",
       },
     });
     assert.equal(updated.response.status, 200);
     assert.equal(updated.payload.title, "Strategy notes");
     assert.equal(updated.payload.text, "A revised thought.\n\nA second paragraph.");
-    assert.equal(updated.payload.agentIntent, "review_requested");
-
-    const invalidIntent = await apiRequest(first.origin, `/api/notes/${encodeURIComponent(noteId)}`, {
-      method: "PATCH",
-      body: { agentIntent: "execute_now" },
-    });
-    assert.equal(invalidIntent.response.status, 400);
 
     const traversal = await apiRequest(first.origin, "/api/notes", {
       method: "POST",
@@ -1297,7 +1351,6 @@ Existing notes must remain passive by default.
     assert.equal(note.title, "Strategy notes");
     assert.equal(note.text, "A revised thought.\n\nA second paragraph.");
     assert.equal(note.projectPath, "software/rekit");
-    assert.equal(note.agentIntent, "review_requested");
     assert.deepEqual(note.createdBy, { kind: "human", name: null });
 
     const removed = await apiRequest(restarted.origin, `/api/notes/${encodeURIComponent(noteId)}`, { method: "DELETE" });
@@ -1329,11 +1382,10 @@ test("attributes agent-created notes and contains agent mutations to their own n
     const created = await apiRequest(api.origin, "/api/agent/notes", {
       method: "POST",
       headers: { "x-work-agent": "codex-cli" },
-      body: { title: "Investigation result", text: "The parser accepts the new envelope.", projectPath: "software/rekit", agentIntent: "review_requested" },
+      body: { title: "Investigation result", text: "The parser accepts the new envelope.", projectPath: "software/rekit" },
     });
     assert.equal(created.response.status, 201);
     assert.deepEqual(created.payload.createdBy, { kind: "agent", name: "codex-cli" });
-    assert.equal(created.payload.agentIntent, "reference_only");
 
     const agentEditsHuman = await apiRequest(api.origin, `/api/agent/notes/${human.payload.id}`, {
       method: "PATCH",
@@ -1382,96 +1434,175 @@ test("attributes agent-created notes and contains agent mutations to their own n
   }
 });
 
-test("keeps ideas between raw thoughts and executable work with explicit evaluation outcomes", async () => {
+test("loads legacy idea records as notes and rewrites them into the notes store", async () => {
   const { root } = await makeWorkspaceFixture();
-  const first = await startLocalApi({ root, port: 0 });
-  let ideaId;
-
+  const api = await startLocalApi({ root, port: 0 });
   try {
-    const created = await apiRequest(first.origin, "/api/ideas", {
+    // A record written before ideas merged into notes.
+    await mkdir(join(root, "software", "rekit", ".work", "ideas"), { recursive: true });
+    await writeFile(join(root, "software", "rekit", ".work", "ideas", "idea_legacy1234.md"), `---
+id: "idea_legacy1234"
+type: "idea"
+title: "Federate remote Work instances"
+status: "exploring"
+scopePath: "software/rekit"
+projectPath: "software/rekit"
+tags: ["remote","architecture"]
+source: "capture_example1234"
+revisitAt: "2027-01-15T00:00:00.000Z"
+history: [{"from":"open","to":"exploring","reason":"Started evaluating.","at":"2026-01-02T00:00:00.000Z"}]
+createdAt: "2026-01-01T00:00:00.000Z"
+updatedAt: "2026-01-02T00:00:00.000Z"
+---
+
+## Opportunity
+See project trees from several servers in one place.
+`);
+
+    const listed = await apiRequest(api.origin, "/api/notes");
+    assert.equal(listed.response.status, 200);
+    const migrated = listed.payload.notes.find((note) => note.id === "note_legacy1234");
+    assert.equal(migrated?.title, "Federate remote Work instances");
+    assert.equal(migrated?.projectPath, "software/rekit");
+    assert.equal(migrated?.createdBy.kind, "human");
+    // The body keeps the idea sections; idea-only frontmatter survives as
+    // plain text lines so nothing is lost.
+    assert.match(migrated.text, /## Opportunity\nSee project trees from several servers in one place\./);
+    assert.match(migrated.text, /Status: exploring/);
+    assert.match(migrated.text, /Tags: remote, architecture/);
+    assert.match(migrated.text, /Source: capture_example1234/);
+    assert.match(migrated.text, /Revisit at: 2027-01-15T00:00:00\.000Z/);
+    assert.match(migrated.text, /History: open → exploring — Started evaluating\. \(2026-01-02T00:00:00\.000Z\)/);
+
+    // The file moved out of the ideas store and into the notes store.
+    assert.deepEqual(await readdir(join(root, "software", "rekit", ".work", "ideas")), []);
+    const rewritten = await readFile(join(root, "software", "rekit", ".work", "notes", "note_legacy1234.md"), "utf8");
+    assert.match(rewritten, /type: "note"/);
+    assert.match(rewritten, /Status: exploring/);
+    assert.doesNotMatch(rewritten, /type: "idea"/);
+
+    // The migrated record behaves like any other note.
+    const updated = await apiRequest(api.origin, "/api/notes/note_legacy1234", {
+      method: "PATCH",
+      body: { title: "Federated Work instances (merged)" },
+    });
+    assert.equal(updated.response.status, 200);
+
+    // The migrated note appears in the workspace snapshot.
+    const snapshot = await apiRequest(api.origin, "/api/workspace");
+    assert.equal(snapshot.payload.notes.some((note) => note.id === "note_legacy1234"), true);
+
+    // A task written before the camelCase frontmatter change still loads, and
+    // the next write rewrites it without any snake_case keys.
+    await writeFile(join(root, ".work", "tasks", "W-0042.md"), `---
+id: "W-0042"
+title: "Legacy snake task"
+status: "in_progress"
+project_path: null
+task_type: "bug"
+assignee: null
+priority: "high"
+depends_on: []
+blocked_by: []
+blocked_reason: "waiting on parser"
+parent_id: null
+due_at: "2027-01-01T00:00:00.000Z"
+created_at: "2026-01-01T00:00:00.000Z"
+updated_at: "2026-01-02T00:00:00.000Z"
+started_at: "2026-01-01T12:00:00.000Z"
+---
+
+## Goal
+Keep loading old records.
+`);
+    const legacyTask = await apiRequest(api.origin, "/api/tasks/W-0042");
+    assert.equal(legacyTask.response.status, 200);
+    assert.equal(legacyTask.payload.type, "bug");
+    assert.equal(legacyTask.payload.priority, "high");
+    assert.equal(legacyTask.payload.blockedReason, "waiting on parser");
+    assert.equal(legacyTask.payload.dueAt, "2027-01-01T00:00:00.000Z");
+    assert.equal(legacyTask.payload.startedAt, "2026-01-01T12:00:00.000Z");
+    const logged = await apiRequest(api.origin, "/api/tasks/W-0042/log", {
       method: "POST",
-      body: {
-        title: "Federate remote Work instances",
-        opportunity: "See project trees from several servers in one place.",
-        whyItMightMatter: "Reduce context switching across machines.",
-        unknowns: "Authentication, offline behavior, and ownership boundaries.",
-        projectPath: "software/rekit",
-        scopePath: "software/rekit",
-        tags: ["remote", "architecture"],
-        source: "capture_example1234",
-      },
+      body: { message: "Rewritten in camelCase." },
+    });
+    assert.equal(logged.response.status, 200);
+    const rewrittenTask = await readFile(join(root, ".work", "tasks", "W-0042.md"), "utf8");
+    assert.match(rewrittenTask, /type: "bug"/);
+    assert.match(rewrittenTask, /blockedReason: "waiting on parser"/);
+    assert.match(rewrittenTask, /startedAt: "2026-01-01T12:00:00\.000Z"/);
+    assert.doesNotMatch(rewrittenTask, /task_type|project_path|blocked_reason|created_at|updated_at|started_at/);
+  } finally {
+    await closeLocalApi(api.server);
+  }
+});
+
+test("deletes a project's records for a human while non-empty folders keep their files", async () => {
+  const { root } = await makeWorkspaceFixture();
+  const api = await startLocalApi({ root, port: 0 });
+  try {
+    const created = await apiRequest(api.origin, "/api/projects", {
+      method: "POST",
+      body: { projectPath: "scratch/package-only" },
     });
     assert.equal(created.response.status, 201);
-    assert.equal(created.payload.status, "open");
-    assert.equal(created.payload.agentIntent, "consideration_only");
-    assert.equal(created.payload.source, "capture_example1234");
-    assert.equal(created.payload.sections.opportunity, "See project trees from several servers in one place.");
-    ideaId = created.payload.id;
-
-    const pathname = join(root, "software", "rekit", ".work", "ideas", `${ideaId}.md`);
-    const stored = await readFile(pathname, "utf8");
-    assert.match(stored, /type: "idea"/);
-    assert.match(stored, /agentIntent: "consideration_only"/);
-    assert.match(stored, /## Opportunity\nSee project trees from several servers in one place\./);
-    assert.match(stored, /## Outcome\n?$/);
-
-    const evaluation = await apiRequest(first.origin, `/api/ideas/${ideaId}`, {
-      method: "PATCH",
-      body: {
-        title: "Federate trusted Work instances",
-        opportunity: "See saved draft changes while requesting evaluation.",
-        status: "exploring",
-        reason: "Evaluation requested.",
-        agentIntent: "evaluation_requested",
-      },
+    const capture = await apiRequest(api.origin, "/api/captures", {
+      method: "POST",
+      body: { text: "History that leaves with the project", projectPath: "scratch/package-only" },
     });
-    assert.equal(evaluation.response.status, 200);
-    assert.equal(evaluation.payload.status, "exploring");
-    assert.equal(evaluation.payload.agentIntent, "evaluation_requested");
-    assert.equal(evaluation.payload.title, "Federate trusted Work instances");
-    assert.equal(evaluation.payload.sections.opportunity, "See saved draft changes while requesting evaluation.");
-    assert.deepEqual(evaluation.payload.history[0].from, "open");
-    assert.deepEqual(evaluation.payload.history[0].to, "exploring");
+    assert.equal(capture.response.status, 201);
 
-    const missingReason = await apiRequest(first.origin, `/api/ideas/${ideaId}`, {
-      method: "PATCH",
-      body: { status: "deferred" },
+    // Agents never delete projects.
+    const forbidden = await apiRequest(api.origin, "/api/projects?projectPath=scratch%2Fpackage-only", {
+      method: "DELETE",
+      headers: { "x-work-agent": "orchestra/brisk_otter" },
     });
-    assert.equal(missingReason.response.status, 400);
-    assert.equal(missingReason.payload.error.code, "reason_required");
+    assert.equal(forbidden.response.status, 403);
+    assert.equal(forbidden.payload.error.code, "project_delete_forbidden");
 
-    const deferred = await apiRequest(first.origin, `/api/ideas/${ideaId}`, {
-      method: "PATCH",
-      body: {
-        status: "deferred",
-        reason: "Remote authentication is not mature enough yet.",
-        revisitAt: "2027-01-15",
-      },
+    const unknown = await apiRequest(api.origin, "/api/projects?projectPath=scratch%2Fnot-a-project", { method: "DELETE" });
+    assert.equal(unknown.response.status, 400);
+    assert.equal(unknown.payload.error.code, "unknown_project");
+
+    // Non-empty folder: the .work records disappear, the files stay.
+    const kept = await apiRequest(api.origin, "/api/projects", {
+      method: "DELETE",
+      body: { projectPath: "scratch/package-only" },
     });
-    assert.equal(deferred.response.status, 200);
-    assert.equal(deferred.payload.status, "deferred");
-    assert.equal(deferred.payload.agentIntent, "consideration_only");
-    assert.equal(deferred.payload.sections.outcome, "Remote authentication is not mature enough yet.");
-    assert.equal(deferred.payload.revisitAt, "2027-01-15T00:00:00.000Z");
-    assert.equal(deferred.payload.history.length, 2);
+    assert.equal(kept.response.status, 200);
+    assert.equal(kept.payload.projectPath, "scratch/package-only");
+    assert.equal(kept.payload.folderRemoved, false);
+    await assert.rejects(readdir(join(root, "scratch", "package-only", ".work")), { code: "ENOENT" });
+    assert.deepEqual(await readdir(join(root, "scratch", "package-only")), ["package.json"]);
+
+    // Empty folder: the folder itself disappears with the project.
+    const empty = await apiRequest(api.origin, "/api/projects", {
+      method: "POST",
+      body: { name: "Sandals Trip" },
+    });
+    assert.equal(empty.response.status, 201);
+    assert.equal(empty.payload.path, "sandals-trip");
+    const removed = await apiRequest(api.origin, "/api/projects?projectPath=sandals-trip", { method: "DELETE" });
+    assert.equal(removed.response.status, 200);
+    assert.equal(removed.payload.folderRemoved, true);
+    await assert.rejects(readdir(join(root, "sandals-trip")), { code: "ENOENT" });
+
+    // The workspace root is never deletable, even when it carries a marker.
+    await writeFile(join(root, ".project"), "");
+    const rootRefusal = await apiRequest(api.origin, "/api/projects?projectPath=.", { method: "DELETE" });
+    assert.equal(rootRefusal.response.status, 409);
+    assert.equal(rootRefusal.payload.error.code, "workspace_root_not_project");
+    await unlink(join(root, ".project"));
+    assert.deepEqual(await readdir(join(root, ".work", "captures")), []);
   } finally {
-    await closeLocalApi(first.server);
+    await closeLocalApi(api.server);
   }
 
-  const restarted = await startLocalApi({ root, port: 0 });
-  try {
-    const snapshot = await apiRequest(restarted.origin, "/api/workspace");
-    const idea = snapshot.payload.ideas.find((item) => item.id === ideaId);
-    assert.equal(idea.status, "deferred");
-    assert.equal(idea.history.length, 2);
-    assert.equal(idea.sections.outcome, "Remote authentication is not mature enough yet.");
-
-    const removed = await apiRequest(restarted.origin, `/api/ideas/${encodeURIComponent(ideaId)}`, { method: "DELETE" });
-    assert.equal(removed.response.status, 204);
-    assert.deepEqual(await readdir(join(root, "software", "rekit", ".work", "ideas")), []);
-  } finally {
-    await closeLocalApi(restarted.server);
-  }
+  // The CLI reports the same outcomes in plain language.
+  await execFile(process.execPath, [launcherPath.pathname, "new", "Empty Project", "--root", root], { cwd: repositoryRoot });
+  const removedByCli = await execFile(process.execPath, [launcherPath.pathname, "remove", "empty-project", "--root", root], { cwd: repositoryRoot });
+  assert.match(removedByCli.stdout, /Removed project empty-project\. The empty folder was deleted\./);
+  await assert.rejects(readdir(join(root, "empty-project")), { code: "ENOENT" });
 });
 
 test("keeps project work inside the project when its directory moves", async () => {
@@ -1792,5 +1923,121 @@ test("persists a full Kanban lifecycle with fields, checklists, dependencies, an
     assert.deepEqual(snapshot.payload.workspace.statuses, ["backlog", "ready", "in_progress", "blocked", "review", "done"]);
   } finally {
     await closeLocalApi(restarted.server);
+  }
+});
+
+test("keeps terminal task moves human-only and surfaces one needs-you queue", async () => {
+  const { root } = await makeWorkspaceFixture();
+  const api = await startLocalApi({ root, port: 0 });
+
+  try {
+    const created = await apiRequest(api.origin, "/api/tasks", {
+      method: "POST",
+      body: {
+        title: "Ship the sweeper contract",
+        projectPath: "software/rekit",
+        status: "ready",
+        agents: ["orchestra"],
+        refs: ["issue_auth_timeout"],
+      },
+    });
+    assert.equal(created.response.status, 201);
+    assert.deepEqual(created.payload.refs, ["issue_auth_timeout"]);
+    const taskFile = await readFile(join(root, "software", "rekit", ".work", "tasks", `${created.payload.id}.md`), "utf8");
+    assert.match(taskFile, /refs: \["issue_auth_timeout"\]/);
+
+    const agentStarts = await apiRequest(api.origin, `/api/tasks/${created.payload.id}/move`, {
+      method: "POST",
+      body: { status: "in_progress" },
+      headers: { "x-work-agent": "orchestra/brisk_otter" },
+    });
+    assert.equal(agentStarts.response.status, 200);
+
+    const agentCompletes = await apiRequest(api.origin, `/api/tasks/${created.payload.id}/move`, {
+      method: "POST",
+      body: { status: "done" },
+      headers: { "x-work-agent": "orchestra/brisk_otter" },
+    });
+    assert.equal(agentCompletes.response.status, 403);
+    assert.equal(agentCompletes.payload.error.code, "task_status_forbidden");
+
+    const agentBlocks = await apiRequest(api.origin, `/api/tasks/${created.payload.id}/move`, {
+      method: "POST",
+      body: { status: "blocked" },
+      headers: { "x-work-agent": "orchestra/brisk_otter" },
+    });
+    assert.equal(agentBlocks.response.status, 200);
+
+    const retagged = await apiRequest(api.origin, `/api/tasks/${created.payload.id}`, {
+      method: "PATCH",
+      body: { refs: ["issue_auth_timeout", "W-0001"] },
+    });
+    assert.deepEqual(retagged.payload.refs, ["issue_auth_timeout", "W-0001"]);
+
+    const decision = await apiRequest(api.origin, "/api/decisions", {
+      method: "POST",
+      body: { title: "Choose the sweeper interval" },
+    });
+    assert.equal(decision.response.status, 201);
+    const issue = await apiRequest(api.origin, "/api/issues", {
+      method: "POST",
+      body: { body: "The sweeper misses new comments." },
+    });
+    await apiRequest(api.origin, `/api/agent/issues/${issue.payload.id}/claim`, {
+      method: "POST",
+      body: {},
+      headers: { "x-work-agent": "orchestra/brisk_otter" },
+    });
+    await apiRequest(api.origin, `/api/agent/issues/${issue.payload.id}/state`, {
+      method: "POST",
+      body: { state: "needs_human", reason: "Which interval do you want?" },
+      headers: { "x-work-agent": "orchestra/brisk_otter" },
+    });
+
+    const needsYou = await apiRequest(api.origin, "/api/needs-you");
+    assert.equal(needsYou.response.status, 200);
+    assert.deepEqual(
+      needsYou.payload.entries.map((entry) => entry.type).sort(),
+      ["decision", "issue", "task"],
+    );
+    for (const entry of needsYou.payload.entries) {
+      assert.ok(entry.id);
+      assert.ok(entry.title);
+      assert.ok(entry.updatedAt);
+      assert.ok("projectPath" in entry);
+    }
+    const timestamps = needsYou.payload.entries.map((entry) => entry.updatedAt);
+    assert.deepEqual(timestamps, [...timestamps].sort().reverse());
+
+    const stale = await apiRequest(api.origin, `/api/tasks?updatedSince=${encodeURIComponent(retagged.payload.updatedAt)}`);
+    assert.deepEqual(stale.payload.tasks, []);
+    const fresh = await apiRequest(api.origin, "/api/tasks?updatedSince=2000-01-01T00:00:00Z");
+    assert.equal(fresh.payload.tasks.length, 1);
+    const invalidCursor = await apiRequest(api.origin, "/api/tasks?updatedSince=not-a-date");
+    assert.equal(invalidCursor.response.status, 400);
+
+    const agentPatchCompletes = await apiRequest(api.origin, `/api/tasks/${created.payload.id}`, {
+      method: "PATCH",
+      body: { status: "done" },
+      headers: { "x-work-agent": "orchestra/brisk_otter" },
+    });
+    assert.equal(agentPatchCompletes.response.status, 403);
+    assert.equal(agentPatchCompletes.payload.error.code, "agent_task_edit_forbidden");
+
+    const agentPatchTitle = await apiRequest(api.origin, `/api/tasks/${created.payload.id}`, {
+      method: "PATCH",
+      body: { title: "Rewritten by an agent" },
+      headers: { "x-work-agent": "orchestra/brisk_otter" },
+    });
+    assert.equal(agentPatchTitle.response.status, 403);
+    assert.equal(agentPatchTitle.payload.error.code, "agent_task_edit_forbidden");
+
+    const humanCompletes = await apiRequest(api.origin, `/api/tasks/${created.payload.id}/move`, {
+      method: "POST",
+      body: { status: "done" },
+    });
+    assert.equal(humanCompletes.response.status, 200);
+  } finally {
+    await closeLocalApi(api.server);
   }
 });

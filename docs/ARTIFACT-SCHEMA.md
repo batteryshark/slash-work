@@ -1,13 +1,16 @@
 # Work Artifact Markdown Contract
 
 This is the authoring contract for automations that create or update Work's
-filesystem artifacts. Validate the logical artifact against
-[`schemas/work-artifact.schema.json`](../schemas/work-artifact.schema.json),
-then serialize it using the rules and templates below.
+filesystem artifacts. Serialize each artifact using the rules and templates
+below; the enforced input rules for each mutation are published by
+`work agent instructions <operation>` and `GET /api/agent/operations/{id}`.
 
-The schema covers six Markdown artifact types: `capture`, `note`, `idea`,
+This contract covers five Markdown artifact types: `capture`, `note`,
 `issue`, `decision`, and `task`. The workspace and project marker files are
-JSON, not Markdown, and are outside this schema.
+JSON, not Markdown, and are outside this schema. Ideas were merged into notes:
+legacy records in `.work/ideas/` load as notes and are rewritten into the notes
+store on first read, with idea-only metadata preserved as plain text lines in
+the note body.
 
 ## Storage and ownership
 
@@ -15,7 +18,6 @@ JSON, not Markdown, and are outside this schema.
 | --- | --- | --- | --- |
 | Capture | `.work/captures/` | `<project>/.work/captures/` | `<capture id>.md` |
 | Note | `.work/notes/` | `<project>/.work/notes/` | `<note id>.md` |
-| Idea | `.work/ideas/` | `<project>/.work/ideas/` | `<idea id>.md` |
 | Issue | `.work/issues/` | `<project>/.work/issues/` | `<issue id>.md` |
 | Decision | `.work/decisions/` | `<project>/.work/decisions/` | `<decision id>.md` |
 | Task | `.work/tasks/` | `<project>/.work/tasks/` | `<task id>.md` |
@@ -25,13 +27,12 @@ non-null project path must exactly match a discovered, root-relative project
 path. Store project-owned records inside that project's `.work/` directory;
 do not merely set the metadata while leaving the file at the root.
 
-IDs and filenames must agree. Capture, note, idea, issue, and decision IDs use
+IDs and filenames must agree. Capture, note, issue, and decision IDs use
 these forms:
 
 ```text
 capture_<8-to-81 lowercase letters, digits, underscores, or hyphens>
 note_<8-to-81 lowercase letters, digits, underscores, or hyphens>
-idea_<8-to-81 lowercase letters, digits, underscores, or hyphens>
 issue_<8-to-81 lowercase letters, digits, underscores, or hyphens>
 decision_<8-to-81 lowercase letters, digits, underscores, or hyphens>
 ```
@@ -95,13 +96,8 @@ Should the release include the migration?
 ## Note
 
 A note is longer reference material. Its body is plain text: do not require or
-inject headings. An empty body is valid.
-
-`agentIntent` is semantically important:
-
-- `reference_only`: context, not an instruction or authorization to act.
-- `review_requested`: asks an agent to review promptly, but still does not
-  authorize execution.
+inject headings. An empty body is valid. A note is context, not an instruction
+or authorization to act.
 
 `createdBy` records durable provenance. Existing and UI-created notes use
 `{"kind":"human","name":null}`. Agent note routes stamp
@@ -116,7 +112,6 @@ type: "note"
 title: "Release context"
 scopePath: "software/rekit"
 projectPath: "software/rekit"
-agentIntent: "reference_only"
 createdBy: {"kind":"human","name":null}
 createdAt: "2026-07-13T14:30:00.000Z"
 updatedAt: "2026-07-13T14:30:00.000Z"
@@ -125,72 +120,6 @@ updatedAt: "2026-07-13T14:30:00.000Z"
 The migration must remain reversible.
 Keep this note as context for release work.
 ```
-
-## Idea
-
-An idea is a possibility worth evaluating before anyone decides or authorizes
-work. It sits between a raw capture and a decision or task. Reading, editing,
-or evaluating an idea never grants permission to implement it.
-
-Statuses are `open`, `exploring`, `deferred`, `proposed`, `adopted`, and
-`declined`. The UI labels `deferred` as **Not now** and `declined` as
-**Closed**. Moving to either of those states requires a written reason. Every
-state transition appends `{from,to,reason,at}` to `history`; never discard prior
-reasons. `revisitAt` is optional and is especially useful for deferred ideas.
-
-`agentIntent` is either:
-
-- `consideration_only`: preserve this possibility; it is not a request.
-- `evaluation_requested`: assess feasibility, value, unknowns, risks, and
-  possible approaches, but do not implement anything.
-
-```markdown
----
-id: "idea_mabc1234_ab12cd34ef56"
-type: "idea"
-title: "Federate remote Work instances"
-status: "exploring"
-scopePath: "."
-projectPath: null
-tags: ["remote","architecture"]
-source: null
-revisitAt: null
-agentIntent: "evaluation_requested"
-history: [{"from":"open","to":"exploring","reason":"Evaluation requested.","at":"2026-07-14T14:30:00.000Z"}]
-createdAt: "2026-07-14T14:25:00.000Z"
-updatedAt: "2026-07-14T14:30:00.000Z"
----
-
-## Opportunity
-See project trees from several Work servers in one place.
-
-## Why It Might Matter
-Reduce context switching across machines.
-
-## Hypothesis
-Read-only federation may provide most of the value without distributed writes.
-
-## Unknowns
-Authentication, offline behavior, and ownership boundaries.
-
-## Potential Shape
-Store approved remote endpoints and show each server as a separate boundary.
-
-## Evidence
-
-## Risks and Constraints
-Remote access changes Work's current loopback-only security model.
-
-## Next Evaluation
-Assess whether read-only discovery is useful before designing synchronization.
-
-## Outcome
-```
-
-Emit all nine canonical sections in that order, even when empty. Preserve
-unrecognized metadata and extra sections on update. An adopted idea may lead to
-a decision, epic, or tasks, but that promotion must be an explicit separate
-action.
 
 ## Issue
 
@@ -402,7 +331,8 @@ Before writing an artifact:
 1. Locate the nearest ancestor `.work/workspace.json`; never cross that root.
 2. Discover explicit projects and use an exact canonical project path, or keep
    the record unassigned. Never infer ownership from prose.
-3. Validate the logical object with `schemas/work-artifact.schema.json`.
+3. Check the logical object against the operation's input rules from
+   `work agent instructions <operation>`.
 4. Allocate a globally unique ID and make the filename match it.
 5. Serialize header values as compact JSON and the body with the exact grammar
    above.

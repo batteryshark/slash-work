@@ -49,51 +49,6 @@ selected root's ID on every request, so switching one browser does not change
 the workspace selected in another browser and records from multiple roots are
 never merged into one response.
 
-## Connected Work instances
-
-The slash system menu can pair one Work instance with another. Pairing is
-deliberately directional: the consuming instance receives a URL and access key
-for the owner, then exposes the owner's permitted workspaces through its normal
-`GET /api/workspaces` response. Repeat the process in the other direction when
-both machines should browse each other.
-
-Start the owning instance with `work --tailscale` to make its API reachable on
-the tailnet. Work discovers that machine's Tailscale IPv4 address, binds only to
-it, prints the API and UI URLs, and surfaces the API URL in the connection
-panel. Paste that exact URL into the consuming instance. Work does not create a
-relay, discover peers automatically, or bind a wildcard or ordinary LAN
-address.
-
-Tailscale and federation enforce different boundaries. Tailscale membership
-and ACLs determine who can reach the full Work UI and API at the tailnet
-address; Work adds no separate login layer to that direct access. A federation
-key authorizes a paired Work gateway to import only its selected workspace IDs,
-and proxied requests additionally require a one-hop marker. The key does not
-restrict a tailnet user whom the ACL already permits to call the full service.
-Normal browser and agent traffic can remain on loopback by calling the local
-gateway even when that gateway reaches a peer over Tailscale.
-
-Each access key is scoped to the selected workspace IDs at creation time and
-can be revoked independently. The full key is shown once. The owner stores only
-its SHA-256 hash in `~/.work/federation.json`; the consuming instance stores the
-outgoing key in macOS Keychain, Windows Credential Manager, or Linux Secret
-Service. The JSON file contains stable instance identity, non-secret peer URLs,
-grant metadata, and cached workspace names so an offline machine remains
-visible without appearing usable.
-
-Local startup never waits for a peer or native credential service. Ordinary
-workspace discovery returns local roots and cached remote names immediately,
-then refreshes connected instances in the background. Credential-store and
-peer-network operations have bounded deadlines; a missing Secret Service,
-locked keychain, or offline server marks only that peer unavailable. An
-explicit refresh may wait for those bounded checks but cannot stall forever.
-
-Federation is not replication. The gateway forwards allowlisted workspace API
-operations to the owner, which performs its usual validation and filesystem
-write. Service updates, restarts, AI provider settings, folder selection,
-connection management, and peer-of-peer workspaces cannot traverse a
-connection. A hop limit of one prevents loops and accidental transit.
-
 ## Recursive project discovery
 
 Work scans downward from the selected root and can show several nested projects
@@ -178,7 +133,7 @@ differ.
 There is one storage-folder shape: `.work/`. At the selected root it contains
 `workspace.json`, format metadata, Kanban column order, and records that are not
 assigned to a project. Inside a project it contains `project.json` and that
-project's `tasks/`, `captures/`, `ideas/`, `notes/`, `issues/`, and
+project's `tasks/`, `captures/`, `notes/`, `issues/`, and
 `decisions/`. For example, a ReKit card is stored at
 `software/rekit/.work/tasks/W-0001.md`, not centralized at the root. Record
 files use small machine-readable headers where stable identifiers or
@@ -207,8 +162,6 @@ Important behavior:
 - an unassigned thought is valid and goes to the root inbox;
 - project assignment can happen later without changing the original text;
 - project records travel with the project directory when it is moved;
-- idea evaluation is explicitly non-executable; deferred and declined states
-  retain a reason and may retain a revisit date;
 - decision actions are explicit: assign, keep unassigned, approve, reject,
   defer, cancel, and reopen as appropriate to that decision;
 - decision options are rendered as the actual human choices, with an optional
@@ -357,7 +310,6 @@ integration:
 
 ```bash
 work add "check whether the release needs a migration"
-work idea "Federate remote Work instances" --detail "Explore read-only project trees across servers"
 work decision "Where should the lab live?" --option "Keep unassigned" --option "Assign later"
 work task "Implement the board" --project software/rekit --priority high
 work task "Workspace-wide maintenance" --unassigned
@@ -375,54 +327,10 @@ filesystem context is distinct from guessing a project mentioned in prose.
 Pass `--unassigned` to keep new work at workspace scope or `--project` to select
 a different exact discovered root-relative path.
 
-## One-shot AI assistance
-
-The slash system menu can store an OpenAI-compatible or Anthropic-compatible
-provider format, base URL, model, and API key for magic-wand actions. Provider
-settings live in `~/.work/ai.json` (or `WORK_AI_CONFIG_FILE` when explicitly
-overridden), not in a workspace. That JSON file contains no API key. Work saves
-the secret in macOS Keychain, Windows Credential Manager, or Linux Secret
-Service through the native keyring API and retrieves it only for an outbound
-model request. `WORK_AI_API_KEY` takes precedence for a headless service. API
-responses expose only configuration status, credential source, and the key's
-final four characters.
-
-Certificate verification is enabled by default. A self-hosted endpoint may opt
-into `allowSelfSigned` from AI settings. Work then uses a dedicated TLS
-dispatcher with certificate verification disabled only for that endpoint's AI
-requests. It never changes Node's global TLS settings and never retries a
-failed verified request by silently downgrading verification.
-
-When a service first reads the legacy version 1 settings written by Work
-0.2.9, it moves the plaintext key into the native credential store and
-atomically rewrites the JSON as version 2 without the key. If the credential
-store is unavailable, migration stops with an error rather than deleting the
-only copy or continuing to use plaintext storage.
-
-Draft/review actions on tasks and expand/evaluate actions on ideas use
-`POST /api/ai/proposals`. The request sent to the configured
-`/chat/completions` or `/messages` endpoint includes the selected artifact, the
-project's description, and compact lists of related or active tasks, open
-decisions, and active ideas. Text and item counts have explicit limits;
-progress logs, files, other projects, other workspace roots, and secrets are
-not included.
-
-The provider returns a typed, allowlisted field patch. Work displays current
-and proposed values side by side. `POST /api/ai/apply` requires an explicit
-confirmation header, `confirm: true`, selected field names, and the original
-artifact revision. If the Markdown record changed after generation, the
-proposal is rejected as stale. AI assistance cannot change lifecycle status,
-check completed work, execute tools, or apply a proposal without the human
-preview.
-
-This path is deliberately one-shot. Deeper discussion, repository inspection,
-tool use, and implementation belong in an external agent harness whose own
-credentials and safety boundary remain separate from Work.
-
 ## Recovery expectations
 
 After `Ctrl-C`, a crash, a browser refresh, or a computer restart, launching the
-same root restores the same work items, captures, ideas, issue conversations,
+same root restores the same work items, captures, notes, issue conversations,
 decisions, checklists, and progress logs. Launching a different root
 shows none of them. If `.work/` cannot be read or written, Work reports the
 specific local filesystem problem and does not claim that a capture succeeded.
