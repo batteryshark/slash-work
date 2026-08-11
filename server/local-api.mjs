@@ -8,14 +8,13 @@ import {
   applyDecisionAction,
   createCapture,
   createDecision,
-  createIdea,
   createIssue,
   createNote,
   createProject,
   createTask,
   deleteCapture,
-  deleteIdea,
   deleteNote,
+  deleteProject,
   discoverProjects,
   getIssue,
   initializeWorkspace,
@@ -23,7 +22,6 @@ import {
   initializeProject,
   listCaptures,
   listDecisions,
-  listIdeas,
   listIssues,
   listNotes,
   listTasks,
@@ -32,7 +30,6 @@ import {
   replyToIssue,
   toggleTaskChecklist,
   updateCaptureDestination,
-  updateIdea,
   updateIssue,
   updateIssueState,
   updateNote,
@@ -600,6 +597,15 @@ async function handleRequest(workspaces, service, request, response) {
       : await initializeProject(workspace, body?.projectPath));
     return;
   }
+  if (method === "DELETE" && url.pathname === "/api/projects") {
+    // Human-only: a request carrying X-Work-Agent is rejected inside
+    // deleteProject with project_delete_forbidden (same guard style as
+    // agent_task_edit_forbidden in updateTask).
+    const agentName = optionalAgentName(request);
+    const projectPath = url.searchParams.get("projectPath") ?? (await readJsonBody(request))?.projectPath;
+    sendJson(request, response, 200, await deleteProject(workspace, projectPath, { agentName }));
+    return;
+  }
   if (method === "PATCH" && url.pathname === "/api/projects/profile") {
     const body = await readJsonBody(request);
     const projects = await discoverProjects(workspace.root);
@@ -746,28 +752,6 @@ async function handleRequest(workspaces, service, request, response) {
   }
   if (method === "PATCH" && issueId) {
     sendJson(request, response, 200, await updateIssue(workspace, issueId, await readJsonBody(request)));
-    return;
-  }
-  if (method === "GET" && url.pathname === "/api/ideas") {
-    sendJson(request, response, 200, { ideas: await listIdeas(workspace) });
-    return;
-  }
-  if (method === "POST" && url.pathname === "/api/ideas") {
-    const body = await readJsonBody(request);
-    const projects = await discoverProjects(workspace.root);
-    sendJson(request, response, 201, await createIdea(workspace, body, projects));
-    return;
-  }
-  const ideaId = routeId(url.pathname, "ideas");
-  if (method === "PATCH" && ideaId) {
-    const body = await readJsonBody(request);
-    const projects = await discoverProjects(workspace.root);
-    sendJson(request, response, 200, await updateIdea(workspace, ideaId, body, projects));
-    return;
-  }
-  if (method === "DELETE" && ideaId) {
-    await deleteIdea(workspace, ideaId);
-    sendEmpty(request, response);
     return;
   }
   if (method === "GET" && url.pathname === "/api/decisions") {

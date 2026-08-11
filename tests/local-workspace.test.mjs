@@ -127,8 +127,8 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   });
   assert.match(help.stdout, /work \[root\]/i);
   assert.match(help.stdout, /--init/);
-  assert.match(help.stdout, /work idea "title"/i);
-  assert.match(help.stdout, /work ideas/i);
+  assert.match(help.stdout, /work remove <rel-path>/i);
+  assert.doesNotMatch(help.stdout, /work ideas?\b/i);
   assert.match(help.stdout, /work projects/i);
   assert.match(help.stdout, /work agent context/i);
   assert.match(help.stdout, /--project <path>.*exact discovered project/i);
@@ -163,18 +163,6 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   assert.match(markdown, /scopePath: "projects\/one"/);
   assert.match(markdown, /projectPath: null/);
   await assert.rejects(readdir(join(descendant, ".work")), { code: "ENOENT" });
-
-  const idea = await execFile(
-    process.execPath,
-    [launcherPath.pathname, "idea", "Federate remote instances", "--detail", "Evaluate read-only project trees", "--tag", "remote"],
-    { cwd: descendant },
-  );
-  assert.match(idea.stdout, /Created idea idea_/);
-  const ideaFiles = await readdir(join(root, ".work", "ideas"));
-  assert.equal(ideaFiles.length, 1);
-  assert.match(await readFile(join(root, ".work", "ideas", ideaFiles[0]), "utf8"), /## Opportunity\nEvaluate read-only project trees/);
-  const ideas = await execFile(process.execPath, [launcherPath.pathname, "ideas"], { cwd: descendant });
-  assert.match(ideas.stdout, /open.*Federate remote instances/);
 
   const decision = await execFile(
     process.execPath,
@@ -270,15 +258,12 @@ test("resolves a marked current project for agents and local artifact creation",
 
   const capture = await execFile(process.execPath, [launcherPath.pathname, "add", "Preserve current project context"], { cwd: nested });
   assert.match(capture.stdout, /Project: piu-recomp/);
-  const idea = await execFile(process.execPath, [launcherPath.pathname, "idea", "Improve project routing"], { cwd: nested });
-  assert.match(idea.stdout, /piu-recomp/);
   const decision = await execFile(process.execPath, [launcherPath.pathname, "decision", "Use exact current project?"], { cwd: nested });
   assert.match(decision.stdout, /Project: piu-recomp/);
   const task = await execFile(process.execPath, [launcherPath.pathname, "task", "Route work into this project"], { cwd: nested });
   assert.match(task.stdout, /piu-recomp/);
 
   assert.equal((await readdir(join(project, ".work", "captures"))).length, 1);
-  assert.equal((await readdir(join(project, ".work", "ideas"))).length, 1);
   assert.equal((await readdir(join(project, ".work", "decisions"))).length, 1);
   const projectTasks = await readdir(join(project, ".work", "tasks"));
   assert.equal(projectTasks.length, 1);
@@ -616,7 +601,7 @@ test("starts a project from an eligible file-tree folder without crossing worksp
     const projectDirectory = join(root, "scratch", "package-only", ".work");
     assert.deepEqual(
       (await readdir(projectDirectory)).sort(),
-      ["captures", "decisions", "ideas", "issues", "notes", "project.json", "tasks"],
+      ["captures", "decisions", "issues", "notes", "project.json", "tasks"],
     );
     assert.equal(JSON.parse(await readFile(join(projectDirectory, "project.json"), "utf8")).name, "package-only");
 
@@ -1456,130 +1441,138 @@ test("attributes agent-created notes and contains agent mutations to their own n
   }
 });
 
-test("keeps ideas between raw thoughts and executable work with explicit evaluation outcomes", async () => {
+test("loads legacy idea records as notes and rewrites them into the notes store", async () => {
   const { root } = await makeWorkspaceFixture();
-  const first = await startLocalApi({ root, port: 0 });
-  let ideaId;
-
+  const api = await startLocalApi({ root, port: 0 });
   try {
-    const created = await apiRequest(first.origin, "/api/ideas", {
-      method: "POST",
-      body: {
-        title: "Federate remote Work instances",
-        opportunity: "See project trees from several servers in one place.",
-        whyItMightMatter: "Reduce context switching across machines.",
-        unknowns: "Authentication, offline behavior, and ownership boundaries.",
-        projectPath: "software/rekit",
-        scopePath: "software/rekit",
-        tags: ["remote", "architecture"],
-        source: "capture_example1234",
-      },
-    });
-    assert.equal(created.response.status, 201);
-    assert.equal(created.payload.status, "open");
-    // iOS compat shim: responses carry the legacy constant; disk does not.
-    assert.equal(created.payload.agentIntent, "consideration_only");
-    assert.equal(created.payload.source, "capture_example1234");
-    assert.equal(created.payload.sections.opportunity, "See project trees from several servers in one place.");
-    ideaId = created.payload.id;
-
-    const pathname = join(root, "software", "rekit", ".work", "ideas", `${ideaId}.md`);
-    const stored = await readFile(pathname, "utf8");
-    assert.match(stored, /type: "idea"/);
-    assert.doesNotMatch(stored, /agentIntent/);
-    assert.match(stored, /## Opportunity\nSee project trees from several servers in one place\./);
-    assert.match(stored, /## Outcome\n?$/);
-
-    const evaluation = await apiRequest(first.origin, `/api/ideas/${ideaId}`, {
-      method: "PATCH",
-      body: {
-        title: "Federate trusted Work instances",
-        opportunity: "See saved draft changes while exploring.",
-        status: "exploring",
-        reason: "Started evaluating.",
-      },
-    });
-    assert.equal(evaluation.response.status, 200);
-    assert.equal(evaluation.payload.status, "exploring");
-    assert.equal(evaluation.payload.title, "Federate trusted Work instances");
-    assert.equal(evaluation.payload.sections.opportunity, "See saved draft changes while exploring.");
-    assert.deepEqual(evaluation.payload.history[0].from, "open");
-    assert.deepEqual(evaluation.payload.history[0].to, "exploring");
-
-    // Legacy record migration: an idea written before the schema change still
-    // loads, and its next write drops the removed agentIntent field.
-    const legacyIdeaId = "idea_legacy1234";
-    const legacyIdeaPath = join(root, "software", "rekit", ".work", "ideas", `${legacyIdeaId}.md`);
-    await writeFile(legacyIdeaPath, `---
-id: "${legacyIdeaId}"
+    // A record written before ideas merged into notes.
+    await mkdir(join(root, "software", "rekit", ".work", "ideas"), { recursive: true });
+    await writeFile(join(root, "software", "rekit", ".work", "ideas", "idea_legacy1234.md"), `---
+id: "idea_legacy1234"
 type: "idea"
-title: "Older idea"
-status: "open"
+title: "Federate remote Work instances"
+status: "exploring"
 scopePath: "software/rekit"
 projectPath: "software/rekit"
-tags: []
-source: null
-revisitAt: null
-agentIntent: "evaluation_requested"
-history: []
+tags: ["remote","architecture"]
+source: "capture_example1234"
+revisitAt: "2027-01-15T00:00:00.000Z"
+history: [{"from":"open","to":"exploring","reason":"Started evaluating.","at":"2026-01-02T00:00:00.000Z"}]
 createdAt: "2026-01-01T00:00:00.000Z"
-updatedAt: "2026-01-01T00:00:00.000Z"
+updatedAt: "2026-01-02T00:00:00.000Z"
 ---
 
 ## Opportunity
-Old records must keep loading.
+See project trees from several servers in one place.
 `);
-    const listedIdeas = await apiRequest(first.origin, "/api/ideas");
-    const legacyIdea = listedIdeas.payload.ideas.find((idea) => idea.id === legacyIdeaId);
-    assert.equal(legacyIdea?.title, "Older idea");
-    assert.equal(legacyIdea?.agentIntent, "consideration_only");
-    const migrated = await apiRequest(first.origin, `/api/ideas/${legacyIdeaId}`, {
-      method: "PATCH",
-      body: { title: "Older idea, still loading" },
-    });
-    assert.equal(migrated.response.status, 200);
-    assert.doesNotMatch(await readFile(legacyIdeaPath, "utf8"), /agentIntent/);
-    const removedLegacyIdea = await apiRequest(first.origin, `/api/ideas/${legacyIdeaId}`, { method: "DELETE" });
-    assert.equal(removedLegacyIdea.response.status, 204);
 
-    const missingReason = await apiRequest(first.origin, `/api/ideas/${ideaId}`, {
-      method: "PATCH",
-      body: { status: "deferred" },
-    });
-    assert.equal(missingReason.response.status, 400);
-    assert.equal(missingReason.payload.error.code, "reason_required");
+    const listed = await apiRequest(api.origin, "/api/notes");
+    assert.equal(listed.response.status, 200);
+    const migrated = listed.payload.notes.find((note) => note.id === "note_legacy1234");
+    assert.equal(migrated?.title, "Federate remote Work instances");
+    assert.equal(migrated?.projectPath, "software/rekit");
+    assert.equal(migrated?.createdBy.kind, "human");
+    // The body keeps the idea sections; idea-only frontmatter survives as
+    // plain text lines so nothing is lost.
+    assert.match(migrated.text, /## Opportunity\nSee project trees from several servers in one place\./);
+    assert.match(migrated.text, /Status: exploring/);
+    assert.match(migrated.text, /Tags: remote, architecture/);
+    assert.match(migrated.text, /Source: capture_example1234/);
+    assert.match(migrated.text, /Revisit at: 2027-01-15T00:00:00\.000Z/);
+    assert.match(migrated.text, /History: open → exploring — Started evaluating\. \(2026-01-02T00:00:00\.000Z\)/);
 
-    const deferred = await apiRequest(first.origin, `/api/ideas/${ideaId}`, {
-      method: "PATCH",
-      body: {
-        status: "deferred",
-        reason: "Remote authentication is not mature enough yet.",
-        revisitAt: "2027-01-15",
-      },
-    });
-    assert.equal(deferred.response.status, 200);
-    assert.equal(deferred.payload.status, "deferred");
-    assert.equal(deferred.payload.sections.outcome, "Remote authentication is not mature enough yet.");
-    assert.equal(deferred.payload.revisitAt, "2027-01-15T00:00:00.000Z");
-    assert.equal(deferred.payload.history.length, 2);
-  } finally {
-    await closeLocalApi(first.server);
-  }
-
-  const restarted = await startLocalApi({ root, port: 0 });
-  try {
-    const snapshot = await apiRequest(restarted.origin, "/api/workspace");
-    const idea = snapshot.payload.ideas.find((item) => item.id === ideaId);
-    assert.equal(idea.status, "deferred");
-    assert.equal(idea.history.length, 2);
-    assert.equal(idea.sections.outcome, "Remote authentication is not mature enough yet.");
-
-    const removed = await apiRequest(restarted.origin, `/api/ideas/${encodeURIComponent(ideaId)}`, { method: "DELETE" });
-    assert.equal(removed.response.status, 204);
+    // The file moved out of the ideas store and into the notes store.
     assert.deepEqual(await readdir(join(root, "software", "rekit", ".work", "ideas")), []);
+    const rewritten = await readFile(join(root, "software", "rekit", ".work", "notes", "note_legacy1234.md"), "utf8");
+    assert.match(rewritten, /type: "note"/);
+    assert.match(rewritten, /Status: exploring/);
+    assert.doesNotMatch(rewritten, /type: "idea"/);
+
+    // The migrated record behaves like any other note.
+    const updated = await apiRequest(api.origin, "/api/notes/note_legacy1234", {
+      method: "PATCH",
+      body: { title: "Federated Work instances (merged)" },
+    });
+    assert.equal(updated.response.status, 200);
+
+    // The snapshot keeps the empty iOS compat constant, and the idea routes
+    // are gone.
+    const snapshot = await apiRequest(api.origin, "/api/workspace");
+    assert.deepEqual(snapshot.payload.ideas, []);
+    assert.equal(snapshot.payload.notes.some((note) => note.id === "note_legacy1234"), true);
+    const removedRoute = await apiRequest(api.origin, "/api/ideas");
+    assert.equal(removedRoute.response.status, 404);
   } finally {
-    await closeLocalApi(restarted.server);
+    await closeLocalApi(api.server);
   }
+});
+
+test("deletes a project's records for a human while non-empty folders keep their files", async () => {
+  const { root } = await makeWorkspaceFixture();
+  const api = await startLocalApi({ root, port: 0 });
+  try {
+    const created = await apiRequest(api.origin, "/api/projects", {
+      method: "POST",
+      body: { projectPath: "scratch/package-only" },
+    });
+    assert.equal(created.response.status, 201);
+    const capture = await apiRequest(api.origin, "/api/captures", {
+      method: "POST",
+      body: { text: "History that leaves with the project", projectPath: "scratch/package-only" },
+    });
+    assert.equal(capture.response.status, 201);
+
+    // Agents never delete projects.
+    const forbidden = await apiRequest(api.origin, "/api/projects?projectPath=scratch%2Fpackage-only", {
+      method: "DELETE",
+      headers: { "x-work-agent": "orchestra/brisk_otter" },
+    });
+    assert.equal(forbidden.response.status, 403);
+    assert.equal(forbidden.payload.error.code, "project_delete_forbidden");
+
+    const unknown = await apiRequest(api.origin, "/api/projects?projectPath=scratch%2Fnot-a-project", { method: "DELETE" });
+    assert.equal(unknown.response.status, 400);
+    assert.equal(unknown.payload.error.code, "unknown_project");
+
+    // Non-empty folder: the .work records disappear, the files stay.
+    const kept = await apiRequest(api.origin, "/api/projects", {
+      method: "DELETE",
+      body: { projectPath: "scratch/package-only" },
+    });
+    assert.equal(kept.response.status, 200);
+    assert.equal(kept.payload.projectPath, "scratch/package-only");
+    assert.equal(kept.payload.folderRemoved, false);
+    await assert.rejects(readdir(join(root, "scratch", "package-only", ".work")), { code: "ENOENT" });
+    assert.deepEqual(await readdir(join(root, "scratch", "package-only")), ["package.json"]);
+
+    // Empty folder: the folder itself disappears with the project.
+    const empty = await apiRequest(api.origin, "/api/projects", {
+      method: "POST",
+      body: { name: "Sandals Trip" },
+    });
+    assert.equal(empty.response.status, 201);
+    assert.equal(empty.payload.path, "sandals-trip");
+    const removed = await apiRequest(api.origin, "/api/projects?projectPath=sandals-trip", { method: "DELETE" });
+    assert.equal(removed.response.status, 200);
+    assert.equal(removed.payload.folderRemoved, true);
+    await assert.rejects(readdir(join(root, "sandals-trip")), { code: "ENOENT" });
+
+    // The workspace root is never deletable, even when it carries a marker.
+    await writeFile(join(root, ".project"), "");
+    const rootRefusal = await apiRequest(api.origin, "/api/projects?projectPath=.", { method: "DELETE" });
+    assert.equal(rootRefusal.response.status, 409);
+    assert.equal(rootRefusal.payload.error.code, "workspace_root_not_project");
+    await unlink(join(root, ".project"));
+    assert.deepEqual(await readdir(join(root, ".work", "captures")), []);
+  } finally {
+    await closeLocalApi(api.server);
+  }
+
+  // The CLI reports the same outcomes in plain language.
+  await execFile(process.execPath, [launcherPath.pathname, "new", "Empty Project", "--root", root], { cwd: repositoryRoot });
+  const removedByCli = await execFile(process.execPath, [launcherPath.pathname, "remove", "empty-project", "--root", root], { cwd: repositoryRoot });
+  assert.match(removedByCli.stdout, /Removed project empty-project\. The empty folder was deleted\./);
+  await assert.rejects(readdir(join(root, "empty-project")), { code: "ENOENT" });
 });
 
 test("keeps project work inside the project when its directory moves", async () => {

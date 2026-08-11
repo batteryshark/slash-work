@@ -278,7 +278,6 @@ read-only behavior. They never accept absolute paths.
 | --- | --- | --- |
 | `project_create` | `projects.create` | Create a new project folder and marker from a human name. |
 | `capture_create` | `captures.create` | Preserve a thought without turning it into executable work. |
-| `idea_create` | `ideas.create` | Record an evaluative possibility. |
 | `decision_create` | `decisions.create` | Ask a human for an explicit decision. |
 | `task_create` | `tasks.create` | Create authorized executable work with acceptance criteria. |
 | `task_move` | `tasks.move` | Make an explicit lifecycle transition. |
@@ -489,7 +488,7 @@ ports. Use a FastMCP client to:
 1. initialize over Streamable HTTP;
 2. list tools;
 3. list workspaces and projects;
-4. create a capture, idea, decision, and task;
+4. create a capture, decision, and task;
 5. read, move, and log the task;
 6. list and read an allowed project file;
 7. verify the underlying Markdown and task history through Work;

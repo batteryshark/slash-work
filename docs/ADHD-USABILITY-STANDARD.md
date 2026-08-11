@@ -48,7 +48,7 @@ text.
 
 - The default `Needs you` queue contains decisions and blockers only.
 - It is capped at three visible items in the default experience.
-- Ordinary work, notifications, activity, and stale ideas do not enter this
+- Ordinary work, notifications, activity, and stale notes do not enter this
   queue.
 - An issue enters `Needs you` only when an agent has recorded a concrete
   question or blocker that requires a human response. A routine agent reply or
@@ -89,9 +89,6 @@ thought go?” without remembering prior navigation.
   remain selectable and editable after a restart.
 - Notes are passive reference material, never instructions or authorization to
   execute work.
-- Ideas provide a durable middle state between capture and execution. An idea
-  never authorizes implementation; deferring or declining it records why
-  without deleting the possibility or creating a task.
 - Issue bodies, replies, and state changes form durable append-only history.
   A resolved issue can always be reopened by a human. Replying to an issue
   that needs human input, is resolved, or is closed returns it to the queue
@@ -179,7 +176,7 @@ scenario below, which remains a tagged-release check.
 | Attention | Covered | Decision-only items, explicit alternatives, deferral, durable result |
 | Scope | Covered | Clickable breadcrumb, explicit capture target, filesystem-root boundary |
 | Recovery | Covered | File-backed persistence, process restart, note autosave and confirmation, Escape cancel, capture Undo |
-| Disclosure | Covered | Context, captures, ideas, notes, files, details, and portfolio are opt-in |
+| Disclosure | Covered | Context, captures, notes, files, details, and portfolio are opt-in |
 | Motor/keyboard | Covered | 44px targets, focus-visible styles, keyboard capture |
 | Sensory | Covered | Reduced motion and restrained non-color labels |
 | Language | Covered | Neutral, factual, non-punitive copy |
@@ -216,9 +213,9 @@ the tester needs hidden syntax after launch.
 7. Open **Notes**, create a project note with multiple paragraphs, switch to a
    second note, and return to the first. Confirm the text autosaved and
    deleting the note requires a separate confirmation.
-8. Promote an Inbox thought to an Idea. Confirm the record explicitly says it
-   is not an approval to implement. Move it to **Not now** and confirm a
-   reason is required and survives refresh.
+8. Promote an Inbox thought to a Note with **Make note**. Confirm the note
+   keeps the exact thought text and survives refresh as passive reference
+   material.
 9. Open **Issues**, submit multiline Markdown containing a fenced code block,
    and confirm no title or classification is required. Have an agent claim and
    reply to it, then mark it resolved with a summary. Confirm **Reopen** remains
@@ -229,7 +226,7 @@ the tester needs hidden syntax after launch.
     state transitions. Confirm an agent cannot close, delete, archive, lock, or
     prevent replies to the issue.
 11. Stop the server with `Ctrl-C`, launch the same root again, and explain what
-   changed. Both thoughts, the note, the idea outcome, and the recorded decision
+   changed. Both thoughts, the notes, and the recorded decision
    plus the issue conversation and reopen history must remain.
 12. Launch against a different empty root. None of the first root's projects or
    work may appear.

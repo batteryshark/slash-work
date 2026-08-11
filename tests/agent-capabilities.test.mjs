@@ -120,9 +120,17 @@ test("exposes the same versioned capability catalog and canonical OpenAPI over H
     assert.equal(createNote.payload.operation.transport.api.path, "/api/agent/notes");
     assert.equal("agentIntent" in createNote.payload.operation.inputSchema.properties, false);
 
-    const schema = await requestJson(api.origin, "/api/agent/schemas/artifacts/idea");
-    assert.equal(schema.response.status, 200);
-    assert.equal(schema.payload.$ref, "#/$defs/idea");
+    // Ideas merged into notes: the idea catalog entries and schema are gone.
+    const removedIdeaSchema = await requestJson(api.origin, "/api/agent/schemas/artifacts/idea");
+    assert.equal(removedIdeaSchema.response.status, 404);
+    for (const removedOperation of ["ideas.list", "ideas.create", "ideas.update", "ideas.delete"]) {
+      const removed = await requestJson(api.origin, `/api/agent/operations/${removedOperation}`);
+      assert.equal(removed.response.status, 404);
+      assert.equal(removed.payload.error.code, "not_found");
+    }
+    const noteSchema = await requestJson(api.origin, "/api/agent/schemas/artifacts/note");
+    assert.equal(noteSchema.response.status, 200);
+    assert.equal(noteSchema.payload.$ref, "#/$defs/note");
 
     const openapi = await requestJson(api.origin, "/api/openapi.json");
     assert.equal(openapi.response.status, 200);
@@ -134,8 +142,8 @@ test("exposes the same versioned capability catalog and canonical OpenAPI over H
     assert.equal(openapi.payload.paths["/api/agent/notes/{id}"].patch.operationId, "notes.update");
     assert.equal(openapi.payload.paths["/api/agent/notes"].post.operationId, "notes.create");
     assert.equal(openapi.payload.paths["/api/agent/notes"].post.parameters.some((parameter) => parameter.name === "X-Work-Agent" && parameter.in === "header"), true);
-    assert.equal(openapi.payload.paths["/api/ideas"].get.operationId, "ideas.list");
-    assert.equal(openapi.payload.paths["/api/ideas/{id}"].patch.operationId, "ideas.update");
+    assert.equal("/api/ideas" in openapi.payload.paths, false);
+    assert.equal("/api/ideas/{id}" in openapi.payload.paths, false);
     assert.equal(openapi.payload.paths["/api/projects/profile"].patch.operationId, "projects.update-profile");
 
     const missing = await requestJson(api.origin, "/api/agent/operations/unknown.operation");

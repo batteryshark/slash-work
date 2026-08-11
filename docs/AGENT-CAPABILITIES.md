@@ -83,7 +83,7 @@ operation but never authorize it. In particular:
   verify it. Pass `--unassigned` only when workspace-level work is intentional.
   API callers use the exact path returned by `projects.list` or null for
   intentionally unassigned work.
-- Notes and ideas are reference material and possibilities; neither authorizes
+- Notes are reference material; a note never authorizes
   implementation.
 - Filing an issue authorizes investigation and replies only. It does not
   authorize repository mutation or executable work. Dedicated agent issue

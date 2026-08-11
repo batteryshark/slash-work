@@ -133,7 +133,7 @@ differ.
 There is one storage-folder shape: `.work/`. At the selected root it contains
 `workspace.json`, format metadata, Kanban column order, and records that are not
 assigned to a project. Inside a project it contains `project.json` and that
-project's `tasks/`, `captures/`, `ideas/`, `notes/`, `issues/`, and
+project's `tasks/`, `captures/`, `notes/`, `issues/`, and
 `decisions/`. For example, a ReKit card is stored at
 `software/rekit/.work/tasks/W-0001.md`, not centralized at the root. Record
 files use small machine-readable headers where stable identifiers or
@@ -162,8 +162,6 @@ Important behavior:
 - an unassigned thought is valid and goes to the root inbox;
 - project assignment can happen later without changing the original text;
 - project records travel with the project directory when it is moved;
-- idea evaluation is explicitly non-executable; deferred and declined states
-  retain a reason and may retain a revisit date;
 - decision actions are explicit: assign, keep unassigned, approve, reject,
   defer, cancel, and reopen as appropriate to that decision;
 - decision options are rendered as the actual human choices, with an optional
@@ -312,7 +310,6 @@ integration:
 
 ```bash
 work add "check whether the release needs a migration"
-work idea "Add a weekly review view" --detail "Summarize what moved across projects each week"
 work decision "Where should the lab live?" --option "Keep unassigned" --option "Assign later"
 work task "Implement the board" --project software/rekit --priority high
 work task "Workspace-wide maintenance" --unassigned
@@ -333,7 +330,7 @@ a different exact discovered root-relative path.
 ## Recovery expectations
 
 After `Ctrl-C`, a crash, a browser refresh, or a computer restart, launching the
-same root restores the same work items, captures, ideas, issue conversations,
+same root restores the same work items, captures, notes, issue conversations,
 decisions, checklists, and progress logs. Launching a different root
 shows none of them. If `.work/` cannot be read or written, Work reports the
 specific local filesystem problem and does not claim that a capture succeeded.

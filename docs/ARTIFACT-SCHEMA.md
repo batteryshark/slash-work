@@ -5,9 +5,12 @@ filesystem artifacts. Validate the logical artifact against
 [`schemas/work-artifact.schema.json`](../schemas/work-artifact.schema.json),
 then serialize it using the rules and templates below.
 
-The schema covers six Markdown artifact types: `capture`, `note`, `idea`,
+The schema covers five Markdown artifact types: `capture`, `note`,
 `issue`, `decision`, and `task`. The workspace and project marker files are
-JSON, not Markdown, and are outside this schema.
+JSON, not Markdown, and are outside this schema. Ideas were merged into notes:
+legacy records in `.work/ideas/` load as notes and are rewritten into the notes
+store on first read, with idea-only metadata preserved as plain text lines in
+the note body.
 
 ## Storage and ownership
 
@@ -15,7 +18,6 @@ JSON, not Markdown, and are outside this schema.
 | --- | --- | --- | --- |
 | Capture | `.work/captures/` | `<project>/.work/captures/` | `<capture id>.md` |
 | Note | `.work/notes/` | `<project>/.work/notes/` | `<note id>.md` |
-| Idea | `.work/ideas/` | `<project>/.work/ideas/` | `<idea id>.md` |
 | Issue | `.work/issues/` | `<project>/.work/issues/` | `<issue id>.md` |
 | Decision | `.work/decisions/` | `<project>/.work/decisions/` | `<decision id>.md` |
 | Task | `.work/tasks/` | `<project>/.work/tasks/` | `<task id>.md` |
@@ -25,13 +27,12 @@ non-null project path must exactly match a discovered, root-relative project
 path. Store project-owned records inside that project's `.work/` directory;
 do not merely set the metadata while leaving the file at the root.
 
-IDs and filenames must agree. Capture, note, idea, issue, and decision IDs use
+IDs and filenames must agree. Capture, note, issue, and decision IDs use
 these forms:
 
 ```text
 capture_<8-to-81 lowercase letters, digits, underscores, or hyphens>
 note_<8-to-81 lowercase letters, digits, underscores, or hyphens>
-idea_<8-to-81 lowercase letters, digits, underscores, or hyphens>
 issue_<8-to-81 lowercase letters, digits, underscores, or hyphens>
 decision_<8-to-81 lowercase letters, digits, underscores, or hyphens>
 ```
@@ -119,65 +120,6 @@ updatedAt: "2026-07-13T14:30:00.000Z"
 The migration must remain reversible.
 Keep this note as context for release work.
 ```
-
-## Idea
-
-An idea is a possibility worth evaluating before anyone decides or authorizes
-work. It sits between a raw capture and a decision or task. Reading, editing,
-or evaluating an idea never grants permission to implement it.
-
-Statuses are `open`, `exploring`, `deferred`, `proposed`, `adopted`, and
-`declined`. The UI labels `deferred` as **Not now** and `declined` as
-**Closed**. Moving to either of those states requires a written reason. Every
-state transition appends `{from,to,reason,at}` to `history`; never discard prior
-reasons. `revisitAt` is optional and is especially useful for deferred ideas.
-
-```markdown
----
-id: "idea_mabc1234_ab12cd34ef56"
-type: "idea"
-title: "Add a weekly review view"
-status: "exploring"
-scopePath: "."
-projectPath: null
-tags: ["review","ui"]
-source: null
-revisitAt: null
-history: [{"from":"open","to":"exploring","reason":"Started evaluating.","at":"2026-07-14T14:30:00.000Z"}]
-createdAt: "2026-07-14T14:25:00.000Z"
-updatedAt: "2026-07-14T14:30:00.000Z"
----
-
-## Opportunity
-See what moved across projects each week in one place.
-
-## Why It Might Matter
-Reduce time spent reconstructing recent progress by hand.
-
-## Hypothesis
-A read-only summary of status changes may provide most of the value.
-
-## Unknowns
-Grouping, time window, and how much log detail to show.
-
-## Potential Shape
-Summarize each project's status transitions from the progress logs.
-
-## Evidence
-
-## Risks and Constraints
-Another view competes for attention with the Board and Home.
-
-## Next Evaluation
-Assess whether a plain chronological list is already enough.
-
-## Outcome
-```
-
-Emit all nine canonical sections in that order, even when empty. Preserve
-unrecognized metadata and extra sections on update. An adopted idea may lead to
-a decision, epic, or tasks, but that promotion must be an explicit separate
-action.
 
 ## Issue
 

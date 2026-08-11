@@ -3,7 +3,6 @@ import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
 const skillRoot = new URL("../skills/slash-work/", import.meta.url);
-const ideaSkillRoot = new URL("../skills/incubate-work-ideas/", import.meta.url);
 
 test("ships a vendor-neutral progressively disclosed Slash Work skill", async () => {
   const skill = await readFile(new URL("SKILL.md", skillRoot), "utf8");
@@ -24,17 +23,8 @@ test("ships a vendor-neutral progressively disclosed Slash Work skill", async ()
     await access(new URL(`references/${reference}`, skillRoot));
   }
   await assert.rejects(access(new URL("agents/openai.yaml", skillRoot)));
-});
 
-test("ships ADHD-friendly guidance for incubating possible projects", async () => {
-  const skill = await readFile(new URL("SKILL.md", ideaSkillRoot), "utf8");
-  assert.match(skill, /^---\nname: incubate-work-ideas\ndescription: .+\n---/);
-  assert.match(skill, /one Idea per distinct possibility/);
-  assert.match(skill, /workspace-owned Idea/);
-  assert.match(skill, /explicitly adopts/);
-  assert.match(skill, /Never require\npriority, urgency, complexity, estimates, due dates/i);
-  assert.match(skill, /Set a revisit date only when/);
-  assert.match(skill, /ideas\.create/);
-  assert.doesNotMatch(skill, /agent-intent|agentIntent|evaluation_requested/);
-  await assert.rejects(access(new URL("agents/openai.yaml", ideaSkillRoot)));
+  // Ideas merged into notes: the incubation skill and its vocabulary are gone.
+  await assert.rejects(access(new URL("../skills/incubate-work-ideas/", import.meta.url)));
+  assert.doesNotMatch(skill, /\bidea\b/i);
 });

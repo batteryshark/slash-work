@@ -4,11 +4,11 @@
 
 ![Work: capture anything and continue without reconstructing context](public/og.png)
 
-Work stores project tasks, captures, ideas, notes, issues, and decisions as local
+Work stores project tasks, captures, notes, issues, and decisions as local
 files for people managing many repositories. Agents connect as attributed
 clients through the MCP server, the REST API, or the `work` CLI. The home screen
 prioritizes capture and resumption; Issues provide durable conversations, while
-Ideas, Board, Files, and Activity expose possibilities, current work, a
+Notes, Board, Files, and Activity expose reference material, current work, a
 read-only source reference, and durable history.
 
 Requires Node.js 22.13 or newer and npm.
@@ -100,7 +100,7 @@ permit to reach the machine can use and modify the selected Work roots.
 The repository includes a first-class SwiftUI client in the
 [`ios/` source directory](https://github.com/batteryshark/slash-work/tree/main/ios).
 It connects to the API URL printed by `work --tailscale`, discovers the
-registered workspaces, and provides native Home, Board, Capture, Ideas, Notes,
+registered workspaces, and provides native Home, Board, Capture, Notes,
 Issues, Inbox, task, and decision experiences. The app remembers multiple Work
 instances, uses conditional snapshot refreshes, and retains the last snapshot
 for clearly marked read-only access when a machine is offline.
@@ -173,9 +173,9 @@ the CLI or UI is launched from a linked worktree.
 ## What is saved
 
 Work keeps human-readable Markdown beside the thing it describes. The selected
-root's `.work/` contains `workspace.json` plus unassigned captures, ideas,
+root's `.work/` contains `workspace.json` plus unassigned captures,
 notes, issues, tasks, and decisions. Every project has its own
-`.work/project.json`, `.work/tasks/`, `.work/captures/`, `.work/ideas/`,
+`.work/project.json`, `.work/tasks/`, `.work/captures/`,
 `.work/notes/`, `.work/issues/`, and `.work/decisions/`.
 Notes use a plain-text body with a small metadata header so they stay readable
 without a special editor. Notes are context, never instructions; agent-created
@@ -201,10 +201,6 @@ Do not commit `.work/` if the workspace contains private operational notes.
   note, write without formatting, and let Work save it beside the current
   project. Notes are reference material, never instructions; use a task card
   when you want execution. Deleting a note requires a second confirmation.
-- Open **Ideas** when a thought is worth evaluating but is not yet a proposal,
-  decision, or task. An idea never authorizes implementation. Mark an idea
-  **Not now** or **Closed** with a durable reason, or develop it toward a
-  proposal and scoped work later.
 - Open **Issues** to record a free-form problem and keep its conversation
   beside the project. A title, category, priority, and assignee are never
   required. Issue messages support Markdown and code blocks. Filing an issue
@@ -247,7 +243,6 @@ Agents and terminal users use the same records:
 ```bash
 work agent
 work projects
-work idea "Add a weekly review view" --detail "Summarize what moved across projects each week"
 work task "Implement the board" --project software/rekit --priority high
 work task "Workspace-wide maintenance" --unassigned
 work move W-0001 in_progress --note "UI team started"

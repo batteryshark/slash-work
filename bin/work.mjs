@@ -9,15 +9,14 @@ import {
   appendTaskLog,
   createCapture,
   createDecision,
-  createIdea,
   createProject,
   createTask,
+  deleteProject,
   discoverProjects,
   findWorkspaceRoot,
   getTask,
   initializeWorkspace,
   listTasks,
-  listIdeas,
   moveTask,
   projectForScope,
   readWorkspace,
@@ -59,14 +58,13 @@ Usage:
   work roots                          List roots available to the web workspace picker
   work projects                       List exact projects in the current workspace
   work new "Name" [--under rel/path]  Create a project folder and marker from a name
+  work remove <rel-path>              Remove a project from Work (folder deleted only when empty)
   work agent                          Print capabilities and resolved local context
   work agent context                  Print only the resolved local context
   work agent operations               List available task-scoped operations
   work agent instructions <operation> Print instructions for one operation
   work agent schema <artifact>        Print one artifact's JSON Schema
   work add "thought" [options]        Capture from any workspace descendant
-  work idea "title" [options]         Record something worth evaluating
-  work ideas                           List ideas and their states
   work decision "question" [options] Create a decision from any descendant
   work task "title" [options]         Create a full Kanban work item
   work list                            List work items in the current root
@@ -116,7 +114,6 @@ Examples:
   work projects
   work add "check whether the release needs a migration" --scope tools
   work add "validate the parser" --scope tools/parser --project tools/parser
-  work idea "Add a weekly review view" --detail "Summarize what moved across projects each week"
   work decision "Where should the lab live?" --option "Keep unassigned" --option "Assign later"
   work task "Implement the board" --project tools/runner --type feature --priority high
   work move W-0001 in_progress --note "Agent team started implementation"
@@ -392,7 +389,7 @@ async function runAgent(options, positionals) {
   }
 
   if (command === "schema") {
-    if (!value) throw new WorkspaceError("agent schema requires capture, note, idea, decision, or task.");
+    if (!value) throw new WorkspaceError("agent schema requires capture, note, issue, decision, or task.");
     const schema = getArtifactSchema(value);
     if (!schema) throw new WorkspaceError(`Unknown artifact type: ${value}.`);
     const format = agentOutputFormat(options, "json");
@@ -454,31 +451,15 @@ async function runDecision(options, positionals) {
   console.log(decision.projectPath ? `Project: ${decision.projectPath}` : "Unassigned");
 }
 
-async function runIdea(options, positionals) {
-  if (positionals.length === 0) throw new WorkspaceError("idea requires a title in quotes.");
+async function runRemove(options, positionals) {
+  if (positionals.length !== 1) throw new WorkspaceError("remove requires exactly one project path.");
   const workspace = await currentWorkspace(options);
-  const projects = await discoverProjects(workspace.root);
-  const scopePath = options.scope ?? (await invocationScope(workspace));
-  const projectPath = await defaultProjectPath(options, workspace, projects);
-  const idea = await createIdea(workspace, {
-    title: positionals.join(" "),
-    opportunity: options.detail ?? "",
-    scopePath,
-    projectPath,
-    tags: options.tag,
-  }, projects);
-  console.log(`Created idea ${idea.id}: ${idea.title}`);
-  console.log(`${idea.status} · ${idea.projectPath ?? idea.scopePath}`);
-}
-
-async function runIdeas(options, positionals) {
-  if (positionals.length > 0) throw new WorkspaceError("ideas does not accept positional arguments.");
-  const ideas = await listIdeas(await currentWorkspace(options));
-  if (ideas.length === 0) {
-    console.log("No ideas in this root.");
-    return;
+  const removed = await deleteProject(workspace, positionals[0]);
+  if (removed.folderRemoved) {
+    console.log(`Removed project ${removed.projectPath}. The empty folder was deleted.`);
+  } else {
+    console.log(`Removed project ${removed.projectPath} from Work. The folder was kept because it still has files.`);
   }
-  for (const idea of ideas) console.log(`${idea.id}\t${idea.status}\t${idea.projectPath ?? idea.scopePath}\t${idea.title}`);
 }
 
 async function currentWorkspace(options) {
@@ -688,7 +669,7 @@ async function runServer(options, positionals) {
 
 async function main() {
   const argv = process.argv.slice(2);
-  const knownCommands = new Set(["serve", "init", "register", "unregister", "roots", "projects", "new", "agent", "add", "idea", "ideas", "decision", "task", "create", "list", "show", "move", "assign", "log"]);
+  const knownCommands = new Set(["serve", "init", "register", "unregister", "roots", "projects", "new", "remove", "agent", "add", "decision", "task", "create", "list", "show", "move", "assign", "log"]);
   const command = knownCommands.has(argv[0]) ? argv.shift() : "serve";
   const { options, positionals } = parseArguments(argv);
   if (options.help) {
@@ -701,10 +682,9 @@ async function main() {
   if (command === "roots") return runRoots(options, positionals);
   if (command === "projects") return runProjects(options, positionals);
   if (command === "new") return runNew(options, positionals);
+  if (command === "remove") return runRemove(options, positionals);
   if (command === "agent") return runAgent(options, positionals);
   if (command === "add") return runAdd(options, positionals);
-  if (command === "idea") return runIdea(options, positionals);
-  if (command === "ideas") return runIdeas(options, positionals);
   if (command === "decision") return runDecision(options, positionals);
   if (command === "task" || command === "create") return runTask(options, positionals);
   if (command === "list") return runList(options, positionals);

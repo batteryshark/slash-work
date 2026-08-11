@@ -148,7 +148,7 @@ test("provides durable selectable plain-text notes without turning capture into 
     readFile(new URL("docs/ADHD-USABILITY-STANDARD.md", root), "utf8"),
   ]);
 
-  assert.match(page, /type AppView = "home" \| "board" \| "issues" \| "ideas" \| "notes" \| "files" \| "activity"/);
+  assert.match(page, /type AppView = "home" \| "board" \| "issues" \| "notes" \| "files" \| "activity"/);
   assert.match(page, /function NotesView/);
   assert.match(page, /role="listbox"/);
   assert.match(page, /aria-label="Note title"/);
@@ -179,7 +179,7 @@ test("provides free-form, reopenable issue conversations without turning submiss
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("app/globals.css", root), "utf8"),
   ]);
-  const issuesView = page.slice(page.indexOf("function IssuesView"), page.indexOf("function IdeasView"));
+  const issuesView = page.slice(page.indexOf("function IssuesView"), page.indexOf("function NotesView"));
 
   assert.match(page, /type AppView = "home" \| "board" \| "issues"/);
   assert.match(page, /<IssuesView/);
@@ -229,7 +229,7 @@ test("provides free-form, reopenable issue conversations without turning submiss
   assert.match(css, /@media \(max-width:\s*760px\)[\s\S]*\.issues-workspace\s*\{\s*grid-template-columns:\s*1fr/);
 });
 
-test("keeps ideas explicitly evaluative and separate from executable work", async () => {
+test("merges ideas into notes and keeps project deletion human-only with explicit confirmation", async () => {
   const [page, css, store, server, contract] = await Promise.all([
     readFile(new URL("app/page.tsx", root), "utf8"),
     readFile(new URL("app/globals.css", root), "utf8"),
@@ -238,23 +238,26 @@ test("keeps ideas explicitly evaluative and separate from executable work", asyn
     readFile(new URL("docs/ARTIFACT-SCHEMA.md", root), "utf8"),
   ]);
 
-  assert.match(page, /function IdeasView/);
-  assert.match(page, /Delete idea/);
-  assert.match(page, /not a task, decision, or approval to implement/);
-  assert.doesNotMatch(page, /Ask agent to evaluate|evaluation_requested/);
-  assert.match(page, /Remove from list\? Files stay untouched/);
-  assert.match(page, /Make idea/);
-  assert.match(page, /Scope as work/);
-  assert.match(page, /selectedIdea\.status === "adopted"/);
-  assert.match(page, /Why\? Required for this state/);
-  assert.match(css, /\.ideas-workspace/);
-  assert.match(css, /\.idea-intent/);
-  assert.match(store, /const IDEA_STATUSES = new Set\(\["open", "exploring", "deferred", "proposed", "adopted", "declined"\]\)/);
-  assert.match(store, /reason_required/);
-  assert.match(store, /export async function deleteIdea/);
-  assert.match(server, /url\.pathname === "\/api\/ideas"/);
-  assert.match(contract, /sits between a raw capture and a decision or task/i);
-  assert.match(contract, /never grants permission to implement it/i);
+  // Ideas merged into notes: the Ideas view, routes, and vocabulary are gone.
+  assert.doesNotMatch(page, /function IdeasView|ProjectIdea|IdeaStatus|\/api\/ideas/);
+  assert.doesNotMatch(css, /\.idea-|\.ideas-workspace/);
+  assert.doesNotMatch(server, /\/api\/ideas|listIdeas|createIdea|updateIdea|deleteIdea/);
+  assert.match(store, /function ideaRecordAsNote/);
+  assert.match(store, /listStoredMarkdown\(workspace, "ideasPath", projects\)/);
+  assert.match(contract, /Ideas were merged into notes/);
+
+  // Capture receipt promotes to a note instead of an idea.
+  assert.match(page, /Make note/);
+  assert.doesNotMatch(page, /Make idea/);
+  assert.match(page, /promoteCaptureToNote/);
+
+  // Project deletion: human-only, inline confirm, files stay unless empty.
+  assert.match(page, /Delete project/);
+  assert.match(page, /Removes it from Work\. Your files stay unless the folder is empty\./);
+  assert.match(page, /project-delete-confirm/);
+  assert.match(store, /export async function deleteProject/);
+  assert.match(store, /project_delete_forbidden/);
+  assert.match(server, /deleteProject/);
 });
 
 test("provides a scope-bound read-only file reference instead of an embedded editor", async () => {
@@ -390,7 +393,6 @@ test("surfaces due dates on cards and keeps a scoped, scrollable upcoming schedu
   assert.match(page, /Dates across this scope/);
   assert.match(page, /Due dates and revisit dates will appear automatically/);
   assert.match(page, /task\.dueAt && !\["done", "cancelled", "archived"\]\.includes\(task\.status\)/);
-  assert.match(page, /idea\.revisitAt && !\["adopted", "declined"\]\.includes\(idea\.status\)/);
   assert.match(page, /decision\.status === "deferred"/);
   assert.match(page, /className=\{`card-due/);
   assert.match(page, /scheduleTone/);

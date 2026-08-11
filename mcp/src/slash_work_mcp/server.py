@@ -84,13 +84,6 @@ async def capture_create(workspace_id: str, text: str, kind: str | None = None, 
 
 
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
-async def idea_create(workspace_id: str, title: str, project_path: str | None = None, scope_path: str | None = None, opportunity: str | None = None, why_it_might_matter: str | None = None, hypothesis: str | None = None, unknowns: str | None = None, tags: list[str] | None = None) -> dict[str, Any]:
-    """Record a possibility for later evaluation."""
-    body = {"title": title, "projectPath": project_path, "scopePath": scope_path, "opportunity": opportunity, "whyItMightMatter": why_it_might_matter, "hypothesis": hypothesis, "unknowns": unknowns, "tags": tags}
-    return await call("POST", "/api/ideas", workspace_id, body={key: value for key, value in body.items() if value is not None})
-
-
-@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
 async def decision_create(workspace_id: str, title: str, project_path: str | None = None, detail: str | None = None, options: list[str] | None = None, recommended_option: str | None = None) -> dict[str, Any]:
     """Create an explicit human decision request."""
     return await call("POST", "/api/decisions", workspace_id, body={"title": title, "projectPath": project_path, "detail": detail or "", "options": options or [], "recommendedOption": recommended_option})
