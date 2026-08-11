@@ -34,7 +34,6 @@ struct WorkTests {
           "projects":[{"id":"project-1","projectId":"p-1","name":"Work","description":"Local project manager","path":"work","depth":1,"markers":[".work"]}],
           "captures":[],
           "decisions":[{"id":"decision-1","title":"Choose the client","detail":"Pick one","projectPath":"work","options":["Native","Web"],"recommendedOption":"Native","status":"open","resolution":null,"createdAt":"2026-07-19T12:00:00.000Z","updatedAt":"2026-07-19T12:00:00.000Z"}],
-          "ideas":[],
           "issues":[{
             "id":"issue_mabc1234_ab12cd34ef56","title":"App freezes on refresh","body":"The app freezes after tapping **Refresh**.\\n\\n```swift\\nawait model.refresh()\\n```","state":"needs_human","scopePath":"work","projectPath":"work","claimedBy":{"kind":"agent","name":"codex-cli"},"resolutionSummary":null,
             "messages":[{"id":"message_mabc1234_ab12cd34ef56","body":"Can you confirm whether this happens while offline?","author":{"kind":"agent","name":"codex-cli"},"createdAt":"2026-07-19T12:05:00.000Z"}],
@@ -72,7 +71,6 @@ struct WorkTests {
           "projects":[],
           "captures":[],
           "decisions":[],
-          "ideas":[],
           "notes":[],
           "tasks":[]
         }

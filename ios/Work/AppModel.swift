@@ -74,7 +74,6 @@ final class AppModel: ObservableObject {
 
     var scopedTasks: [WorkTask] { snapshot?.tasks.filter { includes($0.projectPath) } ?? [] }
     var scopedCaptures: [WorkCapture] { snapshot?.captures.filter { includes($0.projectPath) } ?? [] }
-    var scopedIdeas: [WorkIdea] { snapshot?.ideas.filter { includes($0.projectPath) } ?? [] }
     var scopedIssues: [WorkIssue] { snapshot?.issues.filter { includes($0.projectPath) } ?? [] }
     var scopedNotes: [WorkNote] { snapshot?.notes.filter { includes($0.projectPath) } ?? [] }
     var scopedDecisions: [WorkDecision] { snapshot?.decisions.filter { includes($0.projectPath) } ?? [] }
@@ -216,7 +215,7 @@ final class AppModel: ObservableObject {
             let updated = try await client.workspaces(forceRefresh: true)
             directory = updated
             persistDirectory(updated, serverID: profile.id)
-            if !updated.workspaces.contains(where: { $0.id == selectedWorkspaceID && $0.isAvailable }),
+            if !updated.workspaces.contains(where: { $0.id == selectedWorkspaceID }),
                let replacement = preferredWorkspace(in: updated, serverID: profile.id) {
                 await selectWorkspace(replacement)
             }
@@ -226,7 +225,7 @@ final class AppModel: ObservableObject {
     }
 
     func selectWorkspace(_ workspace: WorkspaceSummary) async {
-        guard workspace.isAvailable, workspace.id != selectedWorkspaceID else { return }
+        guard workspace.id != selectedWorkspaceID else { return }
         selectedWorkspaceID = workspace.id
         selectedProjectPath = nil
         snapshot = nil
@@ -293,33 +292,18 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func createIdea(title: String, opportunity: String) async -> Bool {
+    func createProject(name: String, parentPath: String?) async -> Bool {
         await mutate {
             guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
-            _ = try await client.createIdea(title: title, opportunity: opportunity,
-                                            projectPath: self.selectedProjectPath, workspaceID: workspaceID)
+            _ = try await client.createProject(name: name, parentPath: parentPath, workspaceID: workspaceID)
         }
     }
 
-    func updateIdea(_ idea: WorkIdea, status: String, reason: String?) async -> Bool {
-        await mutate {
+    func deleteProject(_ project: WorkProject) async -> Bool {
+        if selectedProjectPath == project.path { selectProject(path: nil) }
+        return await mutate {
             guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
-            _ = try await client.updateIdeaStatus(id: idea.id, status: status, reason: reason,
-                                                 workspaceID: workspaceID)
-        }
-    }
-
-    func requestIdeaEvaluation(_ idea: WorkIdea) async -> Bool {
-        await mutate {
-            guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
-            _ = try await client.requestIdeaEvaluation(id: idea.id, workspaceID: workspaceID)
-        }
-    }
-
-    func deleteIdea(_ idea: WorkIdea) async -> Bool {
-        await mutate {
-            guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
-            try await client.deleteIdea(id: idea.id, workspaceID: workspaceID)
+            try await client.deleteProject(path: project.path, workspaceID: workspaceID)
         }
     }
 
@@ -407,9 +391,7 @@ final class AppModel: ObservableObject {
             defaultWorkspaceId: workspaceID,
             activeWorkspaceId: workspaceID,
             workspaces: [WorkspaceSummary(id: workspaceID, name: cached.snapshot.workspace.name,
-                                          root: cached.snapshot.workspace.root,
-                                          location: cached.snapshot.workspace.location,
-                                          available: false, peer: cached.snapshot.workspace.peer)]
+                                          root: cached.snapshot.workspace.root)]
         )
         selectedWorkspaceID = workspaceID
         snapshot = cached.snapshot
@@ -422,9 +404,9 @@ final class AppModel: ObservableObject {
 
     private func preferredWorkspace(in directory: WorkspaceDirectory, serverID: String) -> WorkspaceSummary? {
         let remembered = defaults.string(forKey: DefaultsKey.workspace(serverID))
-        return directory.workspaces.first { $0.id == remembered && $0.isAvailable }
-            ?? directory.workspaces.first { $0.id == directory.defaultWorkspaceId && $0.isAvailable }
-            ?? directory.workspaces.first(where: \.isAvailable)
+        return directory.workspaces.first { $0.id == remembered }
+            ?? directory.workspaces.first { $0.id == directory.defaultWorkspaceId }
+            ?? directory.workspaces.first
     }
 
     private func includes(_ projectPath: String?) -> Bool {

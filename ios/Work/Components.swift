@@ -39,9 +39,8 @@ struct WorkScopeMenu: View {
                         } label: {
                             Label(workspace.name,
                                   systemImage: workspace.id == model.selectedWorkspaceID
-                                    ? "checkmark" : workspace.isRemote ? "network" : "folder")
+                                    ? "checkmark" : "folder")
                         }
-                        .disabled(!workspace.isAvailable)
                     }
                 }
             }

@@ -26,6 +26,10 @@ struct MoreView: View {
                         Label { LabeledContent("Capture Inbox", value: model.scopedCaptures.count.formatted()) }
                         icon: { Image(systemName: "tray.full").foregroundStyle(.orange) }
                     }
+                    NavigationLink { ProjectsView() } label: {
+                        Label { LabeledContent("Projects", value: (model.snapshot?.projects.count ?? 0).formatted()) }
+                        icon: { Image(systemName: "folder.fill").foregroundStyle(.indigo) }
+                    }
                 }
 
                 Section("Connection") {
@@ -34,12 +38,10 @@ struct MoreView: View {
                     }
                     if let workspace = model.selectedWorkspace {
                         LabeledContent("Workspace", value: workspace.name)
-                        LabeledContent("Location", value: workspace.isRemote ? "Remote via \(workspace.peer?.name ?? "peer")" : "Local")
                     }
                     if let version = model.serviceVersion {
                         LabeledContent("Work version", value: version)
                     }
-                    LabeledContent("Client API", value: "v\(WorkAPIClient.supportedAPIVersion)")
                 }
 
                 Section {
@@ -657,6 +659,103 @@ private struct CaptureInboxView: View {
         case "idea": "lightbulb"
         case "question": "questionmark.circle"
         default: "bolt"
+        }
+    }
+}
+
+private struct ProjectsView: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var showingNewProject = false
+    @State private var projectToDelete: WorkProject?
+
+    var body: some View {
+        List {
+            if projects.isEmpty {
+                ContentUnavailableView("No projects", systemImage: "folder",
+                                       description: Text("Create a project to organize tasks, notes, and decisions."))
+                    .listRowBackground(Color.clear)
+            } else {
+                ForEach(projects) { project in
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(project.name).font(.headline)
+                        Text(project.path).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        if !project.description.isEmpty {
+                            Text(project.description).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                        }
+                    }
+                    .padding(.vertical, 5)
+                    .swipeActions {
+                        Button(role: .destructive) { projectToDelete = project } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                        .disabled(model.isShowingCachedData || model.isMutating)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Projects")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showingNewProject = true } label: { Image(systemName: "plus") }
+                    .disabled(model.isShowingCachedData || model.isMutating)
+                    .accessibilityLabel("New project")
+            }
+        }
+        .sheet(isPresented: $showingNewProject) { NewProjectSheet().environmentObject(model) }
+        .confirmationDialog("Delete this project?", isPresented: Binding(
+            get: { projectToDelete != nil }, set: { if !$0 { projectToDelete = nil } }
+        ), titleVisibility: .visible) {
+            Button("Delete \(projectToDelete?.name ?? "Project")", role: .destructive) {
+                guard let project = projectToDelete else { return }
+                Task { await model.deleteProject(project) }
+            }
+        } message: {
+            Text("This removes the project's Work records (tasks, notes, decisions). The folder is kept if it still contains your files. This cannot be undone.")
+        }
+    }
+
+    private var projects: [WorkProject] {
+        (model.snapshot?.projects ?? []).sorted { $0.path < $1.path }
+    }
+}
+
+private struct NewProjectSheet: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var parentPath: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Project") {
+                    TextField("Name", text: $name)
+                }
+                Section("Create under") {
+                    Picker("Parent", selection: $parentPath) {
+                        Text("Workspace root").tag(String?.none)
+                        ForEach(model.snapshot?.projects ?? []) { project in
+                            Text(project.name).tag(String?.some(project.path))
+                        }
+                    }
+                }
+            }
+            .navigationTitle("New Project")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") {
+                        Task {
+                            if await model.createProject(
+                                name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                                parentPath: parentPath
+                            ) { dismiss() }
+                        }
+                    }
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isMutating)
+                }
+            }
         }
     }
 }

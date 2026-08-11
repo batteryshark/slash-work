@@ -15,12 +15,12 @@ The initial build targets iOS 17 and uses the same development team configured b
 ## Current native surface
 
 - Saved Work instances with explicit HTTP or HTTPS URLs
-- Workspace discovery, including federated and unavailable workspaces
-- Project-scoped Home, Board, Capture, Ideas, and More tabs
+- Workspace discovery across the instance's registered local workspaces
+- Project-scoped Home, Board, Capture, and More tabs
 - Needs You decision flows with recommendations, Other, written responses, reject, and defer
 - Task creation, lifecycle moves, checklist confirmation, and progress updates
 - Due dates on task cards and an upcoming-date strip
-- Idea creation, state transitions, evaluation requests, and deletion
+- Project creation and deletion (deletion is human-only and asks for confirmation)
 - Free-form issue filing, Markdown conversation threads, state history, human
   closure, and reopening after resolution or closure
 - Human note creation and a capture inbox

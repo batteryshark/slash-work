@@ -99,11 +99,6 @@ struct HomeView: View {
             return UpcomingItem(id: "task-\(task.id)", title: task.title, kind: "Task", date: date,
                                 systemImage: "checklist", color: .blue)
         }
-        let ideas = model.scopedIdeas.compactMap { idea -> UpcomingItem? in
-            guard let date = WorkFormatting.date(from: idea.revisitAt) else { return nil }
-            return UpcomingItem(id: "idea-\(idea.id)", title: idea.title, kind: "Idea", date: date,
-                                systemImage: "lightbulb", color: .orange)
-        }
         let decisions = model.scopedDecisions
             .compactMap { decision -> UpcomingItem? in
                 guard decision.status == "deferred",
@@ -111,7 +106,7 @@ struct HomeView: View {
                 return UpcomingItem(id: "decision-\(decision.id)", title: decision.title, kind: "Decision", date: date,
                                     systemImage: "hand.raised", color: .purple)
             }
-        return Array((tasks + ideas + decisions).sorted { $0.date < $1.date }.prefix(20))
+        return Array((tasks + decisions).sorted { $0.date < $1.date }.prefix(20))
     }
 
     @ViewBuilder

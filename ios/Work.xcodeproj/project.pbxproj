@@ -17,7 +17,6 @@
 		B10000000000000000000008 /* BoardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000008 /* BoardView.swift */; };
 		B10000000000000000000009 /* TaskDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000009 /* TaskDetailView.swift */; };
 		B1000000000000000000000A /* CaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000000A /* CaptureView.swift */; };
-		B1000000000000000000000B /* IdeasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000000B /* IdeasView.swift */; };
 		B1000000000000000000000C /* MoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000000C /* MoreView.swift */; };
 		B1000000000000000000000D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000000D /* Assets.xcassets */; };
 		B1000000000000000000000E /* WorkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000000F /* WorkTests.swift */; };
@@ -44,7 +43,6 @@
 		A10000000000000000000008 /* BoardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardView.swift; sourceTree = "<group>"; };
 		A10000000000000000000009 /* TaskDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDetailView.swift; sourceTree = "<group>"; };
 		A1000000000000000000000A /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
-		A1000000000000000000000B /* IdeasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdeasView.swift; sourceTree = "<group>"; };
 		A1000000000000000000000C /* MoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreView.swift; sourceTree = "<group>"; };
 		A1000000000000000000000D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A1000000000000000000000E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -93,7 +91,6 @@
 				A10000000000000000000008 /* BoardView.swift */,
 				A10000000000000000000009 /* TaskDetailView.swift */,
 				A1000000000000000000000A /* CaptureView.swift */,
-				A1000000000000000000000B /* IdeasView.swift */,
 				A1000000000000000000000C /* MoreView.swift */,
 				A1000000000000000000000D /* Assets.xcassets */,
 				A1000000000000000000000E /* Info.plist */,
@@ -213,7 +210,6 @@
 				B10000000000000000000008 /* BoardView.swift in Sources */,
 				B10000000000000000000009 /* TaskDetailView.swift in Sources */,
 				B1000000000000000000000A /* CaptureView.swift in Sources */,
-				B1000000000000000000000B /* IdeasView.swift in Sources */,
 				B1000000000000000000000C /* MoreView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

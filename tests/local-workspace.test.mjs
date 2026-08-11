@@ -1281,8 +1281,7 @@ test("keeps editable plain-text notes alongside their project", async () => {
     assert.equal(created.response.status, 201);
     assert.equal(created.payload.title, "Strategy fragments");
     assert.equal(created.payload.projectPath, "software/rekit");
-    // iOS compat shim: responses carry the legacy constant; disk does not.
-    assert.equal(created.payload.agentIntent, "reference_only");
+    assert.equal("agentIntent" in created.payload, false);
     assert.deepEqual(created.payload.createdBy, { kind: "human", name: null });
     noteId = created.payload.id;
 
@@ -1316,7 +1315,7 @@ Existing notes must remain passive by default.
     const listed = await apiRequest(first.origin, "/api/notes");
     const legacyNote = listed.payload.notes.find((note) => note.id === legacyNoteId);
     assert.equal(legacyNote?.title, "Older note");
-    assert.equal(legacyNote?.agentIntent, "reference_only");
+    assert.equal("agentIntent" in legacyNote, false);
     assert.deepEqual(legacyNote?.createdBy, { kind: "human", name: null });
     const rewritten = await readFile(legacyNotePath, "utf8");
     assert.doesNotMatch(rewritten, /agentIntent/);

@@ -1,14 +1,8 @@
 import Foundation
 import SwiftUI
 
-struct WorkAPIInfo: Codable, Sendable {
-    let version: Int
-    let capabilities: [String]
-}
-
 struct WorkServiceHealth: Decodable, Sendable {
     let ok: Bool
-    let api: WorkAPIInfo?
     let service: ServiceSummary?
 
     struct ServiceSummary: Decodable, Sendable {
@@ -27,18 +21,6 @@ struct WorkspaceSummary: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let root: String
-    let location: String?
-    let available: Bool?
-    let peer: PeerSummary?
-
-    var isAvailable: Bool { available ?? true }
-    var isRemote: Bool { location == "remote" }
-}
-
-struct PeerSummary: Codable, Hashable, Sendable {
-    let id: String
-    let name: String
-    let baseUrl: String
 }
 
 struct WorkspacePayload: Codable, Sendable {
@@ -47,13 +29,12 @@ struct WorkspacePayload: Codable, Sendable {
     let projects: [WorkProject]
     let captures: [WorkCapture]
     let decisions: [WorkDecision]
-    let ideas: [WorkIdea]
     let issues: [WorkIssue]
     let notes: [WorkNote]
     let tasks: [WorkTask]
 
     private enum CodingKeys: String, CodingKey {
-        case version, workspace, projects, captures, decisions, ideas, issues, notes, tasks
+        case version, workspace, projects, captures, decisions, issues, notes, tasks
     }
 
     init(from decoder: Decoder) throws {
@@ -63,7 +44,6 @@ struct WorkspacePayload: Codable, Sendable {
         projects = try container.decode([WorkProject].self, forKey: .projects)
         captures = try container.decode([WorkCapture].self, forKey: .captures)
         decisions = try container.decode([WorkDecision].self, forKey: .decisions)
-        ideas = try container.decode([WorkIdea].self, forKey: .ideas)
         // Old on-device snapshots predate Issues. Keeping them readable preserves
         // the app's offline recovery behavior during an upgrade.
         issues = try container.decodeIfPresent([WorkIssue].self, forKey: .issues) ?? []
@@ -78,7 +58,6 @@ struct WorkspacePayload: Codable, Sendable {
         try container.encode(projects, forKey: .projects)
         try container.encode(captures, forKey: .captures)
         try container.encode(decisions, forKey: .decisions)
-        try container.encode(ideas, forKey: .ideas)
         try container.encode(issues, forKey: .issues)
         try container.encode(notes, forKey: .notes)
         try container.encode(tasks, forKey: .tasks)
@@ -92,9 +71,6 @@ struct WorkspaceInfo: Codable, Identifiable, Sendable {
     let dataDir: String
     let startScopePath: String?
     let statuses: [String]
-    let location: String?
-    let available: Bool?
-    let peer: PeerSummary?
 }
 
 struct WorkProject: Codable, Identifiable, Hashable, Sendable {
@@ -144,33 +120,6 @@ struct DecisionChoice: Codable, Hashable, Sendable {
     let option: String?
     let until: String?
     let projectPath: String?
-}
-
-struct WorkIdea: Codable, Identifiable, Hashable, Sendable {
-    let id: String
-    let title: String
-    let status: String
-    let scopePath: String
-    let projectPath: String?
-    let tags: [String]
-    let source: String?
-    let revisitAt: String?
-    let agentIntent: String
-    let createdAt: String
-    let updatedAt: String
-    let sections: IdeaSections
-}
-
-struct IdeaSections: Codable, Hashable, Sendable {
-    let opportunity: String
-    let whyItMightMatter: String
-    let hypothesis: String
-    let unknowns: String
-    let potentialShape: String
-    let evidence: String
-    let risksAndConstraints: String
-    let nextEvaluation: String
-    let outcome: String
 }
 
 enum WorkIssueState: String, Codable, Sendable {
@@ -240,7 +189,6 @@ struct WorkNote: Codable, Identifiable, Hashable, Sendable {
     let text: String
     let scopePath: String
     let projectPath: String?
-    let agentIntent: String
     let createdBy: NoteAuthor
     let createdAt: String
     let updatedAt: String

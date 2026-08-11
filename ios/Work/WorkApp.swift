@@ -56,9 +56,6 @@ private struct DashboardTabs: View {
             CaptureView()
                 .tabItem { Label("Capture", systemImage: "plus.circle.fill") }
 
-            IdeasView()
-                .tabItem { Label("Ideas", systemImage: "lightbulb.fill") }
-
             MoreView()
                 .tabItem { Label("More", systemImage: "ellipsis.circle") }
         }

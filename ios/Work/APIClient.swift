@@ -5,7 +5,6 @@ enum WorkAPIError: LocalizedError, Equatable {
     case unsupportedScheme
     case embeddedCredentials
     case nonHTTPResponse
-    case incompatibleAPI(Int)
     case responseTooLarge
     case server(status: Int, code: String?, message: String)
     case decoding(String)
@@ -20,8 +19,6 @@ enum WorkAPIError: LocalizedError, Equatable {
             "Do not put credentials in the Work URL."
         case .nonHTTPResponse:
             "The Work instance returned an invalid response."
-        case let .incompatibleAPI(version):
-            "This Work instance uses API version \(version), which this app does not support."
         case .responseTooLarge:
             "The Work response exceeded the app's 8 MB safety limit."
         case let .server(status, _, message):
@@ -38,7 +35,6 @@ enum WorkspaceFetchResult: Sendable {
 }
 
 struct WorkAPIClient: @unchecked Sendable {
-    static let supportedAPIVersion = 1
     private static let maximumResponseBytes = 8 * 1024 * 1024
 
     let baseURL: URL
@@ -86,12 +82,7 @@ struct WorkAPIClient: @unchecked Sendable {
     }
 
     func health() async throws -> WorkServiceHealth {
-        let health: WorkServiceHealth = try await get("api/health")
-        let version = health.api?.version ?? 1
-        guard version == Self.supportedAPIVersion else {
-            throw WorkAPIError.incompatibleAPI(version)
-        }
-        return health
+        try await get("api/health")
     }
 
     func workspaces(forceRefresh: Bool = false) async throws -> WorkspaceDirectory {
@@ -153,24 +144,14 @@ struct WorkAPIClient: @unchecked Sendable {
                               body: DecisionActionRequest(action: action, choice: choice, note: note))
     }
 
-    func createIdea(title: String, opportunity: String, projectPath: String?, workspaceID: String) async throws -> WorkIdea {
-        let body = CreateIdeaRequest(title: title, projectPath: projectPath,
-                                     scopePath: projectPath ?? ".", opportunity: opportunity)
-        return try await send("api/ideas", method: "POST", workspaceID: workspaceID, body: body)
+    func createProject(name: String, parentPath: String?, workspaceID: String) async throws -> WorkProject {
+        try await send("api/projects", method: "POST", workspaceID: workspaceID,
+                       body: CreateProjectRequest(name: name, parentPath: parentPath))
     }
 
-    func updateIdeaStatus(id: String, status: String, reason: String?, workspaceID: String) async throws -> WorkIdea {
-        try await send("api/ideas/\(encoded(id))", method: "PATCH", workspaceID: workspaceID,
-                       body: IdeaStatusRequest(status: status, reason: reason))
-    }
-
-    func requestIdeaEvaluation(id: String, workspaceID: String) async throws -> WorkIdea {
-        try await send("api/ideas/\(encoded(id))", method: "PATCH", workspaceID: workspaceID,
-                       body: IdeaIntentRequest(agentIntent: "evaluation_requested"))
-    }
-
-    func deleteIdea(id: String, workspaceID: String) async throws {
-        try await delete("api/ideas/\(encoded(id))", workspaceID: workspaceID)
+    func deleteProject(path: String, workspaceID: String) async throws {
+        try await delete("api/projects", workspaceID: workspaceID,
+                         query: [URLQueryItem(name: "projectPath", value: path)])
     }
 
     func deleteCapture(id: String, workspaceID: String) async throws {
@@ -179,7 +160,7 @@ struct WorkAPIClient: @unchecked Sendable {
 
     func createNote(title: String, text: String, projectPath: String?, workspaceID: String) async throws -> WorkNote {
         let body = CreateNoteRequest(title: title, text: text, scopePath: projectPath ?? ".",
-                                     projectPath: projectPath, agentIntent: "reference_only")
+                                     projectPath: projectPath)
         return try await send("api/notes", method: "POST", workspaceID: workspaceID, body: body)
     }
 
@@ -228,8 +209,8 @@ struct WorkAPIClient: @unchecked Sendable {
         return try decode(Response.self, from: data)
     }
 
-    private func delete(_ path: String, workspaceID: String) async throws {
-        let (data, response) = try await data(path: path, method: "DELETE", workspaceID: workspaceID)
+    private func delete(_ path: String, workspaceID: String, query: [URLQueryItem] = []) async throws {
+        let (data, response) = try await data(path: path, method: "DELETE", workspaceID: workspaceID, query: query)
         try validate(response: response, data: data)
     }
 
@@ -332,15 +313,12 @@ private struct ChecklistRequest: Encodable { let section: String; let index: Int
 private struct TaskLogRequest: Encodable { let message: String }
 private struct DecisionActionChoice: Encodable { let option: String?; let until: String? }
 private struct DecisionActionRequest: Encodable { let action: String; let choice: DecisionActionChoice?; let note: String? }
-private struct CreateIdeaRequest: Encodable { let title: String; let projectPath: String?; let scopePath: String; let opportunity: String }
-private struct IdeaStatusRequest: Encodable { let status: String; let reason: String? }
-private struct IdeaIntentRequest: Encodable { let agentIntent: String }
+private struct CreateProjectRequest: Encodable { let name: String; let parentPath: String? }
 private struct CreateNoteRequest: Encodable {
     let title: String
     let text: String
     let scopePath: String
     let projectPath: String?
-    let agentIntent: String
 }
 private struct CreateIssueRequest: Encodable {
     let body: String
