@@ -18,6 +18,15 @@ const execFile = promisify(execFileCallback);
 const repositoryRoot = new URL("../", import.meta.url);
 const launcherPath = new URL("../bin/work.mjs", import.meta.url);
 
+// Every fixture lives under tmpdir(), which registration refuses for real
+// users. Tests opt out of that guard, and default the registry file to a
+// scratch path so no CLI invocation can ever touch ~/.work/roots.json.
+process.env.WORK_ALLOW_TEMP_ROOTS = "1";
+if (!process.env.WORK_REGISTRY_FILE) {
+  process.env.WORK_REGISTRY_FILE = join(tmpdir(), `work-test-default-registry-${process.pid}.json`);
+  temporaryDirectories.push(process.env.WORK_REGISTRY_FILE);
+}
+
 after(async () => {
   await Promise.all(
     temporaryDirectories.map((directory) =>
@@ -64,6 +73,13 @@ async function apiRequest(origin, pathname, { body, ...options } = {}) {
 
 async function launchApiFromCli(root, { cwd = repositoryRoot, registryPath = root ? join(root, ".work-test-roots.json") : null } = {}) {
   if (!registryPath) throw new Error("launchApiFromCli requires a registry path when no root is supplied.");
+  if (root) {
+    // Serving never registers roots, so the fixture root is registered first.
+    await execFile(process.execPath, [launcherPath.pathname, "register", root], {
+      cwd: repositoryRoot,
+      env: { ...process.env, WORK_REGISTRY_FILE: registryPath },
+    });
+  }
   const child = spawn(
     process.execPath,
     [launcherPath.pathname, "serve", ...(root ? [root] : []), "--no-ui", "--api-port", "0"],
@@ -286,22 +302,49 @@ test("resolves a marked current project for agents and local artifact creation",
   );
 });
 
-test("register keeps an explicitly selected nested workspace root exact", async () => {
-  const parent = await temporaryDirectory("work-register-parent-");
-  const nested = join(parent, "data", "build", "project");
+test("refuses to register nested roots in either direction with actionable guidance", async () => {
+  const parent = await temporaryDirectory("work-nesting-parent-");
+  const nested = join(parent, "data", "build", "orchestra");
   const registryPath = join(parent, "roots.json");
   await mkdir(nested, { recursive: true });
-  const canonicalNested = await realpath(nested);
-  await execFile(process.execPath, [launcherPath.pathname, "init", parent], { cwd: repositoryRoot });
+  const canonicalParent = await realpath(parent);
+  const environment = { ...process.env, WORK_REGISTRY_FILE: registryPath };
 
-  const registered = await execFile(process.execPath, [launcherPath.pathname, "register", nested], {
-    cwd: parent,
-    env: { ...process.env, WORK_REGISTRY_FILE: registryPath },
-  });
+  await execFile(process.execPath, [launcherPath.pathname, "register", parent], { cwd: repositoryRoot, env: environment });
 
-  assert.match(registered.stdout, new RegExp(`Root: ${canonicalNested.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
-  assert.equal(JSON.parse(await readFile(join(nested, ".work", "workspace.json"), "utf8")).version, 1);
-  assert.deepEqual(JSON.parse(await readFile(registryPath, "utf8")).roots.map((entry) => entry.root), [canonicalNested]);
+  // Inner direction: a directory inside a registered root cannot become a root.
+  await assert.rejects(
+    execFile(process.execPath, [launcherPath.pathname, "register", nested], { cwd: repositoryRoot, env: environment }),
+    (error) =>
+      error.stderr.includes(`${canonicalParent} is already a Work root.`)
+      && error.stderr.includes('work new "orchestra" --under data/build')
+      && error.stderr.includes("unregister the outer root first"),
+  );
+  await assert.rejects(readdir(join(nested, ".work")), { code: "ENOENT" });
+
+  // Same refusal when only an ancestor .work/workspace.json exists, without
+  // any registry entry for it.
+  const initializedOnly = await temporaryDirectory("work-nesting-marker-");
+  await initializeWorkspace(initializedOnly, { force: true });
+  const canonicalInitialized = await realpath(initializedOnly);
+  await mkdir(join(initializedOnly, "inner"), { recursive: true });
+  await assert.rejects(
+    execFile(process.execPath, [launcherPath.pathname, "register", join(initializedOnly, "inner")], { cwd: repositoryRoot, env: environment }),
+    (error) =>
+      error.stderr.includes(`${canonicalInitialized} is already a Work root.`)
+      && error.stderr.includes('work new "inner"'),
+  );
+
+  // Outer direction: a new root cannot swallow already-registered roots.
+  const grandparent = await realpath(join(parent, ".."));
+  await assert.rejects(
+    execFile(process.execPath, [launcherPath.pathname, "register", grandparent], { cwd: repositoryRoot, env: environment }),
+    (error) =>
+      error.stderr.includes(`would contain the already-registered Work root: ${canonicalParent}`)
+      && error.stderr.includes("work roots forget"),
+  );
+
+  assert.deepEqual(JSON.parse(await readFile(registryPath, "utf8")).roots.map((entry) => entry.root), [canonicalParent]);
 });
 
 test("serve does not silently restore an unregistered workspace around the launch directory", async () => {
@@ -310,11 +353,13 @@ test("serve does not silently restore an unregistered workspace around the launc
   const registryPath = join(parent, "roots.json");
   await mkdir(selected, { recursive: true });
   const canonicalSelected = await realpath(selected);
-  await execFile(process.execPath, [launcherPath.pathname, "init", parent], { cwd: repositoryRoot });
+  // Register the nested selection first, then initialize the parent in-process
+  // so the parent workspace exists without any registry entry.
   await execFile(process.execPath, [launcherPath.pathname, "register", selected], {
-    cwd: parent,
+    cwd: repositoryRoot,
     env: { ...process.env, WORK_REGISTRY_FILE: registryPath },
   });
+  await initializeWorkspace(parent, { force: true });
 
   const launched = await launchApiFromCli(null, { cwd: parent, registryPath });
   try {
@@ -336,6 +381,10 @@ test("reports the actual UI URL when the requested port is occupied", async () =
   const address = blocker.address();
   assert.ok(address && typeof address === "object");
   const requestedPort = address.port;
+  await execFile(process.execPath, [launcherPath.pathname, "register", root], {
+    cwd: repositoryRoot,
+    env: { ...process.env, WORK_REGISTRY_FILE: join(root, ".work-test-roots.json") },
+  });
   const child = spawn(
     process.execPath,
     [launcherPath.pathname, "serve", root, "--no-open", "--api-port", "0", "--ui-port", String(requestedPort)],
@@ -1057,9 +1106,9 @@ test("offers registered roots and resolves every request inside the selected wor
 
 test("opens a native folder picker and initializes the selected directory as an exact root", async () => {
   const root = await temporaryDirectory("work-picker-current-");
-  const selected = join(root, "new-nested-root");
+  // Roots never nest, so the picker fixture selects a sibling directory.
+  const selected = await temporaryDirectory("work-picker-selected-");
   const registryPath = join(root, "test-roots.json");
-  await mkdir(selected, { recursive: true });
   await registerWorkspace(root, { force: true, registryPath });
   let pickerCalls = 0;
   const api = await startLocalApi({
@@ -2038,5 +2087,133 @@ test("keeps terminal task moves human-only and surfaces one needs-you queue", as
     assert.equal(humanCompletes.response.status, 200);
   } finally {
     await closeLocalApi(api.server);
+  }
+});
+
+test("serve refuses to register a new root and points at work init", async () => {
+  const orphan = await temporaryDirectory("work-serve-orphan-");
+  const registryPath = join(orphan, "roots.json");
+  const environment = { ...process.env, WORK_REGISTRY_FILE: registryPath };
+
+  await assert.rejects(
+    execFile(process.execPath, [launcherPath.pathname, "serve", orphan, "--no-ui", "--api-port", "0"], {
+      cwd: repositoryRoot,
+      env: environment,
+    }),
+    (error) =>
+      error.code === 1
+      && error.stderr.includes("serving does not register roots on its own")
+      && error.stderr.includes(`work init ${orphan}`),
+  );
+  // The refusal must not create or register anything.
+  await assert.rejects(readdir(join(orphan, ".work")), { code: "ENOENT" });
+  await assert.rejects(readFile(registryPath, "utf8"), { code: "ENOENT" });
+
+  // Bare `work` from an unregistered directory refuses the same way.
+  await assert.rejects(
+    execFile(process.execPath, [launcherPath.pathname, "--no-ui", "--api-port", "0"], {
+      cwd: orphan,
+      env: environment,
+    }),
+    (error) => error.code === 1 && error.stderr.includes("serving does not register roots on its own"),
+  );
+});
+
+test("refuses to register temporary directories as roots unless tests opt in", async () => {
+  const root = await temporaryDirectory("work-temp-guard-");
+  const registryPath = join(root, "roots.json");
+  const environment = { ...process.env, WORK_REGISTRY_FILE: registryPath };
+  delete environment.WORK_ALLOW_TEMP_ROOTS;
+
+  for (const command of ["register", "init"]) {
+    await assert.rejects(
+      execFile(process.execPath, [launcherPath.pathname, command, root], { cwd: repositoryRoot, env: environment }),
+      (error) =>
+        error.stderr.includes("temporary directory")
+        && error.stderr.includes("Choose a durable directory"),
+    );
+  }
+  await assert.rejects(readFile(registryPath, "utf8"), { code: "ENOENT" });
+});
+
+test("lists, prunes, and forgets roots without touching workspace files", async () => {
+  const keep = await temporaryDirectory("work-roots-keep-");
+  const dead = await temporaryDirectory("work-roots-dead-");
+  const forgettable = await temporaryDirectory("work-roots-forget-");
+  const holder = await temporaryDirectory("work-roots-registry-");
+  const registryPath = join(holder, "roots.json");
+  const environment = { ...process.env, WORK_REGISTRY_FILE: registryPath };
+  const canonicalKeep = await realpath(keep);
+  const canonicalDead = await realpath(dead);
+  const canonicalForgettable = await realpath(forgettable);
+
+  for (const target of [keep, dead, forgettable]) {
+    await execFile(process.execPath, [launcherPath.pathname, "register", target], { cwd: repositoryRoot, env: environment });
+  }
+  await execFile(process.execPath, [launcherPath.pathname, "new", "Field Notes", "--root", keep], { cwd: repositoryRoot, env: environment });
+  await rm(dead, { recursive: true, force: true });
+  // An unmounted-volume-style entry must survive pruning.
+  const registry = JSON.parse(await readFile(registryPath, "utf8"));
+  registry.roots.push({ id: "volume-entry", name: "wat", root: "/Volumes/work-test-missing-volume/wat" });
+  await writeFile(registryPath, JSON.stringify(registry, null, 2));
+
+  const listed = await execFile(process.execPath, [launcherPath.pathname, "roots"], { cwd: repositoryRoot, env: environment });
+  assert.match(listed.stdout, new RegExp(`${canonicalKeep.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\t1 project`));
+  assert.match(listed.stdout, new RegExp(`${canonicalDead.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\t\\(unreachable\\)`));
+  assert.match(listed.stdout, /\/Volumes\/work-test-missing-volume\/wat\t\(unreachable\)/);
+
+  const pruned = await execFile(process.execPath, [launcherPath.pathname, "roots", "prune"], { cwd: repositoryRoot, env: environment });
+  assert.match(pruned.stdout, new RegExp(`Pruned ${canonicalDead.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  assert.doesNotMatch(pruned.stdout, /Volumes/);
+  const afterPrune = JSON.parse(await readFile(registryPath, "utf8")).roots.map((entry) => entry.root);
+  assert.ok(!afterPrune.includes(canonicalDead));
+  assert.ok(afterPrune.includes("/Volumes/work-test-missing-volume/wat"));
+
+  const again = await execFile(process.execPath, [launcherPath.pathname, "roots", "prune"], { cwd: repositoryRoot, env: environment });
+  assert.match(again.stdout, /No dead roots to prune\./);
+
+  const forgotten = await execFile(process.execPath, [launcherPath.pathname, "roots", "forget", forgettable], { cwd: repositoryRoot, env: environment });
+  assert.match(forgotten.stdout, /Its files were not touched\./);
+  assert.ok(!JSON.parse(await readFile(registryPath, "utf8")).roots.some((entry) => entry.root === canonicalForgettable));
+  assert.equal(JSON.parse(await readFile(join(forgettable, ".work", "workspace.json"), "utf8")).version, 1);
+});
+
+test("serve auto-prunes dead roots and reports the count on startup", async () => {
+  const alive = await temporaryDirectory("work-autoprune-alive-");
+  const gone = await temporaryDirectory("work-autoprune-gone-");
+  const registryPath = join(alive, "roots.json");
+  const environment = { ...process.env, WORK_REGISTRY_FILE: registryPath };
+  for (const target of [gone, alive]) {
+    await execFile(process.execPath, [launcherPath.pathname, "register", target], { cwd: repositoryRoot, env: environment });
+  }
+  await rm(gone, { recursive: true, force: true });
+
+  const child = spawn(
+    process.execPath,
+    [launcherPath.pathname, "serve", alive, "--no-ui", "--api-port", "0"],
+    { cwd: repositoryRoot, env: environment, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  let output = "";
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => { output += chunk; });
+  try {
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error(`No ready line. Output: ${output}`)), 5_000);
+      child.stdout.on("data", () => {
+        if (/\[work\] API ready at /.test(output)) {
+          clearTimeout(timeout);
+          resolve();
+        }
+      });
+      child.once("exit", (code) => {
+        clearTimeout(timeout);
+        reject(new Error(`Work exited early (${code}). Output: ${output}`));
+      });
+    });
+    assert.match(output, /\[work\] Roots available: 1 \(pruned 1 dead root\)/);
+    const roots = JSON.parse(await readFile(registryPath, "utf8")).roots.map((entry) => entry.root);
+    assert.deepEqual(roots, [await realpath(alive)]);
+  } finally {
+    await stopChild(child);
   }
 });

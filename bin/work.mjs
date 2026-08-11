@@ -27,7 +27,9 @@ import {
 } from "../lib/local-workspace.mjs";
 import {
   listRegisteredWorkspaces,
+  pruneRegistry,
   registerWorkspace,
+  registryEntries,
   unregisterWorkspace,
   workspaceRegistryPath,
 } from "../lib/workspace-registry.mjs";
@@ -53,10 +55,12 @@ const HELP = `Work — local, root-scoped project memory
 Usage:
   work [root]                         Start the local UI and API
   work serve [root]                   Start the local UI and API
-  work init [root]                    Create a workspace at this exact root
+  work init [root]                    Create and register a workspace at this exact root
   work register [root]                Register this exact root for the workspace picker
   work unregister <id|root>           Remove a root from the web workspace picker
-  work roots                          List roots available to the web workspace picker
+  work roots                          List registered roots with project counts
+  work roots prune                    Drop registered roots whose directory is gone
+  work roots forget <path>            Unregister one root without touching its files
   work projects                       List exact projects in the current workspace
   work new "Name" [--under rel/path]  Create a project folder and marker from a name
   work remove <rel-path>              Remove a project from Work (folder deleted only when empty)
@@ -265,7 +269,8 @@ async function defaultProjectPath(options, workspace, projects) {
 async function runInit(options, positionals) {
   if (positionals.length > 1) throw new WorkspaceError("init accepts only one root path.");
   const root = options.root ?? positionals[0] ?? process.cwd();
-  const workspace = await initializeWorkspace(root, { force: true });
+  // init is the explicit registration path: serve never registers on its own.
+  const workspace = await registerWorkspace(root, { force: true });
   console.log(`Initialized Work at ${workspace.root}`);
   console.log(`Data: ${workspace.dataDir}`);
 }
@@ -284,13 +289,40 @@ async function runUnregister(options, positionals) {
 }
 
 async function runRoots(options, positionals) {
-  if (options.root || positionals.length > 0) throw new WorkspaceError("roots does not accept a root argument.");
-  const workspaces = await listRegisteredWorkspaces({ initialize: false });
-  if (workspaces.length === 0) {
-    console.log("No roots registered. Run: work register /path/to/root");
+  if (options.root) throw new WorkspaceError("roots does not accept --root.");
+  const [subcommand, ...rest] = positionals;
+  if (subcommand === "prune") {
+    if (rest.length > 0) throw new WorkspaceError("roots prune does not accept arguments.");
+    const removed = await pruneRegistry();
+    if (removed.length === 0) {
+      console.log("No dead roots to prune.");
+      return;
+    }
+    for (const entry of removed) console.log(`Pruned ${entry.root}`);
     return;
   }
-  for (const workspace of workspaces) console.log(`${workspace.id}\t${workspace.name}\t${workspace.root}`);
+  if (subcommand === "forget") {
+    if (rest.length !== 1) throw new WorkspaceError("roots forget requires exactly one root path or id.");
+    await unregisterWorkspace(rest[0]);
+    console.log(`Forgot ${rest[0]}. Its files were not touched.`);
+    return;
+  }
+  if (subcommand != null) throw new WorkspaceError(`Unknown roots command: ${subcommand}. Use prune or forget.`);
+  const entries = await registryEntries();
+  if (entries.length === 0) {
+    console.log("No roots registered. Run: work init /path/to/root");
+    return;
+  }
+  for (const entry of entries) {
+    let projects = null;
+    try {
+      projects = await discoverProjects(entry.root);
+    } catch (error) {
+      if (error?.code !== "missing_root" && error?.code !== "ENOENT") throw error;
+    }
+    const detail = projects ? `${projects.length} project${projects.length === 1 ? "" : "s"}` : "(unreachable)";
+    console.log(`${entry.name}\t${entry.root}\t${detail}`);
+  }
   console.log(`Registry: ${workspaceRegistryPath()}`);
 }
 
@@ -583,13 +615,19 @@ function openLocalUrl(url) {
 async function runServer(options, positionals) {
   if (positionals.length > 1) throw new WorkspaceError("serve accepts only one root path.");
   const explicitRoot = options.root ?? positionals[0] ?? null;
+  const pruned = await pruneRegistry();
   const registered = await listRegisteredWorkspaces();
-  const nearbyRoot = explicitRoot ? null : await findWorkspaceRoot(process.cwd());
-  const activeWorkspace = explicitRoot
-    ? await registerWorkspace(explicitRoot, { force: options.forceInit === true })
-    : registered.find((workspace) => workspace.root === nearbyRoot)
-      ?? (registered.length === 0 ? await registerWorkspace(nearbyRoot ?? process.cwd()) : registered.at(-1));
-  if (!registered.some((workspace) => workspace.id === activeWorkspace.id)) registered.push(activeWorkspace);
+  // Serving never registers a new root. Only `work init` and `work register`
+  // add roots, so launching Work somewhere unexpected cannot grow the registry.
+  const nearbyRoot = await findWorkspaceRoot(explicitRoot ?? process.cwd());
+  const activeWorkspace = registered.find((workspace) => workspace.root === nearbyRoot)
+    ?? (explicitRoot ? null : registered.at(-1));
+  if (!activeWorkspace) {
+    const candidate = nearbyRoot ?? (explicitRoot ? resolve(explicitRoot) : process.cwd());
+    throw new WorkspaceError(
+      `${candidate} is not a registered Work root, and serving does not register roots on its own. Run \`work init ${candidate}\` first, or serve an already-registered root (see \`work roots\`).`,
+    );
+  }
   const root = activeWorkspace.root;
   const apiPort = parsePort(options.apiPort, DEFAULT_API_PORT, "--api-port");
   const uiPort = parsePort(options.uiPort, DEFAULT_UI_PORT, "--ui-port");
@@ -608,7 +646,11 @@ async function runServer(options, positionals) {
     fallbackOnPortConflict: options.apiPort == null,
   });
   console.log(`[work] Workspace: ${localApi.workspace.root}`);
-  console.log(`[work] Roots available: ${localApi.workspaces.length}`);
+  if (pruned.length > 0) {
+    console.log(`[work] Roots available: ${localApi.workspaces.length} (pruned ${pruned.length} dead root${pruned.length === 1 ? "" : "s"})`);
+  } else {
+    console.log(`[work] Roots available: ${localApi.workspaces.length}`);
+  }
   console.log(`[work] API ready at ${localApi.origin}`);
   if (apiPort !== 0 && localApi.port !== apiPort) {
     console.log(`[work] Preferred API port ${apiPort} was occupied; using ${localApi.port} instead.`);
