@@ -13,6 +13,10 @@ def result(workspace_id: str | None, payload: Any) -> dict[str, Any]:
     return {"workspace_id": selected, "result": payload}
 
 
+def compact(**fields: Any) -> dict[str, Any]:
+    return {key: value for key, value in fields.items() if value is not None}
+
+
 async def call(method: str, path: str, workspace_id: str | None = None, *, agent_name: str | None = None, params: dict[str, Any] | None = None, body: dict[str, Any] | None = None) -> dict[str, Any]:
     try:
         return result(workspace_id, await client.request(method, path, workspace_id=workspace_id, agent_name=agent_name, params=params, body=body))
@@ -42,8 +46,7 @@ async def projects_list(workspace_id: str) -> dict[str, Any]:
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
 async def project_create(workspace_id: str, name: str, parent_path: str | None = None) -> dict[str, Any]:
     """Create a new project: Work makes the folder from a slug of the name and writes the project marker."""
-    body = {"name": name, "parentPath": parent_path}
-    return await call("POST", "/api/projects", workspace_id, body={key: value for key, value in body.items() if value is not None})
+    return await call("POST", "/api/projects", workspace_id, body=compact(name=name, parentPath=parent_path))
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
@@ -79,8 +82,7 @@ async def file_read(workspace_id: str, scope_path: str = ".", path: str = "") ->
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
 async def capture_create(workspace_id: str, text: str, kind: str | None = None, scope_path: str | None = None, project_path: str | None = None) -> dict[str, Any]:
     """Preserve a thought without creating executable work."""
-    body = {"text": text, "kind": kind, "scopePath": scope_path, "projectPath": project_path}
-    return await call("POST", "/api/captures", workspace_id, body={key: value for key, value in body.items() if value is not None})
+    return await call("POST", "/api/captures", workspace_id, body=compact(text=text, kind=kind, scopePath=scope_path, projectPath=project_path))
 
 
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
@@ -92,8 +94,7 @@ async def decision_create(workspace_id: str, title: str, project_path: str | Non
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
 async def task_create(workspace_id: str, title: str, project_path: str | None = None, type: str | None = None, priority: str | None = None, status: str | None = None, goal: str | None = None, requirements: list[str] | None = None, acceptance_criteria: list[str] | None = None, plan: str | None = None, notes: str | None = None, tags: list[str] | None = None, agents: list[str] | None = None, refs: list[str] | None = None) -> dict[str, Any]:
     """Create authorized executable work with acceptance criteria."""
-    body = {"title": title, "projectPath": project_path, "type": type, "priority": priority, "status": status, "goal": goal, "requirements": requirements, "acceptanceCriteria": acceptance_criteria, "plan": plan, "notes": notes, "tags": tags, "agents": agents, "refs": refs}
-    return await call("POST", "/api/tasks", workspace_id, body={key: value for key, value in body.items() if value is not None})
+    return await call("POST", "/api/tasks", workspace_id, body=compact(title=title, projectPath=project_path, type=type, priority=priority, status=status, goal=goal, requirements=requirements, acceptanceCriteria=acceptance_criteria, plan=plan, notes=notes, tags=tags, agents=agents, refs=refs))
 
 
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
@@ -147,5 +148,4 @@ async def issue_reply(workspace_id: str, id: str, body: str, agent_name: str | N
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
 async def issue_update_state(workspace_id: str, id: str, state: str, reason: str | None = None, resolution_summary: str | None = None, agent_name: str | None = None) -> dict[str, Any]:
     """Set a claimed issue to in_progress, needs_human, or resolved. Resolving requires resolution_summary."""
-    payload = {"state": state, "reason": reason, "resolutionSummary": resolution_summary}
-    return await call("POST", f"/api/agent/issues/{id}/state", workspace_id, agent_name=require_agent(agent_name), body={key: value for key, value in payload.items() if value is not None})
+    return await call("POST", f"/api/agent/issues/{id}/state", workspace_id, agent_name=require_agent(agent_name), body=compact(state=state, reason=reason, resolutionSummary=resolution_summary))

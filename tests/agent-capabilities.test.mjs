@@ -59,11 +59,6 @@ test("serves task-scoped agent instructions from the CLI without a workspace or 
   assert.ok(task.operation.rules.some((rule) => /work agent context/i.test(rule)));
   assert.ok(task.operation.inputSchema.required.includes("title"));
 
-  const schema = await execFile(process.execPath, [launcherPath.pathname, "agent", "schema", "task"], { cwd });
-  const taskSchema = JSON.parse(schema.stdout);
-  assert.equal(taskSchema.$ref, "#/$defs/task");
-  assert.equal(taskSchema.$defs.task.properties.artifactType.const, "task");
-
   assert.deepEqual(await readdir(cwd), [], "agent discovery must not initialize or modify a workspace");
 });
 
@@ -120,17 +115,12 @@ test("exposes the same versioned capability catalog and canonical OpenAPI over H
     assert.equal(createNote.payload.operation.transport.api.path, "/api/agent/notes");
     assert.equal("agentIntent" in createNote.payload.operation.inputSchema.properties, false);
 
-    // Ideas merged into notes: the idea catalog entries and schema are gone.
-    const removedIdeaSchema = await requestJson(api.origin, "/api/agent/schemas/artifacts/idea");
-    assert.equal(removedIdeaSchema.response.status, 404);
+    // Ideas merged into notes: the idea catalog entries are gone.
     for (const removedOperation of ["ideas.list", "ideas.create", "ideas.update", "ideas.delete"]) {
       const removed = await requestJson(api.origin, `/api/agent/operations/${removedOperation}`);
       assert.equal(removed.response.status, 404);
       assert.equal(removed.payload.error.code, "not_found");
     }
-    const noteSchema = await requestJson(api.origin, "/api/agent/schemas/artifacts/note");
-    assert.equal(noteSchema.response.status, 200);
-    assert.equal(noteSchema.payload.$ref, "#/$defs/note");
 
     const openapi = await requestJson(api.origin, "/api/openapi.json");
     assert.equal(openapi.response.status, 200);

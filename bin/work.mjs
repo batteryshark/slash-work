@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 import {
   WorkspaceError,
   appendTaskLog,
@@ -36,7 +37,6 @@ import { createServer as createViteServer } from "vite";
 import {
   getAgentIndex,
   getAgentOperation,
-  getArtifactSchema,
   listAgentOperations,
   renderAgentIndexMarkdown,
   renderAgentOperationMarkdown,
@@ -63,7 +63,6 @@ Usage:
   work agent context                  Print only the resolved local context
   work agent operations               List available task-scoped operations
   work agent instructions <operation> Print instructions for one operation
-  work agent schema <artifact>        Print one artifact's JSON Schema
   work add "thought" [options]        Capture from any workspace descendant
   work decision "question" [options] Create a decision from any descendant
   work task "title" [options]         Create a full Kanban work item
@@ -120,88 +119,62 @@ Examples:
   work log W-0001 "API and restart tests pass"
 `;
 
-function parseArguments(argv) {
-  const options = { option: [], agent: [], tag: [], dependsOn: [], blockedBy: [], requirement: [], acceptance: [] };
-  const positionals = [];
-  const valueOptions = new Map([
-    ["--root", "root"],
-    ["--scope", "scope"],
-    ["--under", "under"],
-    ["--project", "project"],
-    ["--kind", "kind"],
-    ["--detail", "detail"],
-    ["--option", "option"],
-    ["--recommend", "recommend"],
-    ["--type", "type"],
-    ["--priority", "priority"],
-    ["--assignee", "assignee"],
-    ["--agent", "agent"],
-    ["--tag", "tag"],
-    ["--depends-on", "dependsOn"],
-    ["--blocked-by", "blockedBy"],
-    ["--status", "status"],
-    ["--goal", "goal"],
-    ["--requirement", "requirement"],
-    ["--acceptance", "acceptance"],
-    ["--plan", "plan"],
-    ["--notes", "notes"],
-    ["--note", "note"],
-    ["--api-port", "apiPort"],
-    ["--ui-port", "uiPort"],
-    ["--format", "format"],
-  ]);
+const repeatable = () => ({ type: "string", multiple: true, default: [] });
+const CLI_FLAGS = {
+  root: { type: "string" },
+  scope: { type: "string" },
+  under: { type: "string" },
+  project: { type: "string" },
+  kind: { type: "string" },
+  detail: { type: "string" },
+  option: repeatable(),
+  recommend: { type: "string" },
+  type: { type: "string" },
+  priority: { type: "string" },
+  assignee: { type: "string" },
+  agent: repeatable(),
+  tag: repeatable(),
+  "depends-on": repeatable(),
+  "blocked-by": repeatable(),
+  status: { type: "string" },
+  goal: { type: "string" },
+  requirement: repeatable(),
+  acceptance: repeatable(),
+  plan: { type: "string" },
+  notes: { type: "string" },
+  note: { type: "string" },
+  "api-port": { type: "string" },
+  "ui-port": { type: "string" },
+  format: { type: "string" },
+  "no-ui": { type: "boolean" },
+  "no-open": { type: "boolean" },
+  tailscale: { type: "boolean" },
+  mcp: { type: "boolean" },
+  unassigned: { type: "boolean" },
+  init: { type: "boolean" },
+  json: { type: "boolean" },
+  help: { type: "boolean", short: "h" },
+};
+const CLI_FLAG_NAMES = {
+  "depends-on": "dependsOn",
+  "blocked-by": "blockedBy",
+  "api-port": "apiPort",
+  "ui-port": "uiPort",
+  "no-ui": "noUi",
+  "no-open": "noOpen",
+  init: "forceInit",
+};
 
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-    if (token === "--") {
-      positionals.push(...argv.slice(index + 1));
-      break;
-    }
-    if (token === "--no-ui") {
-      options.noUi = true;
-      continue;
-    }
-    if (token === "--no-open") {
-      options.noOpen = true;
-      continue;
-    }
-    if (token === "--tailscale") {
-      options.tailscale = true;
-      continue;
-    }
-    if (token === "--mcp") {
-      options.mcp = true;
-      continue;
-    }
-    if (token === "--unassigned") {
-      options.unassigned = true;
-      continue;
-    }
-    if (token === "--init") {
-      options.forceInit = true;
-      continue;
-    }
-    if (token === "--json") {
-      options.json = true;
-      continue;
-    }
-    if (token === "--help" || token === "-h") {
-      options.help = true;
-      continue;
-    }
-    const optionName = valueOptions.get(token);
-    if (optionName) {
-      const value = argv[index + 1];
-      if (value == null || value.startsWith("--")) throw new WorkspaceError(`${token} requires a value.`);
-      if (["option", "agent", "tag", "dependsOn", "blockedBy", "requirement", "acceptance"].includes(optionName)) options[optionName].push(value);
-      else options[optionName] = value;
-      index += 1;
-      continue;
-    }
-    if (token.startsWith("--")) throw new WorkspaceError(`Unknown option: ${token}`);
-    positionals.push(token);
+function parseArguments(argv) {
+  let parsed;
+  try {
+    parsed = parseArgs({ args: argv, options: CLI_FLAGS, allowPositionals: true });
+  } catch (error) {
+    throw new WorkspaceError(error.message.split("\n")[0]);
   }
-  return { options, positionals };
+  const options = {};
+  for (const [flag, value] of Object.entries(parsed.values)) options[CLI_FLAG_NAMES[flag] ?? flag] = value;
+  return { options, positionals: parsed.positionals };
 }
 
 function parsePort(value, fallback, label) {
@@ -211,10 +184,6 @@ function parsePort(value, fallback, label) {
     throw new WorkspaceError(`${label} must be an integer between 0 and 65535.`);
   }
   return port;
-}
-
-async function selectedRoot(options, positionalRoot) {
-  return options.root ?? positionalRoot ?? process.cwd();
 }
 
 async function invocationScope(workspace) {
@@ -294,7 +263,7 @@ async function defaultProjectPath(options, workspace, projects) {
 
 async function runInit(options, positionals) {
   if (positionals.length > 1) throw new WorkspaceError("init accepts only one root path.");
-  const root = await selectedRoot(options, positionals[0]);
+  const root = options.root ?? positionals[0] ?? process.cwd();
   const workspace = await initializeWorkspace(root, { force: true });
   console.log(`Initialized Work at ${workspace.root}`);
   console.log(`Data: ${workspace.dataDir}`);
@@ -302,7 +271,7 @@ async function runInit(options, positionals) {
 
 async function runRegister(options, positionals) {
   if (positionals.length > 1) throw new WorkspaceError("register accepts only one root path.");
-  const workspace = await registerWorkspace(await selectedRoot(options, positionals[0]), { force: true });
+  const workspace = await registerWorkspace(options.root ?? positionals[0] ?? process.cwd(), { force: true });
   console.log(`Registered ${workspace.name}`);
   console.log(`Root: ${workspace.root}`);
 }
@@ -342,8 +311,8 @@ async function runProjects(options, positionals) {
   }
 }
 
-function agentOutputFormat(options, fallback = "markdown") {
-  const format = options.json ? "json" : options.format ?? fallback;
+function agentOutputFormat(options) {
+  const format = options.json ? "json" : options.format ?? "markdown";
   if (!new Set(["markdown", "json"]).has(format)) {
     throw new WorkspaceError("--format must be markdown or json.");
   }
@@ -352,53 +321,29 @@ function agentOutputFormat(options, fallback = "markdown") {
 
 async function runAgent(options, positionals) {
   const [command, value, ...extra] = positionals;
-  if (extra.length > 0) throw new WorkspaceError("agent accepts only a command and one operation or artifact name.");
+  if (extra.length > 0) throw new WorkspaceError("agent accepts only a command and one operation name.");
+  const emit = (json, markdown) => process.stdout.write(agentOutputFormat(options) === "json" ? `${JSON.stringify(json, null, 2)}\n` : markdown);
 
   if (command == null) {
-    if (value != null) throw new WorkspaceError("Unexpected agent argument.");
-    const format = agentOutputFormat(options);
     const context = await resolveLocalContext(options);
-    process.stdout.write(format === "json"
-      ? `${JSON.stringify({ ...getAgentIndex(), localContext: context }, null, 2)}\n`
-      : `${renderAgentIndexMarkdown()}\n${renderLocalContext(context)}`);
-    return;
+    return emit({ ...getAgentIndex(), localContext: context }, `${renderAgentIndexMarkdown()}\n${renderLocalContext(context)}`);
   }
-
   if (command === "context") {
     if (value != null) throw new WorkspaceError("agent context does not accept an operation name.");
     const context = await resolveLocalContext(options);
-    const format = agentOutputFormat(options);
-    process.stdout.write(format === "json" ? `${JSON.stringify(context, null, 2)}\n` : renderLocalContext(context));
-    return;
+    return emit(context, renderLocalContext(context));
   }
-
   if (command === "operations") {
     if (value != null) throw new WorkspaceError("agent operations does not accept an operation name.");
-    const format = agentOutputFormat(options);
-    process.stdout.write(format === "json" ? `${JSON.stringify(listAgentOperations(), null, 2)}\n` : renderAgentOperationsMarkdown());
-    return;
+    return emit(listAgentOperations(), renderAgentOperationsMarkdown());
   }
-
   if (command === "instructions") {
     if (!value) throw new WorkspaceError("agent instructions requires an operation name. Run `work agent operations` first.");
     const operation = getAgentOperation(value);
     if (!operation) throw new WorkspaceError(`Unknown agent operation: ${value}. Run \`work agent operations\` first.`);
-    const format = agentOutputFormat(options);
-    process.stdout.write(format === "json" ? `${JSON.stringify(operation, null, 2)}\n` : renderAgentOperationMarkdown(value));
-    return;
+    return emit(operation, renderAgentOperationMarkdown(value));
   }
-
-  if (command === "schema") {
-    if (!value) throw new WorkspaceError("agent schema requires capture, note, issue, decision, or task.");
-    const schema = getArtifactSchema(value);
-    if (!schema) throw new WorkspaceError(`Unknown artifact type: ${value}.`);
-    const format = agentOutputFormat(options, "json");
-    const json = JSON.stringify(schema, null, 2);
-    process.stdout.write(format === "json" ? `${json}\n` : `# ${value} artifact schema\n\n\`\`\`json\n${json}\n\`\`\`\n`);
-    return;
-  }
-
-  throw new WorkspaceError(`Unknown agent command: ${command}. Use context, operations, instructions, or schema.`);
+  throw new WorkspaceError(`Unknown agent command: ${command}. Use context, operations, or instructions.`);
 }
 
 async function runNew(options, positionals) {
@@ -463,7 +408,7 @@ async function runRemove(options, positionals) {
 }
 
 async function currentWorkspace(options) {
-  const root = await selectedRoot(options);
+  const root = options.root ?? process.cwd();
   if (!(await findWorkspaceRoot(root))) {
     throw new WorkspaceError("No Work workspace contains this directory. Run `work init` first, or run this command from inside a workspace.");
   }
@@ -540,30 +485,15 @@ function openLocalUrl(url) {
   child.unref();
 }
 
-async function stopUiServer(server) {
-  if (!server) return;
-  await server.close();
-}
-
 async function runServer(options, positionals) {
   if (positionals.length > 1) throw new WorkspaceError("serve accepts only one root path.");
   const explicitRoot = options.root ?? positionals[0] ?? null;
-  let registered = await listRegisteredWorkspaces();
-  let activeWorkspace;
-  if (explicitRoot) {
-    activeWorkspace = await registerWorkspace(explicitRoot, { force: options.forceInit === true });
-  } else {
-    const nearbyRoot = await findWorkspaceRoot(process.cwd());
-    activeWorkspace = registered.find((workspace) => workspace.root === nearbyRoot);
-    if (!activeWorkspace && nearbyRoot && registered.length === 0) {
-      activeWorkspace = await registerWorkspace(nearbyRoot);
-    }
-  }
-  if (!activeWorkspace && registered.length === 0) {
-    activeWorkspace = await registerWorkspace(process.cwd(), { force: options.forceInit === true });
-    registered = [activeWorkspace];
-  }
-  activeWorkspace ??= registered.at(-1);
+  const registered = await listRegisteredWorkspaces();
+  const nearbyRoot = explicitRoot ? null : await findWorkspaceRoot(process.cwd());
+  const activeWorkspace = explicitRoot
+    ? await registerWorkspace(explicitRoot, { force: options.forceInit === true })
+    : registered.find((workspace) => workspace.root === nearbyRoot)
+      ?? (registered.length === 0 ? await registerWorkspace(nearbyRoot ?? process.cwd()) : registered.at(-1));
   if (!registered.some((workspace) => workspace.id === activeWorkspace.id)) registered.push(activeWorkspace);
   const root = activeWorkspace.root;
   const apiPort = parsePort(options.apiPort, DEFAULT_API_PORT, "--api-port");
@@ -612,7 +542,7 @@ async function runServer(options, positionals) {
   async function shutdown(exitCode = 0, { restart = false } = {}) {
     if (shuttingDown) return;
     shuttingDown = true;
-    await stopUiServer(uiServer);
+    await uiServer?.close();
     await mcpSidecar?.stop().catch((error) => console.error(`[work:mcp] ${error.message}`));
     await closeLocalApi(localApi.server).catch((error) => console.error(`[work] ${error.message}`));
     if (restart) {
@@ -667,32 +597,36 @@ async function runServer(options, positionals) {
   }
 }
 
+const COMMANDS = {
+  serve: runServer,
+  init: runInit,
+  register: runRegister,
+  unregister: runUnregister,
+  roots: runRoots,
+  projects: runProjects,
+  new: runNew,
+  remove: runRemove,
+  agent: runAgent,
+  add: runAdd,
+  decision: runDecision,
+  task: runTask,
+  create: runTask,
+  list: runList,
+  show: runShow,
+  move: runMove,
+  assign: runAssign,
+  log: runLog,
+};
+
 async function main() {
   const argv = process.argv.slice(2);
-  const knownCommands = new Set(["serve", "init", "register", "unregister", "roots", "projects", "new", "remove", "agent", "add", "decision", "task", "create", "list", "show", "move", "assign", "log"]);
-  const command = knownCommands.has(argv[0]) ? argv.shift() : "serve";
+  const run = Object.hasOwn(COMMANDS, argv[0]) ? COMMANDS[argv.shift()] : runServer;
   const { options, positionals } = parseArguments(argv);
   if (options.help) {
     process.stdout.write(HELP);
     return;
   }
-  if (command === "init") return runInit(options, positionals);
-  if (command === "register") return runRegister(options, positionals);
-  if (command === "unregister") return runUnregister(options, positionals);
-  if (command === "roots") return runRoots(options, positionals);
-  if (command === "projects") return runProjects(options, positionals);
-  if (command === "new") return runNew(options, positionals);
-  if (command === "remove") return runRemove(options, positionals);
-  if (command === "agent") return runAgent(options, positionals);
-  if (command === "add") return runAdd(options, positionals);
-  if (command === "decision") return runDecision(options, positionals);
-  if (command === "task" || command === "create") return runTask(options, positionals);
-  if (command === "list") return runList(options, positionals);
-  if (command === "show") return runShow(options, positionals);
-  if (command === "move") return runMove(options, positionals);
-  if (command === "assign") return runAssign(options, positionals);
-  if (command === "log") return runLog(options, positionals);
-  return runServer(options, positionals);
+  return run(options, positionals);
 }
 
 main().catch((error) => {

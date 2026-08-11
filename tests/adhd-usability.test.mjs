@@ -169,7 +169,7 @@ test("provides durable selectable plain-text notes without turning capture into 
   // Tolerant read: legacy notes carrying the removed agentIntent field still
   // load, and the rewrite-on-read hook drops the field.
   assert.match(store, /"agentIntent" in record\.metadata/);
-  assert.match(server, /url\.pathname === "\/api\/notes"/);
+  assert.match(server, /route\("GET", "\/api\/notes"/);
   assert.match(standard, /plain-text notes autosave/i);
   assert.match(standard, /passive reference material/i);
 });
@@ -376,7 +376,7 @@ test("ships a scoped Kanban, complete cards, lifecycle history, and retained ter
   assert.match(css, /\.task-panel/);
   assert.match(css, /\.activity-list/);
 
-  for (const field of ["project_path", "task_type", "assignee", "agents", "priority", "tags", "depends_on", "blocked_by", "parent_id", "created_at", "updated_at", "started_at", "completed_at", "cancelled_at"]) {
+  for (const field of ["projectPath", "assignee", "agents", "priority", "tags", "dependsOn", "blockedBy", "parentId", "createdAt", "updatedAt", "startedAt", "completedAt", "cancelledAt"]) {
     assert.ok(store.includes(field), `task store should persist ${field}`);
   }
   assert.match(store, /appendProgress/);

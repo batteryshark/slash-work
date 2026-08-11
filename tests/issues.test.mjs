@@ -315,11 +315,6 @@ test("persists issue conversations and keeps final closure under human control",
     assert.deepEqual(capability.payload.operation.inputSchema.properties.state.enum, ["in_progress", "needs_human", "resolved"]);
     assert.ok(capability.payload.operation.rules.some((rule) => /cannot close, reopen, delete, archive, or lock/i.test(rule)));
 
-    const schema = await requestJson(restarted.origin, "/api/agent/schemas/artifacts/issue");
-    assert.equal(schema.response.status, 200);
-    assert.equal(schema.payload.$ref, "#/$defs/issue");
-    assert.equal(schema.payload.$defs.issue.properties.state.enum.includes("closed"), true);
-
     const openapi = await requestJson(restarted.origin, "/api/openapi.json");
     const claimOperation = openapi.payload.paths["/api/agent/issues/{id}/claim"].post;
     assert.equal(claimOperation.operationId, "issues.claim");

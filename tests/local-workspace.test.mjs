@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { closeLocalApi, startLocalApi } from "../server/local-api.mjs";
-import { discoverProjects } from "../lib/local-workspace.mjs";
+import { discoverProjects, initializeWorkspace } from "../lib/local-workspace.mjs";
 import { chooseWorkspaceDirectory } from "../lib/native-folder-picker.mjs";
 import { registerWorkspace } from "../lib/workspace-registry.mjs";
 
@@ -267,14 +267,14 @@ test("resolves a marked current project for agents and local artifact creation",
   assert.equal((await readdir(join(project, ".work", "decisions"))).length, 1);
   const projectTasks = await readdir(join(project, ".work", "tasks"));
   assert.equal(projectTasks.length, 1);
-  assert.match(await readFile(join(project, ".work", "tasks", projectTasks[0]), "utf8"), /project_path: "piu-recomp"/);
+  assert.match(await readFile(join(project, ".work", "tasks", projectTasks[0]), "utf8"), /projectPath: "piu-recomp"/);
   assert.deepEqual(await readdir(join(root, ".work", "tasks")), []);
 
   const unassigned = await execFile(process.execPath, [launcherPath.pathname, "task", "Keep this at workspace scope", "--unassigned"], { cwd: nested });
   assert.match(unassigned.stdout, /Unassigned/);
   const rootTasks = await readdir(join(root, ".work", "tasks"));
   assert.equal(rootTasks.length, 1);
-  assert.match(await readFile(join(root, ".work", "tasks", rootTasks[0]), "utf8"), /project_path: null/);
+  assert.match(await readFile(join(root, ".work", "tasks", rootTasks[0]), "utf8"), /projectPath: null/);
 
   await assert.rejects(
     execFile(process.execPath, [launcherPath.pathname, "task", "Conflicting destination", "--project", "piu-recomp", "--unassigned"], { cwd: nested }),
@@ -476,11 +476,8 @@ test("launches on loopback, discovers only explicit projects, and contains the r
   }
 
   const nestedRoot = join(root, "software", "rekit");
-  const forcedNested = await startLocalApi({
-    root: nestedRoot,
-    port: 0,
-    forceNewWorkspace: true,
-  });
+  await initializeWorkspace(nestedRoot, { force: true });
+  const forcedNested = await startLocalApi({ root: nestedRoot, port: 0 });
   try {
     const expected = await realpath(nestedRoot);
     const actual = await realpath(workspaceRoot(forcedNested.workspace));
@@ -727,10 +724,6 @@ test("restarts only after explicit local confirmation", async () => {
     const health = await apiRequest(api.origin, "/api/health");
     assert.equal(health.payload.service.restartable, true);
     assert.equal(typeof health.payload.service.instanceId, "string");
-    assert.deepEqual(health.payload.api, {
-      version: 1,
-      capabilities: ["workspace-directory", "workspace-snapshot", "workspace-etag", "artifact-mutations"],
-    });
 
     const rejected = await apiRequest(api.origin, "/api/service/restart", {
       method: "POST",
@@ -1502,6 +1495,47 @@ See project trees from several servers in one place.
     assert.equal(snapshot.payload.notes.some((note) => note.id === "note_legacy1234"), true);
     const removedRoute = await apiRequest(api.origin, "/api/ideas");
     assert.equal(removedRoute.response.status, 404);
+
+    // A task written before the camelCase frontmatter change still loads, and
+    // the next write rewrites it without any snake_case keys.
+    await writeFile(join(root, ".work", "tasks", "W-0042.md"), `---
+id: "W-0042"
+title: "Legacy snake task"
+status: "in_progress"
+project_path: null
+task_type: "bug"
+assignee: null
+priority: "high"
+depends_on: []
+blocked_by: []
+blocked_reason: "waiting on parser"
+parent_id: null
+due_at: "2027-01-01T00:00:00.000Z"
+created_at: "2026-01-01T00:00:00.000Z"
+updated_at: "2026-01-02T00:00:00.000Z"
+started_at: "2026-01-01T12:00:00.000Z"
+---
+
+## Goal
+Keep loading old records.
+`);
+    const legacyTask = await apiRequest(api.origin, "/api/tasks/W-0042");
+    assert.equal(legacyTask.response.status, 200);
+    assert.equal(legacyTask.payload.type, "bug");
+    assert.equal(legacyTask.payload.priority, "high");
+    assert.equal(legacyTask.payload.blockedReason, "waiting on parser");
+    assert.equal(legacyTask.payload.dueAt, "2027-01-01T00:00:00.000Z");
+    assert.equal(legacyTask.payload.startedAt, "2026-01-01T12:00:00.000Z");
+    const logged = await apiRequest(api.origin, "/api/tasks/W-0042/log", {
+      method: "POST",
+      body: { message: "Rewritten in camelCase." },
+    });
+    assert.equal(logged.response.status, 200);
+    const rewrittenTask = await readFile(join(root, ".work", "tasks", "W-0042.md"), "utf8");
+    assert.match(rewrittenTask, /type: "bug"/);
+    assert.match(rewrittenTask, /blockedReason: "waiting on parser"/);
+    assert.match(rewrittenTask, /startedAt: "2026-01-01T12:00:00\.000Z"/);
+    assert.doesNotMatch(rewrittenTask, /task_type|project_path|blocked_reason|created_at|updated_at|started_at/);
   } finally {
     await closeLocalApi(api.server);
   }
