@@ -263,8 +263,10 @@ was actually used.
 | `tasks_list` | `tasks.list` | List task records in the selected workspace. |
 | `task_get` | `tasks.get` | Read one task by stable ID. |
 | `decisions_list` | `decisions.list` | Identify explicit choices still waiting for a human. |
-| `files_list` | new canonical read-only file operation | List one contained project directory. |
-| `file_read` | new canonical read-only file operation | Read one safe text file through Work's existing file browser boundary. |
+| `issues_list` | `issues.list` | List issue conversations available for investigation. |
+| `issue_get` | `issues.read` | Read one issue with replies, ownership, and state history. |
+| `files_list` | `files.list` | List one contained project directory. |
+| `file_read` | `files.read` | Read one safe text file through Work's existing file browser boundary. |
 
 `files_list` and `file_read` must reuse the current REST file-browser
 containment, size limits, binary detection, ignored-secret rules, and
@@ -274,12 +276,18 @@ read-only behavior. They never accept absolute paths.
 
 | MCP tool | Canonical operation | Purpose |
 | --- | --- | --- |
+| `project_create` | `projects.create` | Create a new project folder and marker from a human name. |
 | `capture_create` | `captures.create` | Preserve a thought without turning it into executable work. |
 | `idea_create` | `ideas.create` | Record an evaluative possibility. |
 | `decision_create` | `decisions.create` | Ask a human for an explicit decision. |
 | `task_create` | `tasks.create` | Create authorized executable work with acceptance criteria. |
 | `task_move` | `tasks.move` | Make an explicit lifecycle transition. |
 | `task_log` | `tasks.log` | Append durable progress without changing status. |
+| `task_checklist` | `tasks.checklist` | Check or reopen one requirement or acceptance item. |
+| `issue_create` | `issues.create` | File a discovered problem, attributed to the agent, with no delegation. |
+| `issue_claim` | `issues.claim` | Claim one queued issue and mark it in progress. |
+| `issue_reply` | `issues.reply` | Append an attributed reply to a claimed issue. |
+| `issue_update_state` | `issues.update-state` | Mark a claimed issue in progress, needing a human, or resolved. |
 
 Tool annotations should accurately mark read-only, mutating, idempotent, and
 destructive behavior where FastMCP supports them.

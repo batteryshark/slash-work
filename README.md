@@ -5,10 +5,11 @@
 ![Work: capture anything and continue without reconstructing context](public/og.png)
 
 Work stores project tasks, captures, ideas, notes, issues, and decisions as local
-files for people and agent teams managing many repositories. The home screen
-prioritizes capture and resumption; Issues provide durable human-agent
-conversations, while Ideas, Board, Files, and Activity expose possibilities,
-current work, a read-only source reference, and durable history.
+files for people managing many repositories. Agents connect as attributed
+clients through the MCP server, the REST API, or the `work` CLI. The home screen
+prioritizes capture and resumption; Issues provide durable conversations, while
+Ideas, Board, Files, and Activity expose possibilities, current work, a
+read-only source reference, and durable history.
 
 Requires Node.js 22.13 or newer and npm.
 
@@ -29,7 +30,7 @@ included.
     </td>
     <td width="50%">
       <strong>Keep reference notes beside the project</strong><br><br>
-      <img src="docs/screenshots/notes.jpg" alt="Work notes view showing reference notes and an explicit agent review request">
+      <img src="docs/screenshots/notes.jpg" alt="Work notes view showing plain-text reference notes beside the project">
     </td>
   </tr>
   <tr>
@@ -176,11 +177,9 @@ root's `.work/` contains `workspace.json` plus unassigned captures, ideas,
 notes, issues, tasks, and decisions. Every project has its own
 `.work/project.json`, `.work/tasks/`, `.work/captures/`, `.work/ideas/`,
 `.work/notes/`, `.work/issues/`, and `.work/decisions/`.
-Notes use a plain-text body with a small metadata header so both people and
-agents can read them without a special editor. Every note records an explicit
-`agentIntent`: `reference_only` means context, never an instruction, while
-`review_requested` asks an agent to review it promptly without authorizing
-execution. Assigning or reassigning a
+Notes use a plain-text body with a small metadata header so they stay readable
+without a special editor. Notes are context, never instructions; agent-created
+notes record who contributed them. Assigning or reassigning a
 record moves its file to the owning project; moving the whole project folder
 therefore moves its work and history too. Everything survives browser
 refreshes, server restarts, and a different browser on the same computer.
@@ -200,19 +199,17 @@ Do not commit `.work/` if the workspace contains private operational notes.
   opening a form, or promote any Inbox thought with **Make task**.
 - Open **Notes** for longer plain-text thoughts. Create or select an individual
   note, write without formatting, and let Work save it beside the current
-  project. Notes are reference-only by default. **Ask agent to review** marks a
-  note for prompt review; use a task card when you want execution. Deleting a
-  note requires a second confirmation.
+  project. Notes are reference material, never instructions; use a task card
+  when you want execution. Deleting a note requires a second confirmation.
 - Open **Ideas** when a thought is worth evaluating but is not yet a proposal,
-  decision, or task. **Ask agent to evaluate** authorizes analysis only—never
-  implementation. Mark an idea **Not now** or **Closed** with a durable reason,
-  or develop it toward a proposal and scoped work later.
-- Open **Issues** when you want an agent to investigate a free-form problem and
-  reply asynchronously. A title, category, priority, and assignee are never
-  required. Issue messages support Markdown and code blocks, and the complete
-  conversation remains beside the project. Filing an issue authorizes
-  investigation and replies, not repository changes; create a task when you
-  authorize execution.
+  decision, or task. An idea never authorizes implementation. Mark an idea
+  **Not now** or **Closed** with a durable reason, or develop it toward a
+  proposal and scoped work later.
+- Open **Issues** to record a free-form problem and keep its conversation
+  beside the project. A title, category, priority, and assignee are never
+  required. Issue messages support Markdown and code blocks. Filing an issue
+  authorizes investigation and replies, not repository changes; create a task
+  when you authorize execution.
 - An agent may mark an issue **Resolved** with a resolution summary, but that is
   its assessment rather than a permanent closure. Only a human can choose
   **Close**. **Reopen** remains available after either state, and a human reply
@@ -271,7 +268,6 @@ work agent context --json
 work projects --json
 work agent operations
 work agent instructions tasks.create
-work agent instructions notes.request-review --json
 work agent instructions issues.reply --json
 work agent schema task
 ```

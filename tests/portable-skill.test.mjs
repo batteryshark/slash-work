@@ -35,9 +35,6 @@ test("ships ADHD-friendly guidance for incubating possible projects", async () =
   assert.match(skill, /Never require\npriority, urgency, complexity, estimates, due dates/i);
   assert.match(skill, /Set a revisit date only when/);
   assert.match(skill, /ideas\.create/);
-  assert.match(skill, /analysis only/);
-
-  const metadata = await readFile(new URL("agents/openai.yaml", ideaSkillRoot), "utf8");
-  assert.match(metadata, /display_name: "Incubate Work Ideas"/);
-  assert.match(metadata, /\$incubate-work-ideas/);
+  assert.doesNotMatch(skill, /agent-intent|agentIntent|evaluation_requested/);
+  await assert.rejects(access(new URL("agents/openai.yaml", ideaSkillRoot)));
 });

@@ -40,9 +40,9 @@ test("serves task-scoped agent instructions from the CLI without a workspace or 
 
   const operations = await execFile(process.execPath, [launcherPath.pathname, "agent", "operations"], { cwd });
   assert.match(operations.stdout, /`tasks\.create`/);
-  assert.match(operations.stdout, /`notes\.request-review`/);
   assert.match(operations.stdout, /`notes\.list`/);
-  assert.match(operations.stdout, /`ideas\.request-evaluation`/);
+  assert.match(operations.stdout, /`issues\.create`/);
+  assert.doesNotMatch(operations.stdout, /request-review|request-evaluation/);
   assert.doesNotMatch(operations.stdout, /Input schema/);
 
   const instructions = await execFile(
@@ -108,15 +108,17 @@ test("exposes the same versioned capability catalog and canonical OpenAPI over H
     assert.equal(createDecision.payload.operation.inputSchema.properties.recommendedOption.oneOf[1].type, "null");
     assert.ok(createDecision.payload.operation.rules.some((rule) => /never preselects/i.test(rule)));
 
-    const review = await requestJson(api.origin, "/api/agent/operations/notes.request-review");
-    assert.equal(review.payload.operation.recipeFor, "notes.update");
-    assert.equal(review.payload.operation.example.agentIntent, "review_requested");
-    assert.equal(review.payload.operation.transport.api.path, "/api/agent/notes/{id}");
-    assert.equal(review.payload.operation.headers["X-Work-Agent"].maxLength, 120);
+    const removedRecipe = await requestJson(api.origin, "/api/agent/operations/notes.request-review");
+    assert.equal(removedRecipe.response.status, 404);
+
+    const updateNote = await requestJson(api.origin, "/api/agent/operations/notes.update");
+    assert.equal(updateNote.payload.operation.transport.api.path, "/api/agent/notes/{id}");
+    assert.equal(updateNote.payload.operation.headers["X-Work-Agent"].maxLength, 120);
+    assert.equal("agentIntent" in updateNote.payload.operation.inputSchema.properties, false);
 
     const createNote = await requestJson(api.origin, "/api/agent/operations/notes.create");
     assert.equal(createNote.payload.operation.transport.api.path, "/api/agent/notes");
-    assert.equal(createNote.payload.operation.inputSchema.properties.agentIntent.const, "reference_only");
+    assert.equal("agentIntent" in createNote.payload.operation.inputSchema.properties, false);
 
     const schema = await requestJson(api.origin, "/api/agent/schemas/artifacts/idea");
     assert.equal(schema.response.status, 200);

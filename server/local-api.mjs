@@ -650,7 +650,7 @@ async function handleRequest(workspaces, service, request, response) {
     const agentName = requiredAgentName(request);
     const body = await readJsonBody(request);
     const projects = await discoverProjects(workspace.root);
-    sendJson(request, response, 201, await createNote(workspace, { ...body, agentIntent: "reference_only" }, projects, {
+    sendJson(request, response, 201, await createNote(workspace, body, projects, {
       createdBy: { kind: "agent", name: agentName },
     }));
     return;

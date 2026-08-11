@@ -87,16 +87,15 @@ thought go?” without remembering prior navigation.
   folder moves cannot silently separate the project from its working memory.
 - Longer plain-text notes autosave independently of the quick-capture inbox and
   remain selectable and editable after a restart.
-- Notes default to passive reference material. Requesting agent review is a
-  separate explicit action, persists in the note metadata, and does not imply
-  authorization to execute work.
-- Ideas provide a durable middle state between capture and execution. Asking an
-  agent to evaluate an idea authorizes analysis only; deferring or declining it
-  records why without deleting the possibility or creating a task.
+- Notes are passive reference material, never instructions or authorization to
+  execute work.
+- Ideas provide a durable middle state between capture and execution. An idea
+  never authorizes implementation; deferring or declining it records why
+  without deleting the possibility or creating a task.
 - Issue bodies, replies, and state changes form durable append-only history.
-  Agent resolution never prevents a human from reopening the issue. Replying
-  to an issue that needs human input, is resolved, or is closed returns it to
-  the agent queue automatically, preserving the full conversation.
+  A resolved issue can always be reopened by a human. Replying to an issue
+  that needs human input, is resolved, or is closed returns it to the queue
+  automatically, preserving the full conversation.
 - The last harmless interface scope may persist on the device.
 - Removing a non-current root from the recent list requires confirmation and
   never deletes its directory or `.work/` records.
@@ -215,12 +214,11 @@ the tester needs hidden syntax after launch.
    the recorded outcome. For another item, choose **Decide later** and confirm
    it remains available rather than being called resolved.
 7. Open **Notes**, create a project note with multiple paragraphs, switch to a
-   second note, and return to the first. Confirm the text autosaved, the note is
-   labelled as passive reference, **Ask agent to review** is an explicit action,
-   and deleting the note requires a separate confirmation.
-8. Promote an Inbox thought to an Idea. Ask an agent to evaluate it and confirm
-   the record explicitly says implementation is not authorized. Move it to
-   **Not now** and confirm a reason is required and survives refresh.
+   second note, and return to the first. Confirm the text autosaved and
+   deleting the note requires a separate confirmation.
+8. Promote an Inbox thought to an Idea. Confirm the record explicitly says it
+   is not an approval to implement. Move it to **Not now** and confirm a
+   reason is required and survives refresh.
 9. Open **Issues**, submit multiline Markdown containing a fenced code block,
    and confirm no title or classification is required. Have an agent claim and
    reply to it, then mark it resolved with a summary. Confirm **Reopen** remains

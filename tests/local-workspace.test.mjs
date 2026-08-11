@@ -1303,6 +1303,7 @@ test("keeps editable plain-text notes alongside their project", async () => {
     assert.equal(created.response.status, 201);
     assert.equal(created.payload.title, "Strategy fragments");
     assert.equal(created.payload.projectPath, "software/rekit");
+    // iOS compat shim: responses carry the legacy constant; disk does not.
     assert.equal(created.payload.agentIntent, "reference_only");
     assert.deepEqual(created.payload.createdBy, { kind: "human", name: null });
     noteId = created.payload.id;
@@ -1311,18 +1312,23 @@ test("keeps editable plain-text notes alongside their project", async () => {
     const stored = await readFile(pathname, "utf8");
     assert.match(stored, /type: "note"/);
     assert.match(stored, /title: "Strategy fragments"/);
-    assert.match(stored, /agentIntent: "reference_only"/);
+    assert.doesNotMatch(stored, /agentIntent/);
     assert.match(stored, /createdBy: \{"kind":"human","name":null\}/);
     assert.ok(stored.includes("Questions to revisit:\nKeep this as ordinary text."));
     assert.deepEqual(await readdir(join(root, ".work", "notes")), []);
 
+    // Legacy record migration: a note written before the schema change (with
+    // the removed agentIntent field and no createdBy) must still load and
+    // list, and the rewrite-on-read hook drops the removed field.
     const legacyNoteId = "note_legacy1234";
-    await writeFile(join(root, "software", "rekit", ".work", "notes", `${legacyNoteId}.md`), `---
+    const legacyNotePath = join(root, "software", "rekit", ".work", "notes", `${legacyNoteId}.md`);
+    await writeFile(legacyNotePath, `---
 id: "${legacyNoteId}"
 type: "note"
 title: "Older note"
 scopePath: "software/rekit"
 projectPath: "software/rekit"
+agentIntent: "review_requested"
 createdAt: "2026-01-01T00:00:00.000Z"
 updatedAt: "2026-01-01T00:00:00.000Z"
 ---
@@ -1330,9 +1336,13 @@ updatedAt: "2026-01-01T00:00:00.000Z"
 Existing notes must remain passive by default.
 `);
     const listed = await apiRequest(first.origin, "/api/notes");
-    assert.equal(listed.payload.notes.find((note) => note.id === legacyNoteId)?.agentIntent, "reference_only");
-    assert.deepEqual(listed.payload.notes.find((note) => note.id === legacyNoteId)?.createdBy, { kind: "human", name: null });
-    assert.match(await readFile(join(root, "software", "rekit", ".work", "notes", `${legacyNoteId}.md`), "utf8"), /agentIntent: "reference_only"/);
+    const legacyNote = listed.payload.notes.find((note) => note.id === legacyNoteId);
+    assert.equal(legacyNote?.title, "Older note");
+    assert.equal(legacyNote?.agentIntent, "reference_only");
+    assert.deepEqual(legacyNote?.createdBy, { kind: "human", name: null });
+    const rewritten = await readFile(legacyNotePath, "utf8");
+    assert.doesNotMatch(rewritten, /agentIntent/);
+    assert.match(rewritten, /createdBy: \{"kind":"human","name":null\}/);
     const removedLegacy = await apiRequest(first.origin, `/api/notes/${legacyNoteId}`, { method: "DELETE" });
     assert.equal(removedLegacy.response.status, 204);
 
@@ -1341,19 +1351,11 @@ Existing notes must remain passive by default.
       body: {
         title: "Strategy notes",
         text: "A revised thought.\n\nA second paragraph.",
-        agentIntent: "review_requested",
       },
     });
     assert.equal(updated.response.status, 200);
     assert.equal(updated.payload.title, "Strategy notes");
     assert.equal(updated.payload.text, "A revised thought.\n\nA second paragraph.");
-    assert.equal(updated.payload.agentIntent, "review_requested");
-
-    const invalidIntent = await apiRequest(first.origin, `/api/notes/${encodeURIComponent(noteId)}`, {
-      method: "PATCH",
-      body: { agentIntent: "execute_now" },
-    });
-    assert.equal(invalidIntent.response.status, 400);
 
     const traversal = await apiRequest(first.origin, "/api/notes", {
       method: "POST",
@@ -1371,7 +1373,6 @@ Existing notes must remain passive by default.
     assert.equal(note.title, "Strategy notes");
     assert.equal(note.text, "A revised thought.\n\nA second paragraph.");
     assert.equal(note.projectPath, "software/rekit");
-    assert.equal(note.agentIntent, "review_requested");
     assert.deepEqual(note.createdBy, { kind: "human", name: null });
 
     const removed = await apiRequest(restarted.origin, `/api/notes/${encodeURIComponent(noteId)}`, { method: "DELETE" });
@@ -1403,11 +1404,10 @@ test("attributes agent-created notes and contains agent mutations to their own n
     const created = await apiRequest(api.origin, "/api/agent/notes", {
       method: "POST",
       headers: { "x-work-agent": "codex-cli" },
-      body: { title: "Investigation result", text: "The parser accepts the new envelope.", projectPath: "software/rekit", agentIntent: "review_requested" },
+      body: { title: "Investigation result", text: "The parser accepts the new envelope.", projectPath: "software/rekit" },
     });
     assert.equal(created.response.status, 201);
     assert.deepEqual(created.payload.createdBy, { kind: "agent", name: "codex-cli" });
-    assert.equal(created.payload.agentIntent, "reference_only");
 
     const agentEditsHuman = await apiRequest(api.origin, `/api/agent/notes/${human.payload.id}`, {
       method: "PATCH",
@@ -1477,6 +1477,7 @@ test("keeps ideas between raw thoughts and executable work with explicit evaluat
     });
     assert.equal(created.response.status, 201);
     assert.equal(created.payload.status, "open");
+    // iOS compat shim: responses carry the legacy constant; disk does not.
     assert.equal(created.payload.agentIntent, "consideration_only");
     assert.equal(created.payload.source, "capture_example1234");
     assert.equal(created.payload.sections.opportunity, "See project trees from several servers in one place.");
@@ -1485,7 +1486,7 @@ test("keeps ideas between raw thoughts and executable work with explicit evaluat
     const pathname = join(root, "software", "rekit", ".work", "ideas", `${ideaId}.md`);
     const stored = await readFile(pathname, "utf8");
     assert.match(stored, /type: "idea"/);
-    assert.match(stored, /agentIntent: "consideration_only"/);
+    assert.doesNotMatch(stored, /agentIntent/);
     assert.match(stored, /## Opportunity\nSee project trees from several servers in one place\./);
     assert.match(stored, /## Outcome\n?$/);
 
@@ -1493,19 +1494,53 @@ test("keeps ideas between raw thoughts and executable work with explicit evaluat
       method: "PATCH",
       body: {
         title: "Federate trusted Work instances",
-        opportunity: "See saved draft changes while requesting evaluation.",
+        opportunity: "See saved draft changes while exploring.",
         status: "exploring",
-        reason: "Evaluation requested.",
-        agentIntent: "evaluation_requested",
+        reason: "Started evaluating.",
       },
     });
     assert.equal(evaluation.response.status, 200);
     assert.equal(evaluation.payload.status, "exploring");
-    assert.equal(evaluation.payload.agentIntent, "evaluation_requested");
     assert.equal(evaluation.payload.title, "Federate trusted Work instances");
-    assert.equal(evaluation.payload.sections.opportunity, "See saved draft changes while requesting evaluation.");
+    assert.equal(evaluation.payload.sections.opportunity, "See saved draft changes while exploring.");
     assert.deepEqual(evaluation.payload.history[0].from, "open");
     assert.deepEqual(evaluation.payload.history[0].to, "exploring");
+
+    // Legacy record migration: an idea written before the schema change still
+    // loads, and its next write drops the removed agentIntent field.
+    const legacyIdeaId = "idea_legacy1234";
+    const legacyIdeaPath = join(root, "software", "rekit", ".work", "ideas", `${legacyIdeaId}.md`);
+    await writeFile(legacyIdeaPath, `---
+id: "${legacyIdeaId}"
+type: "idea"
+title: "Older idea"
+status: "open"
+scopePath: "software/rekit"
+projectPath: "software/rekit"
+tags: []
+source: null
+revisitAt: null
+agentIntent: "evaluation_requested"
+history: []
+createdAt: "2026-01-01T00:00:00.000Z"
+updatedAt: "2026-01-01T00:00:00.000Z"
+---
+
+## Opportunity
+Old records must keep loading.
+`);
+    const listedIdeas = await apiRequest(first.origin, "/api/ideas");
+    const legacyIdea = listedIdeas.payload.ideas.find((idea) => idea.id === legacyIdeaId);
+    assert.equal(legacyIdea?.title, "Older idea");
+    assert.equal(legacyIdea?.agentIntent, "consideration_only");
+    const migrated = await apiRequest(first.origin, `/api/ideas/${legacyIdeaId}`, {
+      method: "PATCH",
+      body: { title: "Older idea, still loading" },
+    });
+    assert.equal(migrated.response.status, 200);
+    assert.doesNotMatch(await readFile(legacyIdeaPath, "utf8"), /agentIntent/);
+    const removedLegacyIdea = await apiRequest(first.origin, `/api/ideas/${legacyIdeaId}`, { method: "DELETE" });
+    assert.equal(removedLegacyIdea.response.status, 204);
 
     const missingReason = await apiRequest(first.origin, `/api/ideas/${ideaId}`, {
       method: "PATCH",
@@ -1524,7 +1559,6 @@ test("keeps ideas between raw thoughts and executable work with explicit evaluat
     });
     assert.equal(deferred.response.status, 200);
     assert.equal(deferred.payload.status, "deferred");
-    assert.equal(deferred.payload.agentIntent, "consideration_only");
     assert.equal(deferred.payload.sections.outcome, "Remote authentication is not mature enough yet.");
     assert.equal(deferred.payload.revisitAt, "2027-01-15T00:00:00.000Z");
     assert.equal(deferred.payload.history.length, 2);

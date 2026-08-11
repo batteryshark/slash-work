@@ -95,13 +95,8 @@ Should the release include the migration?
 ## Note
 
 A note is longer reference material. Its body is plain text: do not require or
-inject headings. An empty body is valid.
-
-`agentIntent` is semantically important:
-
-- `reference_only`: context, not an instruction or authorization to act.
-- `review_requested`: asks an agent to review promptly, but still does not
-  authorize execution.
+inject headings. An empty body is valid. A note is context, not an instruction
+or authorization to act.
 
 `createdBy` records durable provenance. Existing and UI-created notes use
 `{"kind":"human","name":null}`. Agent note routes stamp
@@ -116,7 +111,6 @@ type: "note"
 title: "Release context"
 scopePath: "software/rekit"
 projectPath: "software/rekit"
-agentIntent: "reference_only"
 createdBy: {"kind":"human","name":null}
 createdAt: "2026-07-13T14:30:00.000Z"
 updatedAt: "2026-07-13T14:30:00.000Z"
@@ -138,12 +132,6 @@ Statuses are `open`, `exploring`, `deferred`, `proposed`, `adopted`, and
 state transition appends `{from,to,reason,at}` to `history`; never discard prior
 reasons. `revisitAt` is optional and is especially useful for deferred ideas.
 
-`agentIntent` is either:
-
-- `consideration_only`: preserve this possibility; it is not a request.
-- `evaluation_requested`: assess feasibility, value, unknowns, risks, and
-  possible approaches, but do not implement anything.
-
 ```markdown
 ---
 id: "idea_mabc1234_ab12cd34ef56"
@@ -155,8 +143,7 @@ projectPath: null
 tags: ["review","ui"]
 source: null
 revisitAt: null
-agentIntent: "evaluation_requested"
-history: [{"from":"open","to":"exploring","reason":"Evaluation requested.","at":"2026-07-14T14:30:00.000Z"}]
+history: [{"from":"open","to":"exploring","reason":"Started evaluating.","at":"2026-07-14T14:30:00.000Z"}]
 createdAt: "2026-07-14T14:25:00.000Z"
 updatedAt: "2026-07-14T14:30:00.000Z"
 ---

@@ -681,14 +681,6 @@ kbd { display: inline-grid; place-items: center; min-width: 23px; height: 23px; 
 .note-editor-heading label { flex: 1 1 auto; min-width: 0; }
 .note-editor-heading input { width: 100%; padding: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: clamp(24px, 2.3vw, 32px); font-weight: 760; letter-spacing: -0.035em; }
 .note-editor-heading > span { flex: 0 0 auto; padding: 6px 8px; border-radius: 8px; background: var(--surface-muted); color: var(--muted); font-size: 10px; font-weight: 700; }
-.note-agent-intent { display: flex; align-items: center; justify-content: space-between; gap: 18px; min-height: 68px; padding: 10px 18px 10px 24px; border-bottom: 1px solid var(--line); background: var(--canvas); }
-.note-agent-intent > div { display: grid; gap: 3px; min-width: 0; }
-.note-agent-intent strong { font-size: 13px; }
-.note-agent-intent span { color: var(--muted); font-size: 11px; line-height: 1.4; }
-.note-agent-intent button { flex: 0 0 auto; min-height: 42px; padding: 0 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); cursor: pointer; font-size: 12px; font-weight: 720; }
-.note-agent-intent.review-requested { background: var(--accent-softer); }
-.note-agent-intent.review-requested strong { color: var(--accent-dark); }
-.note-agent-intent.review-requested button { border-color: #d4ceff; color: var(--accent-dark); }
 .note-body-field { display: flex; flex: 1 1 auto; min-height: 0; }
 .note-body-field textarea { flex: 1 1 auto; width: 100%; min-height: 410px; padding: 24px; resize: none; border: 0; outline: 0; background: transparent; color: var(--ink); font: 16px/1.65 var(--sans); white-space: pre-wrap; }
 .note-body-field textarea::placeholder { color: var(--soft); }
@@ -807,12 +799,8 @@ kbd { display: inline-grid; place-items: center; min-width: 23px; height: 23px; 
 .idea-editor > form { display: grid; gap: 18px; padding-bottom: 24px; }
 .idea-intent { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 20px; border-bottom: 1px solid var(--line); background: var(--canvas); }
 .idea-intent > div { display: grid; gap: 4px; min-width: 0; }
-.idea-intent > .idea-intent-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; }
 .idea-intent strong { font-size: 13px; }
 .idea-intent span { color: var(--muted); font-size: 11px; line-height: 1.45; }
-.idea-intent button { flex: 0 0 auto; min-height: 42px; padding: 0 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); cursor: pointer; font-size: 12px; font-weight: 720; }
-.idea-intent.evaluation-requested { background: var(--accent-softer); }
-.idea-intent.evaluation-requested strong, .idea-intent.evaluation-requested button { color: var(--accent-dark); }
 .idea-title, .idea-state-fields, .idea-transition-reason, .idea-sections, .idea-history, .idea-editor-footer { margin-inline: 22px; }
 .idea-title, .idea-state-fields label, .idea-transition-reason, .idea-sections label { display: grid; gap: 6px; color: var(--muted); font-size: 10px; font-weight: 760; letter-spacing: .04em; text-transform: uppercase; }
 .idea-title input { width: 100%; padding: 4px 0 10px; border: 0; border-bottom: 1px solid var(--line); outline: 0; background: transparent; color: var(--ink); font-size: clamp(24px, 2.3vw, 32px); font-weight: 760; letter-spacing: -0.035em; text-transform: none; }
@@ -1144,8 +1132,6 @@ html[data-theme="dark"] .issue-state-note.needs-human { border-color: #705a28; b
   .note-editor { min-height: 540px; }
   .note-editor-heading { align-items: flex-start; flex-direction: column; }
   .note-editor-heading label { width: 100%; }
-  .note-agent-intent { align-items: stretch; flex-direction: column; padding: 14px 16px; }
-  .note-agent-intent button { width: 100%; }
   .note-body-field textarea { min-height: 340px; padding: 20px; resize: vertical; }
   .note-editor-footer { align-items: stretch; flex-direction: column; padding: 14px 16px; }
   .note-editor-actions { align-items: stretch; flex-direction: column-reverse; }
@@ -1174,8 +1160,6 @@ html[data-theme="dark"] .issue-state-note.needs-human { border-color: #705a28; b
   .issue-authority-note { margin-inline: 16px; }
   .idea-editor { max-height: none; }
   .idea-intent { align-items: stretch; flex-direction: column; }
-  .idea-intent button { width: 100%; }
-  .idea-intent > .idea-intent-actions { display: grid; width: 100%; }
   .idea-state-fields, .idea-sections { grid-template-columns: 1fr; }
   .idea-sections label:last-child { grid-column: auto; }
   .idea-history li { grid-template-columns: 1fr; }

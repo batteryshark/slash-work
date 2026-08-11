@@ -16,8 +16,6 @@ work agent context
 work projects --json
 work agent operations
 work agent instructions tasks.create
-work agent instructions notes.request-review
-work agent instructions ideas.request-evaluation
 work agent instructions issues.reply
 work agent schema task
 ```
@@ -70,9 +68,9 @@ therefore update atomically with the installed Work version. The protocol
 version changes only when the capability representation becomes incompatible.
 
 Operation guides describe intent, transport, input schema, rules, and a small
-example. The index can also include recipes such as `notes.request-review`.
-A recipe is a task-specific use of a canonical API operation and therefore does
-not become a duplicate OpenAPI operation.
+example. The index can also include recipes: task-specific uses of a canonical
+API operation (`projects.update-description`, for example) that therefore do
+not become duplicate OpenAPI operations.
 
 ## Safety and authority
 
@@ -85,7 +83,8 @@ operation but never authorize it. In particular:
   verify it. Pass `--unassigned` only when workspace-level work is intentional.
   API callers use the exact path returned by `projects.list` or null for
   intentionally unassigned work.
-- Requesting note review or idea evaluation authorizes analysis only.
+- Notes and ideas are reference material and possibilities; neither authorizes
+  implementation.
 - Filing an issue authorizes investigation and replies only. It does not
   authorize repository mutation or executable work. Dedicated agent issue
   routes require `X-Work-Agent`; an agent may claim, reply, request a human

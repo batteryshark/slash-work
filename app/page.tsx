@@ -39,7 +39,6 @@ type ProjectNote = {
   text: string;
   scopePath: string;
   projectPath: string | null;
-  agentIntent: "reference_only" | "review_requested";
   createdBy: { kind: "human"; name: null } | { kind: "agent"; name: string };
   createdAt: string;
   updatedAt: string;
@@ -87,7 +86,6 @@ type ProjectIdea = {
   tags: string[];
   source: string | null;
   revisitAt: string | null;
-  agentIntent: "consideration_only" | "evaluation_requested";
   history: Array<{ from: IdeaStatus; to: IdeaStatus; reason: string | null; at: string }>;
   createdAt: string;
   updatedAt: string;
@@ -363,7 +361,7 @@ function shortTime(iso: string) {
 
 const ISSUE_STATE_LABELS: Record<IssueState, string> = {
   queued: "Queued",
-  in_progress: "Agent working",
+  in_progress: "In progress",
   needs_human: "Needs you",
   resolved: "Resolved",
   closed: "Closed",
@@ -1063,9 +1061,11 @@ export default function Home() {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [data, scopePath]);
   const humanIssues = scopedIssues.filter((issue) => issue.state === "needs_human");
+  const blockedTasks = scopedTasks.filter((task) => task.status === "blocked");
   const visibleHumanIssues = humanIssues.slice(0, 3);
-  const visibleDecisions = activeDecisions.slice(0, Math.max(0, 3 - visibleHumanIssues.length));
-  const attentionCount = activeDecisions.length + humanIssues.length;
+  const visibleBlockedTasks = blockedTasks.slice(0, Math.max(0, 3 - visibleHumanIssues.length));
+  const visibleDecisions = activeDecisions.slice(0, Math.max(0, 3 - visibleHumanIssues.length - visibleBlockedTasks.length));
+  const attentionCount = activeDecisions.length + humanIssues.length + blockedTasks.length;
 
   const scheduledItems = useMemo(() => {
     const tasks: ScheduledItem[] = scopedTasks
@@ -1332,7 +1332,6 @@ export default function Home() {
           text: "",
           scopePath,
           projectPath: selectedProject?.path ?? null,
-          agentIntent: "reference_only",
         }),
       });
       replaceNote(note);
@@ -1348,7 +1347,7 @@ export default function Home() {
     }
   }
 
-  async function updateProjectNote(noteId: string, patch: { title?: string; text?: string; agentIntent?: ProjectNote["agentIntent"] }) {
+  async function updateProjectNote(noteId: string, patch: { title?: string; text?: string }) {
     setNoteError(null);
     try {
       const note = await requestJson<ProjectNote>(`/api/notes/${encodeURIComponent(noteId)}`, {
@@ -2152,6 +2151,25 @@ export default function Home() {
                   </button>
                 </article>
               ))}
+              {visibleBlockedTasks.map((task) => (
+                <article className="attention-item issue-attention-item" key={task.id}>
+                  <button
+                    type="button"
+                    className="attention-summary"
+                    onClick={() => {
+                      setSelectedTaskId(task.id);
+                      setView("board");
+                    }}
+                  >
+                    <span className="attention-check" aria-hidden="true">■</span>
+                    <span className="attention-copy">
+                      <small>Blocked task · {task.projectPath ? data.projects.find((project) => project.path === task.projectPath)?.name ?? task.projectPath : `${data.workspace.name} · Unassigned`}</small>
+                      <strong>{task.title}</strong>
+                    </span>
+                    <span className="review-label">Unblock</span>
+                  </button>
+                </article>
+              ))}
               {visibleDecisions.map((decision) => {
                 const open = expandedDecision === decision.id;
                 const draft = draftFor(decision.id);
@@ -2195,7 +2213,7 @@ export default function Home() {
                               />
                               <span>
                                 <strong>{option}</strong>
-                                {option === decision.recommendedOption && <small className="decision-recommended">Agent recommendation</small>}
+                                {option === decision.recommendedOption && <small className="decision-recommended">Recommendation</small>}
                                 {option === "Other" && <small>Write a different answer below.</small>}
                               </span>
                             </label>
@@ -2259,8 +2277,8 @@ export default function Home() {
                   </article>
                 );
               })}
-              {attentionCount > visibleHumanIssues.length + visibleDecisions.length && (
-                <p className="more-decisions">{attentionCount - visibleHumanIssues.length - visibleDecisions.length} more waiting safely in this scope. Reply, finish, or defer one to bring the next forward.</p>
+              {attentionCount > visibleHumanIssues.length + visibleBlockedTasks.length + visibleDecisions.length && (
+                <p className="more-decisions">{attentionCount - visibleHumanIssues.length - visibleBlockedTasks.length - visibleDecisions.length} more waiting safely in this scope. Reply, finish, or defer one to bring the next forward.</p>
               )}
             </div>
           )}
@@ -2366,7 +2384,7 @@ export default function Home() {
         {captureReceipt && (
           <div className="capture-receipt" role="status" aria-live="polite">
             <span className="receipt-check" aria-hidden="true">✓</span>
-            <div><strong>Saved: “{captureReceipt.capture.text}”</strong><small>{captureReceipt.destination} · Available to agents in this root</small></div>
+            <div><strong>Saved: “{captureReceipt.capture.text}”</strong><small>{captureReceipt.destination} · Waiting in your inbox</small></div>
             <div className="receipt-actions">
               <button type="button" onClick={() => void promoteCaptureToIdea(captureReceipt.capture).catch(() => {})}>Make idea</button>
               <button type="button" onClick={() => void promoteCaptureToTask(captureReceipt.capture).catch(() => {})}>Make task</button>
@@ -2642,7 +2660,7 @@ function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpd
             <div><button type="button" onClick={() => { setPurpose(project.description ?? ""); setEditingPurpose(false); setPurposeError(null); }}>Cancel</button><button type="button" className="primary-action" disabled={savingPurpose} onClick={() => void savePurpose()}>{savingPurpose ? "Saving…" : "Save purpose"}</button></div>
           </div>
         ) : (
-          <p className={project.description ? "" : "project-purpose-empty"}>{project.description || "Add a short description so people and agents understand what this project is trying to make possible."}</p>
+          <p className={project.description ? "" : "project-purpose-empty"}>{project.description || "Add a short description of what this project is trying to make possible."}</p>
         )}
         {purposeError && <p className="field-error" role="alert">{purposeError}</p>}
       </section>
@@ -3077,7 +3095,7 @@ function IssuesView({
     <section className="issues-view" aria-labelledby="issues-heading">
       <header className="issues-toolbar">
         <div>
-          <p className="eyebrow">A durable conversation with an agent</p>
+          <p className="eyebrow">A durable conversation beside the work</p>
           <h1 id="issues-heading">{scopeLabel} issues</h1>
           <p>Write what is wrong, unclear, or worth investigating. No title or categorization required.</p>
         </div>
@@ -3122,7 +3140,7 @@ function IssuesView({
           {filteredIssues.length === 0 ? (
             <div className="notes-list-empty">
               <strong>{issues.length === 0 ? "No issues yet." : "No issues match."}</strong>
-              <span>{issues.length === 0 ? "Use the free-form box above whenever an agent should pick something up." : "Try a different search."}</span>
+              <span>{issues.length === 0 ? "Use the free-form box above whenever something needs investigation." : "Try a different search."}</span>
             </div>
           ) : (
             <div className="issue-list" role="listbox" aria-label="Select an issue">
@@ -3172,19 +3190,19 @@ function IssuesView({
 
               {selectedIssue.state === "in_progress" && (
                 <div className="issue-state-note">
-                  <strong>Agent working{selectedIssue.claimedBy ? ` · ${selectedIssue.claimedBy.name}` : ""}</strong>
-                  <span>The issue remains open while the agent investigates.</span>
+                  <strong>In progress{selectedIssue.claimedBy ? ` · ${selectedIssue.claimedBy.name}` : ""}</strong>
+                  <span>The issue stays open while it is investigated.</span>
                 </div>
               )}
               {selectedIssue.state === "needs_human" && (
                 <div className="issue-state-note needs-human">
-                  <strong>The agent needs your input.</strong>
+                  <strong>Needs you.</strong>
                   <span>Reply below. Only issues in this state appear in the bounded Needs you list.</span>
                 </div>
               )}
               {selectedIssue.state === "resolved" && (
                 <div className="issue-state-note resolved">
-                  <strong>Agent resolution — an opinion, not a final judgment.</strong>
+                  <strong>Resolution — awaiting your review.</strong>
                   {selectedIssue.resolutionSummary
                     ? <Markdown>{selectedIssue.resolutionSummary}</Markdown>
                     : <span>If the result is incomplete, reply or reopen the issue.</span>}
@@ -3245,7 +3263,7 @@ function IssuesView({
               <form className="issue-reply" onSubmit={(event) => void submitReply(event).catch(() => {})}>
                 <label htmlFor={`issue-reply-${selectedIssue.id}`}>
                   <strong>Reply</strong>
-                  {selectedIssue.state === "needs_human" && <span>Replying returns this issue to Queued so the agent can continue.</span>}
+                  {selectedIssue.state === "needs_human" && <span>Replying returns this issue to Queued so work can continue.</span>}
                   {(selectedIssue.state === "resolved" || selectedIssue.state === "closed") && <span>Replying automatically reopens this issue and returns it to Queued.</span>}
                 </label>
                 <textarea
@@ -3253,7 +3271,7 @@ function IssuesView({
                   value={reply}
                   onChange={(event) => setReply(event.target.value)}
                   onKeyDown={(event) => submitOnShortcut(event, () => submitReply())}
-                  placeholder="Add context, answer the agent, or say what still is not right…"
+                  placeholder="Add context, answer questions, or say what still is not right…"
                 />
                 <footer>
                   <span>Markdown supported · <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
@@ -3368,11 +3386,11 @@ function IdeasView({
     return projects.find((project) => project.path === idea.projectPath)?.name ?? idea.projectPath;
   }
 
-  function draftPatch(status = draft.status, reason = draft.reason) {
+  function draftPatch() {
     return {
       title: draft.title.trim() || "Untitled idea",
-      status,
-      reason,
+      status: draft.status,
+      reason: draft.reason,
       tags: draft.tags.split(",").map((tag) => tag.trim()).filter(Boolean),
       revisitAt: draft.revisitAt || null,
       opportunity: draft.opportunity,
@@ -3391,24 +3409,6 @@ function IdeasView({
     event.preventDefault();
     if (!selectedIdea) return;
     await onUpdate(selectedIdea.id, draftPatch());
-  }
-
-  async function toggleEvaluationRequest() {
-    if (!selectedIdea) return;
-    const requested = selectedIdea.agentIntent === "evaluation_requested";
-    const shouldExplore = ["open", "deferred", "adopted", "declined"].includes(draft.status);
-    const nextStatus = !requested && shouldExplore ? "exploring" : draft.status;
-    const transitionReason = nextStatus !== draft.status
-      ? (draft.status === "open" ? "Evaluation requested." : "Evaluation reopened.")
-      : draft.reason;
-    await onUpdate(selectedIdea.id, {
-      ...draftPatch(nextStatus, transitionReason),
-      ...(requested
-        ? { agentIntent: "consideration_only" }
-        : {
-          agentIntent: "evaluation_requested",
-        }),
-    });
   }
 
   async function removeIdea() {
@@ -3460,7 +3460,7 @@ function IdeasView({
             <div className="notes-list idea-list" role="listbox" aria-label="Select an idea">
               {filteredIdeas.map((idea) => (
                 <button type="button" role="option" aria-selected={idea.id === selectedIdea?.id} className={idea.id === selectedIdea?.id ? "selected" : ""} key={idea.id} onClick={() => onSelect(idea.id)}>
-                  <span className="note-list-title"><strong>{idea.title}</strong>{idea.agentIntent === "evaluation_requested" && <em>Evaluate</em>}</span>
+                  <span className="note-list-title"><strong>{idea.title}</strong></span>
                   <span className={`idea-status status-${idea.status}`}>{ideaStatusLabel(idea.status)}</span>
                   <small>{ideaLocation(idea)} · {shortTime(idea.updatedAt)}</small>
                 </button>
@@ -3472,11 +3472,8 @@ function IdeasView({
         <article className="idea-editor" aria-label={selectedIdea ? `Develop idea: ${selectedIdea.title}` : "Idea editor"}>
           {selectedIdea ? (
             <form onSubmit={(event) => void saveIdea(event).catch(() => {})}>
-              <div className={`idea-intent ${selectedIdea.agentIntent === "evaluation_requested" ? "evaluation-requested" : "consideration-only"}`}>
-                <div><strong>{selectedIdea.agentIntent === "evaluation_requested" ? "Evaluation requested" : "Consideration only"}</strong><span>{selectedIdea.agentIntent === "evaluation_requested" ? "An agent may assess feasibility, value, unknowns, and options. Implementation is not authorized." : "This preserves a possibility. It is not a task, decision, or approval to implement."}</span></div>
-                <div className="idea-intent-actions">
-                  {(selectedIdea.status !== "adopted" || selectedIdea.agentIntent === "evaluation_requested") && <button type="button" disabled={saving} onClick={() => void toggleEvaluationRequest().catch(() => {})}>{selectedIdea.agentIntent === "evaluation_requested" ? "Clear request" : "Ask agent to evaluate"}</button>}
-                </div>
+              <div className="idea-intent">
+                <div><strong>Consideration only</strong><span>This preserves a possibility. It is not a task, decision, or approval to implement.</span></div>
               </div>
               <label className="idea-title"><span>Idea</span><input value={draft.title} maxLength={500} onChange={(event) => setField("title", event.target.value)} /></label>
               <div className="idea-state-fields">
@@ -3539,7 +3536,7 @@ function NotesView({
   error: string | null;
   onSelect: (noteId: string) => void;
   onCreate: () => Promise<ProjectNote>;
-  onUpdate: (noteId: string, patch: { title?: string; text?: string; agentIntent?: ProjectNote["agentIntent"] }) => Promise<ProjectNote>;
+  onUpdate: (noteId: string, patch: { title?: string; text?: string }) => Promise<ProjectNote>;
   onDelete: (noteId: string) => Promise<void>;
 }) {
   const selectedNote = notes.find((note) => note.id === selectedNoteId) ?? null;
@@ -3550,7 +3547,6 @@ function NotesView({
   const [saveState, setSaveState] = useState<"idle" | "editing" | "saving" | "saved" | "error">("idle");
   const [deleteArmed, setDeleteArmed] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [updatingAgentIntent, setUpdatingAgentIntent] = useState(false);
   const revisionRef = useRef(0);
   const saveTimerRef = useRef<number | null>(null);
 
@@ -3655,21 +3651,6 @@ function NotesView({
     }
   }
 
-  async function toggleAgentReview() {
-    if (!selectedNote || updatingAgentIntent) return;
-    if (!(await persistDraft())) return;
-    setUpdatingAgentIntent(true);
-    try {
-      await onUpdate(selectedNote.id, {
-        agentIntent: selectedNote.agentIntent === "review_requested" ? "reference_only" : "review_requested",
-      });
-    } catch {
-      setSaveState("error");
-    } finally {
-      setUpdatingAgentIntent(false);
-    }
-  }
-
   function noteLocation(note: ProjectNote) {
     if (!note.projectPath) return note.scopePath === "." ? "Workspace note" : `${displaySegment(pathParts(note.scopePath).at(-1) ?? note.scopePath)} note`;
     return projects.find((project) => project.path === note.projectPath)?.name ?? note.projectPath;
@@ -3730,8 +3711,7 @@ function NotesView({
                   >
                     <span className="note-list-title">
                       <strong>{note.title}</strong>
-                      {note.createdBy.kind === "agent" && <em>Agent · {note.createdBy.name}</em>}
-                      {note.agentIntent === "review_requested" && <em>Agent review</em>}
+                      {note.createdBy.kind === "agent" && <em>Added by {note.createdBy.name}</em>}
                     </span>
                     <span className="note-list-preview">{preview}</span>
                     <small>{noteLocation(note)} · {shortTime(note.updatedAt)}</small>
@@ -3759,21 +3739,6 @@ function NotesView({
                   />
                 </label>
                 <span>{noteLocation(selectedNote)}{selectedNote.createdBy.kind === "agent" ? ` · Agent: ${selectedNote.createdBy.name}` : " · Human note"}</span>
-              </div>
-              <div className={`note-agent-intent ${selectedNote.agentIntent === "review_requested" ? "review-requested" : "reference-only"}`}>
-                <div>
-                  <strong>{selectedNote.agentIntent === "review_requested" ? "Agent review requested" : "Reference note"}</strong>
-                  <span>{selectedNote.agentIntent === "review_requested"
-                    ? "An agent should review this promptly. This is still not authorization to execute work."
-                    : "Agents may use this as context, but should not treat it as a request or task."}</span>
-                </div>
-                <button type="button" disabled={updatingAgentIntent} onClick={() => void toggleAgentReview()}>
-                  {updatingAgentIntent
-                    ? "Updating…"
-                    : selectedNote.agentIntent === "review_requested"
-                      ? "Clear review request"
-                      : "Ask agent to review"}
-                </button>
               </div>
               <label className="note-body-field">
                 <span className="sr-only">Note text</span>

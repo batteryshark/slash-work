@@ -84,8 +84,8 @@ available, or a dependency maturing.
 When reading or mutating a `.work` workspace, also follow the sibling
 `slash-work` skill. Use `work agent instructions ideas.create` or the relevant
 Idea operation as the installed Work version's authority. Preserve workspace
-scope, project ownership, lifecycle history, and agent-intent semantics.
+scope, project ownership, and lifecycle history.
 
-Idea evaluation authorizes analysis only. It never authorizes implementation.
-After creating or updating an Idea, confirm concisely what was preserved, its
-scope and state, and what was deliberately not created.
+An Idea never authorizes implementation. After creating or updating an Idea,
+confirm concisely what was preserved, its scope and state, and what was
+deliberately not created.

@@ -178,14 +178,13 @@
       "title": "Note",
       "type": "object",
       "additionalProperties": false,
-      "required": ["artifactType", "id", "title", "scopePath", "projectPath", "agentIntent", "createdBy", "createdAt", "updatedAt", "text"],
+      "required": ["artifactType", "id", "title", "scopePath", "projectPath", "createdBy", "createdAt", "updatedAt", "text"],
       "properties": {
         "artifactType": { "const": "note" },
         "id": { "type": "string", "pattern": "^note_[a-z0-9][a-z0-9_-]{7,80}$" },
         "title": { "type": "string", "minLength": 1, "maxLength": 300 },
         "scopePath": { "$ref": "#/$defs/scopePath" },
         "projectPath": { "$ref": "#/$defs/projectPath" },
-        "agentIntent": { "enum": ["reference_only", "review_requested"] },
         "createdBy": {
           "oneOf": [
             { "type": "object", "additionalProperties": false, "required": ["kind", "name"], "properties": { "kind": { "const": "human" }, "name": { "type": "null" } } },
@@ -239,7 +238,7 @@
       "description": "A possibility to evaluate. It never authorizes implementation.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["artifactType", "id", "title", "status", "scopePath", "projectPath", "tags", "source", "revisitAt", "agentIntent", "history", "createdAt", "updatedAt", "opportunity", "whyItMightMatter", "hypothesis", "unknowns", "potentialShape", "evidence", "risksAndConstraints", "nextEvaluation", "outcome"],
+      "required": ["artifactType", "id", "title", "status", "scopePath", "projectPath", "tags", "source", "revisitAt", "history", "createdAt", "updatedAt", "opportunity", "whyItMightMatter", "hypothesis", "unknowns", "potentialShape", "evidence", "risksAndConstraints", "nextEvaluation", "outcome"],
       "properties": {
         "artifactType": { "const": "idea" },
         "id": { "type": "string", "pattern": "^idea_[a-z0-9][a-z0-9_-]{7,80}$" },
@@ -250,7 +249,6 @@
         "tags": { "$ref": "#/$defs/stringList" },
         "source": { "oneOf": [{ "type": "string", "minLength": 1, "maxLength": 500 }, { "type": "null" }] },
         "revisitAt": { "$ref": "#/$defs/nullableIsoDateTime" },
-        "agentIntent": { "enum": ["consideration_only", "evaluation_requested"] },
         "history": { "type": "array", "items": { "$ref": "#/$defs/ideaEvent" } },
         "createdAt": { "$ref": "#/$defs/isoDateTime" },
         "updatedAt": { "$ref": "#/$defs/isoDateTime" },

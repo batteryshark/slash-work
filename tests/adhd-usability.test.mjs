@@ -55,7 +55,7 @@ test("makes captures immediate, durable, and visibly undoable", async () => {
   assert.match(page, /Saved: “\{captureReceipt\.capture\.text\}”/);
   assert.match(page, /window\.setTimeout/);
   assert.match(page, /5_000/);
-  assert.match(page, /Available to agents in this root/);
+  assert.match(page, /Waiting in your inbox/);
   assert.match(page, /Hide capture box/);
   assert.match(page, /Show capture box/);
   assert.match(page, /work\.captureDockCollapsed/);
@@ -156,10 +156,8 @@ test("provides durable selectable plain-text notes without turning capture into 
   assert.match(page, /Plain-text working notes/);
   assert.match(page, /Delete this note\?/);
   assert.match(page, /Save now/);
-  assert.match(page, /Ask agent to review/);
-  assert.match(page, /Clear review request/);
-  assert.match(page, /should not treat it as a request or task/);
-  assert.match(page, /not authorization to execute work/);
+  assert.match(page, /Added by \{note\.createdBy\.name\}/);
+  assert.doesNotMatch(page, /Ask agent to review|Clear review request|agentIntent/);
   assert.match(page, /setTimeout\(\(\) =>/);
   assert.match(page, /\/api\/notes/);
   assert.match(css, /\.notes-workspace[^}]*grid-template-columns:\s*300px minmax\(0, 1fr\)/);
@@ -168,8 +166,9 @@ test("provides durable selectable plain-text notes without turning capture into 
   assert.match(store, /export async function createNote/);
   assert.match(store, /export async function updateNote/);
   assert.match(store, /export async function deleteNote/);
-  assert.match(store, /agentIntent.*reference_only/);
-  assert.match(store, /review_requested/);
+  // Tolerant read: legacy notes carrying the removed agentIntent field still
+  // load, and the rewrite-on-read hook drops the field.
+  assert.match(store, /"agentIntent" in record\.metadata/);
   assert.match(server, /url\.pathname === "\/api\/notes"/);
   assert.match(standard, /plain-text notes autosave/i);
   assert.match(standard, /passive reference material/i);
@@ -192,6 +191,10 @@ test("provides free-form, reopenable issue conversations without turning submiss
   assert.match(page, /issue\.state === "needs_human"/);
   assert.match(page, /visibleHumanIssues = humanIssues\.slice\(0, 3\)/);
   assert.match(page, /Math\.max\(0, 3 - visibleHumanIssues\.length\)/);
+  // Needs you merges blocked tasks alongside needs_human issues and open
+  // decisions, matching GET /api/needs-you, and keeps the display cap.
+  assert.match(page, /blockedTasks = scopedTasks\.filter\(\(task\) => task\.status === "blocked"\)/);
+  assert.match(page, /visibleBlockedTasks/);
   assert.match(issuesView, /File an issue/);
   assert.match(issuesView, /No title or categorization required/);
   assert.match(issuesView, /Exact scope:/);
@@ -204,9 +207,9 @@ test("provides free-form, reopenable issue conversations without turning submiss
   assert.match(issuesView, /Enter adds a new line/);
   assert.match(issuesView, /Markdown supported/);
   assert.match(issuesView, /Queued/);
-  assert.match(page, /in_progress: "Agent working"/);
+  assert.match(page, /in_progress: "In progress"/);
   assert.match(issuesView, /Needs you/);
-  assert.match(issuesView, /Agent resolution — an opinion, not a final judgment/);
+  assert.match(issuesView, /Resolution — awaiting your review/);
   assert.match(issuesView, /State history/);
   assert.match(issuesView, /Closed by a human/);
   assert.match(issuesView, />Reopen<\/button>/);
@@ -236,20 +239,18 @@ test("keeps ideas explicitly evaluative and separate from executable work", asyn
   ]);
 
   assert.match(page, /function IdeasView/);
-  assert.match(page, /Ask agent to evaluate/);
   assert.match(page, /Delete idea/);
-  assert.match(page, /draftPatch\(nextStatus, transitionReason\)/);
-  assert.match(page, /Implementation is not authorized/);
+  assert.match(page, /not a task, decision, or approval to implement/);
+  assert.doesNotMatch(page, /Ask agent to evaluate|evaluation_requested/);
   assert.match(page, /Remove from list\? Files stay untouched/);
   assert.match(page, /Make idea/);
   assert.match(page, /Scope as work/);
   assert.match(page, /selectedIdea\.status === "adopted"/);
   assert.match(page, /Why\? Required for this state/);
   assert.match(css, /\.ideas-workspace/);
-  assert.match(css, /\.idea-intent\.evaluation-requested/);
+  assert.match(css, /\.idea-intent/);
   assert.match(store, /const IDEA_STATUSES = new Set\(\["open", "exploring", "deferred", "proposed", "adopted", "declined"\]\)/);
   assert.match(store, /reason_required/);
-  assert.match(store, /evaluation_requested/);
   assert.match(store, /export async function deleteIdea/);
   assert.match(server, /url\.pathname === "\/api\/ideas"/);
   assert.match(contract, /sits between a raw capture and a decision or task/i);
@@ -309,7 +310,7 @@ test("requires an explicit recorded choice for every human decision", async () =
   const page = await readFile(new URL("app/page.tsx", root), "utf8");
 
   assert.match(page, /Choose one option/);
-  assert.match(page, /Agent recommendation/);
+  assert.match(page, />Recommendation</);
   assert.match(page, /\[\.\.\.decision\.options, "Other"\]/);
   assert.match(page, /choosingOther/);
   assert.match(page, /Write a different answer below/);

@@ -14,11 +14,11 @@ test("publishes a machine-readable schema for every Markdown artifact type", asy
     ["#/$defs/capture", "#/$defs/note", "#/$defs/idea", "#/$defs/issue", "#/$defs/decision", "#/$defs/task"],
   );
   assert.deepEqual(schema.$defs.capture.properties.kind.enum, ["idea", "question", "update"]);
-  assert.deepEqual(schema.$defs.note.properties.agentIntent.enum, ["reference_only", "review_requested"]);
+  assert.equal("agentIntent" in schema.$defs.note.properties, false);
   assert.ok(schema.$defs.note.required.includes("createdBy"));
   assert.equal(schema.$defs.note.properties.createdBy.oneOf[1].properties.kind.const, "agent");
   assert.deepEqual(schema.$defs.idea.properties.status.enum, ["open", "exploring", "deferred", "proposed", "adopted", "declined"]);
-  assert.deepEqual(schema.$defs.idea.properties.agentIntent.enum, ["consideration_only", "evaluation_requested"]);
+  assert.equal("agentIntent" in schema.$defs.idea.properties, false);
   assert.deepEqual(schema.$defs.issue.properties.state.enum, ["queued", "in_progress", "needs_human", "resolved", "closed"]);
   assert.equal(schema.$defs.issue.properties.claimedBy.oneOf[0].properties.kind.const, "agent");
   assert.ok(schema.$defs.issue.required.includes("stateHistory"));
@@ -43,7 +43,6 @@ test("documents exact storage, envelope, and body grammar for automations", asyn
     "projectPath: null",
     "- [ ] text",
     "- <ISO timestamp> — <message>",
-    "evaluation_requested",
     "never grants permission to implement it",
     "Only a human may move an\nissue to `closed`",
     "Agents cannot\ndelete, archive, lock, or prevent replies",
