@@ -607,6 +607,9 @@ export default function Home() {
   const [captureMoveSearch, setCaptureMoveSearch] = useState("");
   const [captureError, setCaptureError] = useState<string | null>(null);
   const [captureReceipt, setCaptureReceipt] = useState<CaptureReceipt | null>(null);
+  // Session-only, never persisted: captures go to the root Inbox unless the
+  // user explicitly flips the dock destination to the current project.
+  const [captureToProject, setCaptureToProject] = useState(false);
   const [captureDockCollapsed, setCaptureDockCollapsed] = useState(() => {
     if (typeof window === "undefined") return false;
     return localStorage.getItem("work.captureDockCollapsed") === "true";
@@ -1154,15 +1157,6 @@ export default function Home() {
     return `Folder inbox: ${displaySegment(pathParts(capture.scopePath).at(-1) ?? capture.scopePath)} · Unassigned`;
   }
 
-  function findNavigationTarget(text: string) {
-    const normalized = text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-    return data?.projects.find((project) => {
-      const name = project.name.toLowerCase().replace(/[^a-z0-9]+/g, " ");
-      const path = project.path.toLowerCase().replace(/[^a-z0-9]+/g, " ");
-      return normalized.includes(name) || normalized.includes(path);
-    });
-  }
-
   function replaceTask(task: WorkTask) {
     setData((current) => current ? {
       ...current,
@@ -1506,7 +1500,6 @@ export default function Home() {
       return;
     }
 
-    const lower = text.toLowerCase();
     const isMultiline = text.includes("\n");
     const taskCommand = isMultiline ? null : text.match(/^(?:task|todo)\s*:?\s+(.+)$/i);
     if (taskCommand) {
@@ -1524,64 +1517,18 @@ export default function Home() {
       }
       return;
     }
-    const navigationTarget = findNavigationTarget(text);
-    if (!isMultiline && /\b(show|focus|open|take me to)\b/.test(lower)) {
-      if (/\b(board|kanban)\b/.test(lower)) {
-        setView("board");
-        setCommand("");
-        return;
-      }
-      if (/\b(issues?|requests?|problems?)\b/.test(lower)) {
-        setView("issues");
-        setCommand("");
-        return;
-      }
-      if (/\b(notes?|notebook)\b/.test(lower)) {
-        setView("notes");
-        setCommand("");
-        return;
-      }
-      if (/\b(ideas?|possibilities)\b/.test(lower)) {
-        setView("ideas");
-        setCommand("");
-        return;
-      }
-      if (/\b(activity|history|log)\b/.test(lower)) {
-        setView("activity");
-        setCommand("");
-        return;
-      }
-      if (/\b(everything|all work|this root|root)\b/.test(lower)) {
-        navigate(".");
-        setCommand("");
-        return;
-      }
-      if (navigationTarget) {
-        navigate(navigationTarget.path);
-        setCommand("");
-        return;
-      }
-      if (/\binbox\b/.test(lower)) {
-        openHomeSection("inbox");
-        setCommand("");
-        return;
-      }
-      if (/\b(needs you|decisions?)\b/.test(lower)) {
-        openHomeSection("needs-you");
-        setCommand("");
-        return;
-      }
-    }
-
+    // Plain typed text is ALWAYS a capture. Navigation lives in the tabs and
+    // breadcrumbs; "show board" saved as a thought beats a discarded thought.
     setSavingCapture(true);
     setCaptureError(null);
     try {
+      const toProject = captureToProject && selectedProject ? selectedProject.path : null;
       const response = await requestJson<Capture | { capture: Capture }>("/api/captures", {
         method: "POST",
         body: JSON.stringify({
           text,
-          scopePath,
-          projectPath: selectedProject?.path ?? null,
+          scopePath: toProject ? scopePath : ".",
+          projectPath: toProject,
         }),
       });
       const capture = "capture" in response ? response.capture : response;
@@ -1750,7 +1697,10 @@ export default function Home() {
     );
   }
 
-  const destination = destinationForCurrentScope();
+  const captureDestinationProject = captureToProject ? selectedProject : null;
+  const captureDestination = captureDestinationProject
+    ? `Project inbox: ${captureDestinationProject.name}`
+    : `Inbox: ${data.workspace.name} · Unassigned`;
   const rootProject = data.projects.find((project) => project.path === ".");
   const workspaceLocationLabel = data.workspace.root;
 
@@ -2124,7 +2074,11 @@ export default function Home() {
                 <span className="count-badge">{visibleProjects.length}</span>
               </div>
               {childGroups.length === 0 && directProjects.length === 0 ? (
-                <div className="empty-panel"><strong>No marked projects found here.</strong><span>Add an empty `.project` file or `.project/` folder inside each project directory, then refresh.</span></div>
+                <div className="empty-panel project-create-panel">
+                  <strong>No projects here yet.</strong>
+                  <span>Name your first project. Work creates the folder and its marker for you.</span>
+                  <InlineProjectCreate parentPath={scopePath} onCreated={(project) => { rememberProject(project); navigate(project.path); }} />
+                </div>
               ) : (
                 <div className="project-grid">
                   {childGroups.map((group) => (
@@ -2141,6 +2095,13 @@ export default function Home() {
                       <span className="project-card-meta">Open<span aria-hidden="true">→</span></span>
                     </button>
                   ))}
+                  <div className="project-card new-project-card">
+                    <span className="project-card-code" aria-hidden="true">＋</span>
+                    <span className="project-card-copy">
+                      <small>+ New project</small>
+                      <InlineProjectCreate parentPath={scopePath} onCreated={rememberProject} />
+                    </span>
+                  </div>
                 </div>
               )}
             </div>
@@ -2418,7 +2379,21 @@ export default function Home() {
         <form onSubmit={handleCommandSubmit} aria-label="Universal work command">
           <div className="capture-context">
             <span className="capture-symbol" aria-hidden="true">/</span>
-            <div><strong>Capture anything</strong><small>Going to {destination}</small></div>
+            <div>
+              <strong>Capture anything</strong>
+              <button
+                type="button"
+                className={`capture-destination-toggle ${captureDestinationProject ? "to-project" : ""}`}
+                onClick={() => setCaptureToProject((current) => !current)}
+                disabled={!selectedProject}
+                aria-pressed={Boolean(captureDestinationProject)}
+                title={selectedProject
+                  ? `Capture into ${captureDestinationProject ? "the root Inbox instead" : selectedProject.name} `
+                  : "Open a project to capture into it instead of the Inbox"}
+              >
+                Going to {captureDestinationProject ? captureDestinationProject.name : "Inbox"}{selectedProject ? " · switch" : ""}
+              </button>
+            </div>
           </div>
           <label className="sr-only" htmlFor="work-command">Tell Work anything you want remembered</label>
           <textarea
@@ -2437,7 +2412,7 @@ export default function Home() {
         </form>
         <div className="capture-meta">
           <span className={captureError ? "capture-error" : ""} aria-live="polite">
-            {captureError ?? `Exact destination: ${destination}. Project names in the thought never reroute it.`}
+            {captureError ?? `Exact destination: ${captureDestination}. Project names in the thought never reroute it.`}
           </span>
           <div>
             <button type="button" onClick={() => openHomeSection("inbox")}>{scopedCaptures.length} in {selectedProject ? `${selectedProject.name} inbox` : scopePath === "." ? "root inbox" : `${scopeLabel} inbox`}</button>
@@ -2448,6 +2423,52 @@ export default function Home() {
         </div>
       </div>}
     </div>
+  );
+}
+
+function InlineProjectCreate({
+  parentPath,
+  onCreated,
+}: {
+  parentPath: string;
+  onCreated: (project: Project) => void;
+}) {
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function create(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const project = await requestJson<Project>("/api/projects", {
+        method: "POST",
+        body: JSON.stringify({ name: trimmed, ...(parentPath === "." ? {} : { parentPath }) }),
+      });
+      setName("");
+      onCreated(project);
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "The project could not be created.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form className="project-create-form" onSubmit={create}>
+      <input
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+        placeholder="Project name…"
+        aria-label="New project name"
+        maxLength={120}
+      />
+      <button type="submit" disabled={saving || !name.trim()}>{saving ? "Creating…" : "Create project"}</button>
+      {error && <span className="capture-error" role="alert">{error}</span>}
+    </form>
   );
 }
 

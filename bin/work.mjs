@@ -10,6 +10,7 @@ import {
   createCapture,
   createDecision,
   createIdea,
+  createProject,
   createTask,
   discoverProjects,
   findWorkspaceRoot,
@@ -57,6 +58,7 @@ Usage:
   work unregister <id|root>           Remove a root from the web workspace picker
   work roots                          List roots available to the web workspace picker
   work projects                       List exact projects in the current workspace
+  work new "Name" [--under rel/path]  Create a project folder and marker from a name
   work agent                          Print capabilities and resolved local context
   work agent context                  Print only the resolved local context
   work agent operations               List available task-scoped operations
@@ -76,6 +78,7 @@ Usage:
 Options:
   --root <path>       Select a root (otherwise search upward from the current directory)
   --scope <path>      Override the invocation directory's folder scope
+  --under <path>      Parent directory for work new (workspace-relative; default: root)
   --project <path>    Assign to this exact discovered project
   --unassigned        Keep new work at workspace scope instead of the current project
   --kind <kind>       idea, question, or update
@@ -126,6 +129,7 @@ function parseArguments(argv) {
   const valueOptions = new Map([
     ["--root", "root"],
     ["--scope", "scope"],
+    ["--under", "under"],
     ["--project", "project"],
     ["--kind", "kind"],
     ["--detail", "detail"],
@@ -400,10 +404,18 @@ async function runAgent(options, positionals) {
   throw new WorkspaceError(`Unknown agent command: ${command}. Use context, operations, instructions, or schema.`);
 }
 
+async function runNew(options, positionals) {
+  if (positionals.length === 0) throw new WorkspaceError('new requires a project name in quotes.');
+  const workspace = await existingWorkspace(options);
+  const project = await createProject(workspace, { name: positionals.join(" "), parentPath: options.under });
+  console.log(`Created project ${project.path} (${project.name})`);
+  console.log(`Folder: ${workspace.root}/${project.path}`);
+}
+
 async function runAdd(options, positionals) {
   if (positionals.length === 0) throw new WorkspaceError("add requires a thought in quotes.");
   const text = positionals.join(" ");
-  const workspace = await initializeWorkspace(await selectedRoot(options));
+  const workspace = await currentWorkspace(options);
   const projects = await discoverProjects(workspace.root);
   const scopePath = options.scope ?? (await invocationScope(workspace));
   const projectPath = await defaultProjectPath(options, workspace, projects);
@@ -424,7 +436,7 @@ async function runAdd(options, positionals) {
 async function runDecision(options, positionals) {
   if (positionals.length === 0) throw new WorkspaceError("decision requires a question in quotes.");
   const title = positionals.join(" ");
-  const workspace = await initializeWorkspace(await selectedRoot(options));
+  const workspace = await currentWorkspace(options);
   const projects = await discoverProjects(workspace.root);
   const projectPath = await defaultProjectPath(options, workspace, projects);
   const decision = await createDecision(
@@ -444,7 +456,7 @@ async function runDecision(options, positionals) {
 
 async function runIdea(options, positionals) {
   if (positionals.length === 0) throw new WorkspaceError("idea requires a title in quotes.");
-  const workspace = await initializeWorkspace(await selectedRoot(options));
+  const workspace = await currentWorkspace(options);
   const projects = await discoverProjects(workspace.root);
   const scopePath = options.scope ?? (await invocationScope(workspace));
   const projectPath = await defaultProjectPath(options, workspace, projects);
@@ -470,7 +482,11 @@ async function runIdeas(options, positionals) {
 }
 
 async function currentWorkspace(options) {
-  return initializeWorkspace(await selectedRoot(options));
+  const root = await selectedRoot(options);
+  if (!(await findWorkspaceRoot(root))) {
+    throw new WorkspaceError("No Work workspace contains this directory. Run `work init` first, or run this command from inside a workspace.");
+  }
+  return initializeWorkspace(root);
 }
 
 async function runTask(options, positionals) {
@@ -672,7 +688,7 @@ async function runServer(options, positionals) {
 
 async function main() {
   const argv = process.argv.slice(2);
-  const knownCommands = new Set(["serve", "init", "register", "unregister", "roots", "projects", "agent", "add", "idea", "ideas", "decision", "task", "create", "list", "show", "move", "assign", "log"]);
+  const knownCommands = new Set(["serve", "init", "register", "unregister", "roots", "projects", "new", "agent", "add", "idea", "ideas", "decision", "task", "create", "list", "show", "move", "assign", "log"]);
   const command = knownCommands.has(argv[0]) ? argv.shift() : "serve";
   const { options, positionals } = parseArguments(argv);
   if (options.help) {
@@ -684,6 +700,7 @@ async function main() {
   if (command === "unregister") return runUnregister(options, positionals);
   if (command === "roots") return runRoots(options, positionals);
   if (command === "projects") return runProjects(options, positionals);
+  if (command === "new") return runNew(options, positionals);
   if (command === "agent") return runAgent(options, positionals);
   if (command === "add") return runAdd(options, positionals);
   if (command === "idea") return runIdea(options, positionals);

@@ -39,6 +39,13 @@ async def projects_list(workspace_id: str) -> dict[str, Any]:
     return await call("GET", "/api/projects", workspace_id)
 
 
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
+async def project_create(workspace_id: str, name: str, parent_path: str | None = None) -> dict[str, Any]:
+    """Create a new project: Work makes the folder from a slug of the name and writes the project marker."""
+    body = {"name": name, "parentPath": parent_path}
+    return await call("POST", "/api/projects", workspace_id, body={key: value for key, value in body.items() if value is not None})
+
+
 @mcp.tool(annotations={"readOnlyHint": True})
 async def tasks_list(workspace_id: str, updated_since: str | None = None) -> dict[str, Any]:
     """List task records in one workspace, optionally only those updated after updated_since (ISO-8601)."""

@@ -650,6 +650,80 @@ test("starts a project from an eligible file-tree folder without crossing worksp
   }
 });
 
+test("creates the project folder, marker, and human name from one request", async () => {
+  const { root } = await makeWorkspaceFixture();
+  const api = await startLocalApi({ root, port: 0 });
+  try {
+    const created = await apiRequest(api.origin, "/api/projects", {
+      method: "POST",
+      body: { name: "Field Notes!" },
+    });
+    assert.equal(created.response.status, 201);
+    assert.equal(created.payload.path, "field-notes");
+    assert.equal(created.payload.name, "Field Notes!");
+    const marker = JSON.parse(await readFile(join(root, "field-notes", ".work", "project.json"), "utf8"));
+    assert.equal(marker.name, "Field Notes!");
+
+    const nested = await apiRequest(api.origin, "/api/projects", {
+      method: "POST",
+      body: { name: "Sub Project", parentPath: "software" },
+    });
+    assert.equal(nested.response.status, 201);
+    assert.equal(nested.payload.path, "software/sub-project");
+
+    const duplicate = await apiRequest(api.origin, "/api/projects", {
+      method: "POST",
+      body: { name: "Field Notes" },
+    });
+    assert.equal(duplicate.response.status, 409);
+    assert.equal(duplicate.payload.error.code, "project_already_initialized");
+
+    const escape = await apiRequest(api.origin, "/api/projects", {
+      method: "POST",
+      body: { name: "Escape", parentPath: "../outside" },
+    });
+    assert.equal(escape.response.status, 403);
+
+    const unusable = await apiRequest(api.origin, "/api/projects", {
+      method: "POST",
+      body: { name: "!!!" },
+    });
+    assert.equal(unusable.response.status, 400);
+  } finally {
+    await closeLocalApi(api.server);
+  }
+});
+
+test("work new creates a named project and work add refuses to invent a workspace", async () => {
+  const orphan = await temporaryDirectory("work-orphan-");
+  await assert.rejects(
+    execFile(process.execPath, [launcherPath.pathname, "add", "stray thought"], { cwd: orphan }),
+    (error) => /Run `work init` first/.test(error.stderr),
+  );
+  await assert.rejects(
+    execFile(process.execPath, [launcherPath.pathname, "task", "stray task"], { cwd: orphan }),
+    (error) => /Run `work init` first/.test(error.stderr),
+  );
+  await assert.rejects(readdir(join(orphan, ".work")), { code: "ENOENT" });
+
+  await execFile(process.execPath, [launcherPath.pathname, "init", orphan], { cwd: repositoryRoot });
+  const created = await execFile(process.execPath, [launcherPath.pathname, "new", "Field Notes"], { cwd: orphan });
+  assert.match(created.stdout, /Created project field-notes \(Field Notes\)/);
+  const marker = JSON.parse(await readFile(join(orphan, "field-notes", ".work", "project.json"), "utf8"));
+  assert.equal(marker.name, "Field Notes");
+
+  await mkdir(join(orphan, "writing"), { recursive: true });
+  const nested = await execFile(
+    process.execPath,
+    [launcherPath.pathname, "new", "Sub Project", "--under", "writing"],
+    { cwd: orphan },
+  );
+  assert.match(nested.stdout, /Created project writing\/sub-project/);
+
+  const help = await execFile(process.execPath, [launcherPath.pathname, "--help"], { cwd: repositoryRoot });
+  assert.match(help.stdout, /work new "Name" \[--under rel\/path\]/);
+});
+
 test("restarts only after explicit local confirmation", async () => {
   const root = await temporaryDirectory("work-restart-");
   let restartCalls = 0;

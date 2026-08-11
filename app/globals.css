@@ -495,6 +495,13 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .project-card-copy strong { font-size: 17px; }
 .project-card-copy > span { overflow: hidden; color: var(--muted); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .project-card-meta { display: grid; justify-items: end; gap: 8px; color: var(--muted); font-size: 12px; }
+.new-project-card { grid-template-columns: 44px minmax(0, 1fr); cursor: default; }
+.new-project-card:hover { border-color: var(--line); background: var(--surface); }
+.project-create-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.project-create-form input { flex: 1 1 170px; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); color: var(--ink); font-size: 15px; }
+.project-create-form button { min-height: 44px; padding: 0 15px; border: 0; border-radius: 11px; background: var(--ink); color: white; font-weight: 720; cursor: pointer; }
+.project-create-form button:disabled { opacity: 0.55; cursor: default; }
+.project-create-panel .project-create-form { max-width: 470px; margin-top: 8px; }
 
 .home-support-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 30px; margin-top: 34px; }
 .attention-section, .captured-section { margin-top: 46px; }
@@ -627,6 +634,8 @@ button.upcoming-item:hover { border-radius: 10px; background: var(--accent-softe
 .capture-context { display: flex; align-items: center; gap: 10px; min-width: 205px; }
 .capture-context > div { display: grid; gap: 2px; }
 .capture-context small { max-width: 190px; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.capture-destination-toggle { display: inline-flex; align-items: center; max-width: 205px; min-height: 28px; overflow: hidden; padding: 0; border: 0; background: transparent; color: var(--accent-dark); font-size: 12px; font-weight: 690; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.capture-destination-toggle:disabled { color: var(--muted); cursor: default; }
 .capture-symbol { display: grid; place-items: center; flex: 0 0 40px; width: 40px; height: 40px; border-radius: 12px; background: var(--accent); color: white; font: 700 20px var(--mono); }
 .capture-dock textarea { width: 100%; min-height: 50px; max-height: 160px; padding: 13px 16px; overflow-y: auto; resize: none; border: 1px solid var(--line); border-radius: 13px; background: #faf8f4; color: var(--ink); font-size: 16px; line-height: 1.5; }
 .capture-dock textarea::placeholder { color: #8c887f; }

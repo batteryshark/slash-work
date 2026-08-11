@@ -11,6 +11,7 @@ import {
   createIdea,
   createIssue,
   createNote,
+  createProject,
   createTask,
   deleteCapture,
   deleteIdea,
@@ -594,7 +595,9 @@ async function handleRequest(workspaces, service, request, response) {
   }
   if (method === "POST" && url.pathname === "/api/projects") {
     const body = await readJsonBody(request);
-    sendJson(request, response, 201, await initializeProject(workspace, body?.projectPath));
+    sendJson(request, response, 201, body?.projectPath == null && body?.name != null
+      ? await createProject(workspace, { name: body.name, parentPath: body.parentPath })
+      : await initializeProject(workspace, body?.projectPath));
     return;
   }
   if (method === "PATCH" && url.pathname === "/api/projects/profile") {

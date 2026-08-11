@@ -23,6 +23,14 @@ test("builds a local root-scoped interface instead of a hosted demo", async () =
   assert.match(page, /Project names in the thought never reroute it/);
   assert.doesNotMatch(page, /inferProject|hard-coded|ReKit Factory/i);
 
+  // Project creation is one step inside the app: no stale marker-file
+  // instructions, and Home offers an inline create-project input.
+  assert.doesNotMatch(page, /`\.project` file/);
+  assert.match(page, /No projects here yet\./);
+  assert.match(page, /function InlineProjectCreate/);
+  assert.match(page, /\+ New project/);
+  assert.match(page, /body: JSON\.stringify\(\{ name: trimmed/);
+
   const packageJson = JSON.parse(packageSource);
   assert.equal(packageJson.bin.work, "bin/work.mjs");
   assert.equal(packageJson.scripts.dev, "vite");
@@ -57,6 +65,15 @@ test("makes captures immediate, durable, and visibly undoable", async () => {
   assert.match(page, /pendingHomeSection/);
   assert.match(page, /Project inbox:/);
   assert.match(page, /Root inbox:/);
+
+  // Captures default to the root Inbox; routing to the current project is an
+  // explicit, session-only toggle, and typed text is never swallowed as a
+  // navigation command.
+  assert.match(page, /capture-destination-toggle/);
+  assert.match(page, /const \[captureToProject, setCaptureToProject\] = useState\(false\)/);
+  assert.match(page, /scopePath: toProject \? scopePath : "\."/);
+  assert.doesNotMatch(page, /findNavigationTarget/);
+  assert.doesNotMatch(page, /localStorage[^\n]*captureToProject/);
   assert.match(page, /Move to/);
   assert.match(page, /Project inbox ·/);
   assert.match(page, /method: "PATCH"/);
