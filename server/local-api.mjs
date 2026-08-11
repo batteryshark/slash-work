@@ -49,21 +49,12 @@ import {
   getArtifactSchema,
   listAgentOperations,
 } from "../lib/agent-capabilities.mjs";
-import {
-  createAiProposal,
-  getAiSettings,
-  saveAiSettings,
-  selectedProposalPatch,
-  testAiSettings,
-} from "../lib/ai-assistance.mjs";
-import { FederationManager } from "../lib/instance-federation.mjs";
 import { isTailscaleIPv4 } from "../lib/tailscale-network.mjs";
 
 const LOOPBACK_HOST = "127.0.0.1";
 const DEFAULT_PORT = 43170;
 const MAX_BODY_BYTES = 128 * 1024;
 const MAX_MCP_BODY_BYTES = 1024 * 1024;
-const MAX_PROXY_RESPONSE_BYTES = 4 * 1024 * 1024;
 const UPDATE_CACHE_MS = 15 * 60 * 1000;
 const CLIENT_API_VERSION = 1;
 const LOCAL_ORIGIN = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i;
@@ -162,18 +153,6 @@ function assertLocalRequest(request, allowedHost) {
   if (origin) request.workBrowserOrigin = origin;
 }
 
-function isFederatedWorkspacePath(pathname) {
-  return [
-    /^\/api\/health$/,
-    /^\/api\/workspace$/,
-    /^\/api\/projects(?:\/profile)?$/,
-    /^\/api\/files\/(?:directory|content)$/,
-    /^\/api\/(?:captures|notes|ideas|issues|decisions|tasks)(?:\/[^/]+(?:\/(?:actions|move|checklist|log|replies|state))?)?$/,
-    /^\/api\/agent\/(?:notes|issues)(?:\/[^/]+(?:\/(?:claim|replies|state))?)?$/,
-    /^\/api\/ai\/(?:proposals|apply)$/,
-  ].some((pattern) => pattern.test(pathname));
-}
-
 async function readJsonBody(request) {
   const contentType = request.headers["content-type"] ?? "";
   if (!contentType.toLowerCase().startsWith("application/json")) {
@@ -207,21 +186,6 @@ async function readJsonBody(request) {
   }
 }
 
-async function readRawBody(request) {
-  const declaredLength = Number(request.headers["content-length"] ?? 0);
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
-    throw new WorkspaceError("Request body is too large.", { code: "body_too_large", status: 413 });
-  }
-  const chunks = [];
-  let total = 0;
-  for await (const chunk of request) {
-    total += chunk.length;
-    if (total > MAX_BODY_BYTES) throw new WorkspaceError("Request body is too large.", { code: "body_too_large", status: 413 });
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks);
-}
-
 function routeId(pathname, resource, suffix = "") {
   const pattern = new RegExp(`^/api/${resource}/([^/]+)${suffix}$`);
   const match = pathname.match(pattern);
@@ -246,91 +210,7 @@ function requiredAgentName(request) {
 }
 
 function publicWorkspace(workspace) {
-  return { id: workspace.id, name: workspace.name, root: workspace.root, location: "local", available: true };
-}
-
-function publicFederationSettings(service) {
-  return {
-    ...service.federation.settings(),
-    network: {
-      mode: isTailscaleIPv4(service.host) ? "tailscale" : "loopback",
-      reachableUrl: isTailscaleIPv4(service.host) ? service.origin ?? null : null,
-    },
-  };
-}
-
-function proxyHeaders(request, remoteWorkspaceId, sourceName) {
-  const headers = {
-    authorization: null,
-    "x-work-federation-hop": "1",
-    "x-work-federation-source": sourceName,
-    "x-work-workspace": remoteWorkspaceId,
-  };
-  for (const [name, value] of Object.entries(request.headers)) {
-    if (typeof value !== "string") continue;
-    if (new Set(["accept", "content-type", "if-none-match"]).has(name)
-      || (name.startsWith("x-work-") && !new Set(["x-work-workspace", "x-work-federation-hop", "x-work-federation-source"]).has(name))) {
-      headers[name] = value;
-    }
-  }
-  return headers;
-}
-
-async function proxyFederatedRequest(service, remoteWorkspace, url, request, response) {
-  const token = await service.federation.peerToken(remoteWorkspace.peer.id);
-  const body = new Set(["GET", "HEAD"]).has(request.method ?? "GET") ? null : await readRawBody(request);
-  const headers = proxyHeaders(request, remoteWorkspace.remoteWorkspaceId, service.federation.config.name);
-  headers.authorization = `Bearer ${token}`;
-  let upstream;
-  try {
-    upstream = await service.federation.fetch(`${remoteWorkspace.peer.baseUrl}${url.pathname}${url.search}`, {
-      method: request.method,
-      headers,
-      ...(body?.length ? { body } : {}),
-      redirect: "manual",
-      signal: AbortSignal.timeout(service.federation.timeoutMs),
-    });
-  } catch (error) {
-    const timedOut = error?.name === "TimeoutError" || error?.name === "AbortError";
-    throw new WorkspaceError(
-      timedOut ? `${remoteWorkspace.peer.name} did not respond in time.` : `${remoteWorkspace.peer.name} is unavailable: ${error.message}`,
-      { code: timedOut ? "peer_timeout" : "peer_unavailable", status: timedOut ? 504 : 502 },
-    );
-  }
-  const declaredLength = Number(upstream.headers.get("content-length") ?? 0);
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_PROXY_RESPONSE_BYTES) {
-    throw new WorkspaceError("The remote Work response is too large.", { code: "peer_response_too_large", status: 502 });
-  }
-  let content = Buffer.from(await upstream.arrayBuffer());
-  if (content.length > MAX_PROXY_RESPONSE_BYTES) {
-    throw new WorkspaceError("The remote Work response is too large.", { code: "peer_response_too_large", status: 502 });
-  }
-  const contentType = upstream.headers.get("content-type") ?? "application/json; charset=utf-8";
-  if (upstream.ok && contentType.includes("application/json") && new Set(["/api/workspace", "/api/health"]).has(url.pathname)) {
-    try {
-      const payload = JSON.parse(content.toString("utf8"));
-      if (payload?.workspace && typeof payload.workspace === "object") {
-        payload.workspace = {
-          ...payload.workspace,
-          id: remoteWorkspace.id,
-          root: remoteWorkspace.root,
-          location: "remote",
-          available: true,
-          peer: remoteWorkspace.peer,
-        };
-      }
-      content = Buffer.from(`${JSON.stringify(payload)}\n`);
-    } catch {
-      throw new WorkspaceError("The remote Work instance returned invalid JSON.", { code: "invalid_peer_response", status: 502 });
-    }
-  }
-  request.workWorkspaceId = remoteWorkspace.id;
-  response.writeHead(upstream.status, responseHeaders(request, {
-    "Content-Type": contentType,
-    "Content-Length": content.length,
-    ...(upstream.headers.get("etag") ? { ETag: upstream.headers.get("etag") } : {}),
-  }));
-  response.end(content);
+  return { id: workspace.id, name: workspace.name, root: workspace.root };
 }
 
 function selectedWorkspace(workspaces, defaultWorkspace, request) {
@@ -402,23 +282,7 @@ async function handleRequest(workspaces, service, request, response) {
   const url = new URL(request.url ?? "/", `http://${request.headers.host}`);
   const method = request.method ?? "GET";
   const defaultWorkspace = service.defaultWorkspace;
-  const federationHop = request.headers["x-work-federation-hop"];
-  let federationGrant = null;
-  if (federationHop != null) {
-    if (federationHop !== "1" || requestOrigin(request)) {
-      throw new WorkspaceError("Federation requests must be direct server-to-server calls.", { code: "invalid_federation_hop", status: 403 });
-    }
-    if (url.pathname !== "/api/federation/manifest" && !isFederatedWorkspacePath(url.pathname)) {
-      throw new WorkspaceError("That service operation is not available through federation.", { code: "federation_route_forbidden", status: 403 });
-    }
-    const requestedWorkspaceId = url.pathname === "/api/federation/manifest" ? null : request.headers["x-work-workspace"];
-    if (url.pathname !== "/api/federation/manifest" && (typeof requestedWorkspaceId !== "string" || !requestedWorkspaceId)) {
-      throw new WorkspaceError("Federated workspace requests require one exact workspace id.", { code: "invalid_workspace", status: 400 });
-    }
-    federationGrant = await service.federation.authorize(request.headers.authorization, requestedWorkspaceId);
-  } else {
-    assertLocalRequest(request, service.host);
-  }
+  assertLocalRequest(request, service.host);
 
   if (url.pathname === "/mcp" || url.pathname === "/mcp/") {
     proxyMcpRequest(service, request, response);
@@ -429,7 +293,7 @@ async function handleRequest(workspaces, service, request, response) {
     response.writeHead(
       204,
       responseHeaders(request, {
-        "Access-Control-Allow-Headers": "Content-Type, If-None-Match, X-Work-Agent, X-Work-AI-Apply, X-Work-AI-Settings, X-Work-Federation-Settings, X-Work-Folder-Picker, X-Work-Restart, X-Work-Unregister, X-Work-Workspace",
+        "Access-Control-Allow-Headers": "Content-Type, If-None-Match, X-Work-Agent, X-Work-Folder-Picker, X-Work-Restart, X-Work-Unregister, X-Work-Workspace",
         "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
         "Access-Control-Max-Age": "600",
       }),
@@ -438,71 +302,12 @@ async function handleRequest(workspaces, service, request, response) {
     return;
   }
 
-  if (method === "GET" && url.pathname === "/api/federation/manifest") {
-    if (!federationGrant) throw new WorkspaceError("Federation discovery requires an authenticated peer request.", { code: "federation_unauthorized", status: 401 });
-    sendJson(request, response, 200, service.federation.manifest(federationGrant));
-    return;
-  }
-
   if (method === "GET" && url.pathname === "/api/workspaces") {
-    const forceRefresh = url.searchParams.get("refresh") === "1";
-    if (forceRefresh) {
-      await service.federation.refreshPeers({ force: true });
-    } else {
-      void service.federation.refreshPeers().catch((error) => console.error("[work] Connected-instance refresh failed:", error));
-    }
     sendJson(request, response, 200, {
       defaultWorkspaceId: defaultWorkspace.id,
       activeWorkspaceId: defaultWorkspace.id,
-      workspaces: [...workspaces.values()].map(publicWorkspace).concat(service.federation.remoteWorkspaces()),
+      workspaces: [...workspaces.values()].map(publicWorkspace),
     });
-    return;
-  }
-
-  if (method === "GET" && url.pathname === "/api/federation") {
-    await service.federation.refreshPeers({ force: url.searchParams.get("refresh") === "1" });
-    sendJson(request, response, 200, publicFederationSettings(service));
-    return;
-  }
-  if (method === "PATCH" && url.pathname === "/api/federation") {
-    if (request.headers["x-work-federation-settings"] !== "confirm") {
-      throw new WorkspaceError("Changing federation settings requires explicit local confirmation.", { code: "federation_confirmation_required", status: 403 });
-    }
-    const body = await readJsonBody(request);
-    await service.federation.rename(body.name);
-    sendJson(request, response, 200, publicFederationSettings(service));
-    return;
-  }
-  if (method === "POST" && url.pathname === "/api/federation/grants") {
-    if (request.headers["x-work-federation-settings"] !== "confirm") {
-      throw new WorkspaceError("Creating an access key requires explicit local confirmation.", { code: "federation_confirmation_required", status: 403 });
-    }
-    sendJson(request, response, 201, await service.federation.createGrant(await readJsonBody(request)));
-    return;
-  }
-  const grantToRevoke = routeId(url.pathname, "federation/grants");
-  if (method === "DELETE" && grantToRevoke) {
-    if (request.headers["x-work-federation-settings"] !== "confirm") {
-      throw new WorkspaceError("Revoking an access key requires explicit local confirmation.", { code: "federation_confirmation_required", status: 403 });
-    }
-    await service.federation.revokeGrant(grantToRevoke);
-    sendEmpty(request, response);
-    return;
-  }
-  if (method === "POST" && url.pathname === "/api/federation/peers") {
-    if (request.headers["x-work-federation-settings"] !== "confirm") {
-      throw new WorkspaceError("Connecting a Work instance requires explicit local confirmation.", { code: "federation_confirmation_required", status: 403 });
-    }
-    sendJson(request, response, 201, await service.federation.addPeer(await readJsonBody(request)));
-    return;
-  }
-  const peerToRemove = routeId(url.pathname, "federation/peers");
-  if (method === "DELETE" && peerToRemove) {
-    if (request.headers["x-work-federation-settings"] !== "confirm") {
-      throw new WorkspaceError("Removing a connected instance requires explicit local confirmation.", { code: "federation_confirmation_required", status: 403 });
-    }
-    await service.federation.removePeer(peerToRemove);
-    sendEmpty(request, response);
     return;
   }
 
@@ -724,33 +529,6 @@ async function handleRequest(workspaces, service, request, response) {
     return;
   }
 
-  if (method === "GET" && url.pathname === "/api/ai/settings") {
-    sendJson(request, response, 200, await getAiSettings(service.aiConfigFile, service.aiCredentialStore));
-    return;
-  }
-
-  if (method === "PATCH" && url.pathname === "/api/ai/settings") {
-    if (request.headers["x-work-ai-settings"] !== "confirm") {
-      throw new WorkspaceError("Saving AI settings requires explicit local confirmation.", { code: "ai_settings_confirmation_required", status: 403 });
-    }
-    sendJson(request, response, 200, await saveAiSettings(await readJsonBody(request), service.aiConfigFile, service.aiCredentialStore));
-    return;
-  }
-
-  if (method === "POST" && url.pathname === "/api/ai/settings/test") {
-    sendJson(request, response, 200, await testAiSettings(service.aiConfigFile, service.aiFetch, service.aiRequestTimeoutMs, service.aiCredentialStore));
-    return;
-  }
-
-  const requestedWorkspaceId = request.headers["x-work-workspace"];
-  if (typeof requestedWorkspaceId === "string") {
-    const remoteWorkspace = service.federation.resolveRemoteWorkspace(requestedWorkspaceId);
-    if (remoteWorkspace) {
-      await proxyFederatedRequest(service, remoteWorkspace, url, request, response);
-      return;
-    }
-  }
-
   const workspace = selectedWorkspace(workspaces, defaultWorkspace, request);
 
   if (method === "GET" && url.pathname === "/api/health") {
@@ -783,40 +561,6 @@ async function handleRequest(workspaces, service, request, response) {
     const body = await readJsonBody(request);
     sendJson(request, response, 201, await initializeProject(workspace, body?.projectPath));
     return;
-  }
-  if (method === "POST" && url.pathname === "/api/ai/proposals") {
-    sendJson(request, response, 200, await createAiProposal(workspace, await readJsonBody(request), {
-      configPath: service.aiConfigFile,
-      fetchImpl: service.aiFetch,
-      timeoutMs: service.aiRequestTimeoutMs,
-      credentialStore: service.aiCredentialStore,
-    }));
-    return;
-  }
-  if (method === "POST" && url.pathname === "/api/ai/apply") {
-    if (request.headers["x-work-ai-apply"] !== "confirm") {
-      throw new WorkspaceError("Applying an AI proposal requires explicit confirmation.", { code: "ai_apply_confirmation_required", status: 403 });
-    }
-    const body = await readJsonBody(request);
-    if (body.confirm !== true || !body.proposal || typeof body.proposal !== "object") {
-      throw new WorkspaceError("Applying an AI proposal requires confirm: true and the proposal preview.", { code: "ai_apply_confirmation_required" });
-    }
-    const proposal = body.proposal;
-    const projects = await discoverProjects(workspace.root);
-    if (proposal.artifactType === "task") {
-      const task = await getTask(workspace, proposal.artifactId);
-      const patch = selectedProposalPatch(proposal, body.selectedFields, task);
-      sendJson(request, response, 200, await updateTask(workspace, task.id, patch, projects));
-      return;
-    }
-    if (proposal.artifactType === "idea") {
-      const idea = (await listIdeas(workspace)).find((item) => item.id === proposal.artifactId);
-      if (!idea) throw new WorkspaceError(`Idea not found: ${proposal.artifactId}`, { code: "idea_not_found", status: 404 });
-      const patch = selectedProposalPatch(proposal, body.selectedFields, idea);
-      sendJson(request, response, 200, await updateIdea(workspace, idea.id, patch, projects));
-      return;
-    }
-    throw new WorkspaceError("That AI proposal artifact is not supported.", { code: "invalid_ai_proposal" });
   }
   if (method === "PATCH" && url.pathname === "/api/projects/profile") {
     const body = await readJsonBody(request);
@@ -1058,14 +802,6 @@ export async function startLocalApi({
   onUpdate = null,
   pickWorkspaceDirectory = chooseWorkspaceDirectory,
   registryPath = undefined,
-  aiConfigFile = undefined,
-  aiFetch = fetch,
-  aiRequestTimeoutMs = 30_000,
-  aiCredentialStore = undefined,
-  federationConfigFile = null,
-  federationCredentialStore = undefined,
-  federationFetch = fetch,
-  federationRequestTimeoutMs = 5_000,
   fallbackOnPortConflict = false,
 } = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65_535) {
@@ -1085,18 +821,6 @@ export async function startLocalApi({
   }
   if (typeof pickWorkspaceDirectory !== "function") {
     throw new WorkspaceError("pickWorkspaceDirectory must be a function.", { code: "invalid_folder_picker" });
-  }
-  if (typeof aiFetch !== "function") throw new WorkspaceError("aiFetch must be a function.", { code: "invalid_ai_fetch" });
-  if (aiCredentialStore != null && (!["get", "set", "delete"].every((method) => typeof aiCredentialStore[method] === "function"))) {
-    throw new WorkspaceError("aiCredentialStore must provide get, set, and delete methods.", { code: "invalid_ai_credential_store" });
-  }
-  if (!Number.isInteger(aiRequestTimeoutMs) || aiRequestTimeoutMs < 1) throw new WorkspaceError("aiRequestTimeoutMs must be a positive integer.", { code: "invalid_ai_timeout" });
-  if (typeof federationFetch !== "function") throw new WorkspaceError("federationFetch must be a function.", { code: "invalid_federation_fetch" });
-  if (federationCredentialStore != null && (!["get", "set", "delete"].every((method) => typeof federationCredentialStore[method] === "function"))) {
-    throw new WorkspaceError("federationCredentialStore must provide keyed get, set, and delete methods.", { code: "invalid_federation_credential_store" });
-  }
-  if (!Number.isInteger(federationRequestTimeoutMs) || federationRequestTimeoutMs < 1) {
-    throw new WorkspaceError("federationRequestTimeoutMs must be a positive integer.", { code: "invalid_federation_timeout" });
   }
   if (typeof fallbackOnPortConflict !== "boolean") {
     throw new WorkspaceError("fallbackOnPortConflict must be a boolean.", { code: "invalid_port_fallback" });
@@ -1118,14 +842,6 @@ export async function startLocalApi({
     : relativeStart !== ".." && !relativeStart.startsWith(`..${sep}`) && !isAbsolute(relativeStart)
       ? await validateProjectScopePath(workspace.root, relativeStart.split(sep).join("/"), projects)
       : ".";
-  const federation = await new FederationManager({
-    configPath: federationConfigFile,
-    ...(federationCredentialStore ? { credentialStore: federationCredentialStore } : {}),
-    fetchImpl: federationFetch,
-    timeoutMs: federationRequestTimeoutMs,
-    serviceVersion: version,
-    localWorkspaces: () => [...workspaces.values()],
-  }).initialize();
   const service = {
     instanceId: randomUUID(),
     host,
@@ -1139,11 +855,6 @@ export async function startLocalApi({
     updateStatus: null,
     pickWorkspaceDirectory,
     registryPath,
-    aiConfigFile,
-    aiFetch,
-    aiRequestTimeoutMs,
-    aiCredentialStore,
-    federation,
     mcp: null,
   };
   const server = createServer((request, response) => {
@@ -1177,7 +888,6 @@ export async function startLocalApi({
   const address = server.address();
   const selectedPort = typeof address === "object" && address ? address.port : port;
   const origin = `http://${host}:${selectedPort}`;
-  service.origin = origin;
   return {
     server,
     origin,

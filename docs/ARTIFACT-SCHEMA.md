@@ -148,11 +148,11 @@ reasons. `revisitAt` is optional and is especially useful for deferred ideas.
 ---
 id: "idea_mabc1234_ab12cd34ef56"
 type: "idea"
-title: "Federate remote Work instances"
+title: "Add a weekly review view"
 status: "exploring"
 scopePath: "."
 projectPath: null
-tags: ["remote","architecture"]
+tags: ["review","ui"]
 source: null
 revisitAt: null
 agentIntent: "evaluation_requested"
@@ -162,27 +162,27 @@ updatedAt: "2026-07-14T14:30:00.000Z"
 ---
 
 ## Opportunity
-See project trees from several Work servers in one place.
+See what moved across projects each week in one place.
 
 ## Why It Might Matter
-Reduce context switching across machines.
+Reduce time spent reconstructing recent progress by hand.
 
 ## Hypothesis
-Read-only federation may provide most of the value without distributed writes.
+A read-only summary of status changes may provide most of the value.
 
 ## Unknowns
-Authentication, offline behavior, and ownership boundaries.
+Grouping, time window, and how much log detail to show.
 
 ## Potential Shape
-Store approved remote endpoints and show each server as a separate boundary.
+Summarize each project's status transitions from the progress logs.
 
 ## Evidence
 
 ## Risks and Constraints
-Remote access changes Work's current loopback-only security model.
+Another view competes for attention with the Board and Home.
 
 ## Next Evaluation
-Assess whether read-only discovery is useful before designing synchronization.
+Assess whether a plain chronological list is already enough.
 
 ## Outcome
 ```

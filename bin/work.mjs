@@ -31,7 +31,6 @@ import {
 import { closeLocalApi, startLocalApi } from "../server/local-api.mjs";
 import { startMcpSidecar } from "../lib/mcp-sidecar.mjs";
 import { createServiceUpdater } from "../lib/service-updater.mjs";
-import { federationConfigPath } from "../lib/instance-federation.mjs";
 import { discoverTailscaleIPv4 } from "../lib/tailscale-network.mjs";
 import { createServer as createViteServer } from "vite";
 import {
@@ -114,7 +113,7 @@ Examples:
   work projects
   work add "check whether the release needs a migration" --scope tools
   work add "validate the parser" --scope tools/parser --project tools/parser
-  work idea "Federate remote Work instances" --detail "Explore read-only project trees across servers"
+  work idea "Add a weekly review view" --detail "Summarize what moved across projects each week"
   work decision "Where should the lab live?" --option "Keep unassigned" --option "Assign later"
   work task "Implement the board" --project tools/runner --type feature --priority high
   work move W-0001 in_progress --note "Agent team started implementation"
@@ -584,7 +583,6 @@ async function runServer(options, positionals) {
     version: updater.currentVersion,
     checkForUpdate: updater.checkForUpdate,
     onUpdate: updater.installUpdate,
-    federationConfigFile: federationConfigPath(),
     fallbackOnPortConflict: options.apiPort == null,
   });
   console.log(`[work] Workspace: ${localApi.workspace.root}`);

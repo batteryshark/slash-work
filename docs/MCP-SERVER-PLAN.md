@@ -29,7 +29,7 @@ when a preferred port is unavailable.
    with `--tailscale`.
 3. Keep the web app, native iOS app, REST API, CLI, and MCP tools on the same
    workspace and artifact model.
-4. Reuse Work's existing validation, history, project routing, federation, and
+4. Reuse Work's existing validation, history, project routing, and
    authorization rules.
 5. Let agents inspect safely exposed project files without requiring direct
    filesystem traversal.
@@ -43,8 +43,7 @@ when a preferred port is unavailable.
 - Replacing the REST API used by the web and iOS clients.
 - Giving MCP clients unrestricted filesystem access.
 - Allowing an MCP client to select an arbitrary host path.
-- Exposing update, restart, folder-picker, AI-provider configuration, credential,
-  access-grant, or federation-administration operations.
+- Exposing update, restart, folder-picker, or credential operations.
 - Supporting destructive deletion tools.
 - Resolving human decisions without an explicit human choice.
 - Supporting MCP prompts, sampling, elicitation, apps, subscriptions, or
@@ -116,7 +115,7 @@ FastMCP sidecar on 127.0.0.1:<ephemeral-port>
 existing Work REST API
             |
             v
-local-workspace functions, federation routing, and .work storage
+local-workspace functions and .work storage
 ```
 
 ### Why the sidecar calls REST
@@ -129,7 +128,7 @@ REST operations so that MCP uses the same:
 - exact project paths;
 - artifact relocation and history;
 - agent-note ownership rules;
-- local and federated workspace routing;
+- workspace routing;
 - read-only file containment and secret filtering.
 
 The REST API and `lib/agent-capabilities.mjs` remain the source of truth. MCP is
@@ -259,7 +258,7 @@ was actually used.
 
 | MCP tool | Canonical operation | Purpose |
 | --- | --- | --- |
-| `workspaces_list` | `workspaces.list` | List available local and federated workspaces and the default ID. |
+| `workspaces_list` | `workspaces.list` | List available workspaces and the default ID. |
 | `projects_list` | `projects.list` | Return exact project paths before assignment. |
 | `tasks_list` | `tasks.list` | List task records in the selected workspace. |
 | `task_get` | `tasks.get` | Read one task by stable ID. |
@@ -295,23 +294,20 @@ Do not expose these in the initial allowlist:
 - project profile mutation;
 - folder picking and workspace registration;
 - service restart and self-update;
-- AI settings, provider testing, proposal application, or credential handling;
-- federation grants, keys, peer configuration, or revocation.
+- credential handling.
 
 They can be added only with a concrete client need and focused authorization
 review.
 
 ## Workspace and project routing
 
-One Work service can expose multiple local roots and allowlisted federated
-roots. MCP must preserve the existing routing contract:
+One Work service can expose multiple local roots. MCP must preserve the
+existing routing contract:
 
 1. Call `workspaces_list`.
 2. Select an available exact `workspace_id`.
 3. Send it to every workspace-scoped tool.
 4. The adapter sends `X-Work-Workspace` to the REST API.
-5. For a federated workspace, keep using the same gateway origin and let Work
-   route to the owner.
 
 Project assignment is equally explicit:
 
@@ -339,7 +335,6 @@ Map REST failures into MCP tool errors without hiding actionable information:
 | --- | --- |
 | Validation failure | Tool error with the field-level or actionable message. |
 | Unknown workspace/project/record | Tool error that names the missing stable ID or exact path. |
-| Unavailable federated workspace | Retryable/unavailable tool error; do not fall back to another workspace. |
 | Forbidden or unsafe file | Tool error without leaking the rejected host path. |
 | API timeout | Bounded timeout error with operation context. |
 | Sidecar or API unavailable | Service-unavailable error; never fabricate an empty result. |
@@ -371,7 +366,6 @@ OAuth support. That work must define:
 
 - token issuance, storage, rotation, and revocation;
 - tool-level scopes;
-- behavior for local versus federated workspaces;
 - client configuration on iOS-adjacent and remote harnesses;
 - migration without weakening the existing tailnet boundary.
 

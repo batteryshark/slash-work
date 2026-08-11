@@ -107,21 +107,6 @@ The complete filesystem serialization remains documented in
 [`ARTIFACT-SCHEMA.md`](ARTIFACT-SCHEMA.md) for offline automations that cannot
 use the CLI or service.
 
-## Paired-instance federation
-
-The normal UI and agent API remain loopback-only. A Work instance may be made
-reachable to another instance through a user-managed private network or HTTPS
-proxy, such as Tailscale. Its authenticated federation surface accepts only
-direct server-to-server discovery and the existing allowlisted workspace
-operations. Service settings, updates, local folder selection, peer management,
-and transitive routing are never proxied.
-
-Access grants are individually revocable and contain an explicit snapshot of
-permitted local workspace IDs. The granting instance stores only a token hash;
-the consuming instance stores the complete outgoing key in its operating
-system credential store. Files remain on their owning machine, and every write
-is validated and executed by that owner.
-
 ## Portable skill
 
 `skills/slash-work/SKILL.md` is a vendor-neutral skill that agents can load for

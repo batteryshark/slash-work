@@ -35,16 +35,12 @@ Local create commands invoked inside a marked project target that project by def
 For HTTP requests, never assume the service default is the workspace visible in a browser:
 
 1. Call `GET /api/workspaces` on the exact service origin.
-2. Select the exact available workspace by ID and verify its name, location, and owning peer when remote.
+2. Select the exact workspace by ID and verify its name and root.
 3. Send `X-Work-Workspace: <id>` on every workspace-scoped request.
 4. Call `GET /api/workspace` with that header and verify the returned workspace before mutation.
 5. Check the `X-Work-Workspace` response header after mutation.
 
-When a returned workspace has `location: "remote"`, keep calling the same local
-service origin. Do not switch to the peer URL or handle its credential yourself;
-the local Work instance authenticates and routes the request to the owner.
-
-Read [references/service-routing.md](references/service-routing.md) when multiple services, roots, ports, or remote instances are involved.
+Read [references/service-routing.md](references/service-routing.md) when multiple services, roots, or ports are involved.
 
 ## Preserve meaning and authority
 

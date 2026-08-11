@@ -235,9 +235,6 @@ type WorkspacePayload = {
     dataDir: string;
     startScopePath?: string;
     statuses: string[];
-    location?: "local" | "remote";
-    available?: boolean;
-    peer?: { id: string; name: string; baseUrl: string };
   };
   projects: Project[];
   captures: Capture[];
@@ -252,9 +249,6 @@ type WorkspaceSummary = {
   id: string;
   name: string;
   root: string;
-  location?: "local" | "remote";
-  available?: boolean;
-  peer?: { id: string; name: string; baseUrl: string };
 };
 
 type WorkspaceDirectory = {
@@ -271,38 +265,6 @@ type WorkspacePickerReceipt = {
 
 type WorkspaceRemovalReceipt = WorkspaceDirectory & {
   removedWorkspaceId: string;
-};
-
-type FederationGrant = {
-  id: string;
-  label: string;
-  workspaceIds: string[];
-  createdAt: string;
-  lastUsedAt: string | null;
-};
-
-type FederationPeer = {
-  id: string;
-  name: string;
-  baseUrl: string;
-  version: string | null;
-  available: boolean;
-  lastSeenAt: string | null;
-  workspaceCount: number;
-  error: string | null;
-};
-
-type FederationSettings = {
-  protocolVersion: string;
-  instance: { id: string; name: string; version: string | null };
-  network: { mode: "loopback" | "tailscale"; reachableUrl: string | null };
-  grants: FederationGrant[];
-  peers: FederationPeer[];
-};
-
-type FederationGrantReceipt = {
-  grant: FederationGrant;
-  accessKey: string;
 };
 
 type DecisionDraft = {
@@ -345,37 +307,6 @@ type ServiceUpdateReceipt = {
   updating: true;
   installedVersion: string;
   serviceInstanceId: string;
-};
-
-type AiSettings = {
-  configured: boolean;
-  provider: "openai-compatible" | "anthropic-compatible";
-  baseUrl: string;
-  model: string;
-  allowSelfSigned: boolean;
-  hasApiKey: boolean;
-  apiKeyHint: string | null;
-  credentialSource: "system" | "environment" | "none";
-};
-
-type AiProposalField = {
-  field: string;
-  label: string;
-  current: unknown;
-  proposed: unknown;
-};
-
-type AiProposal = {
-  version: 1;
-  artifactType: "task" | "idea";
-  artifactId: string;
-  artifactUpdatedAt: string;
-  operation: "draft" | "review" | "expand" | "evaluate";
-  summary: string;
-  explanation: string;
-  questions: string[];
-  fields: AiProposalField[];
-  context: { project: { name: string; path: string; description: string } | null; truncation: Record<string, { included: number; total: number }> };
 };
 
 const emptyDraft: DecisionDraft = {
@@ -695,15 +626,6 @@ export default function Home() {
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [updateArmed, setUpdateArmed] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
-  const [aiSettings, setAiSettings] = useState<AiSettings | null>(null);
-  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
-  const [aiProposal, setAiProposal] = useState<AiProposal | null>(null);
-  const [aiBusy, setAiBusy] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-  const [federationSettings, setFederationSettings] = useState<FederationSettings | null>(null);
-  const [federationOpen, setFederationOpen] = useState(false);
-  const [federationBusy, setFederationBusy] = useState(false);
-  const [federationError, setFederationError] = useState<string | null>(null);
   const [projectSearch, setProjectSearch] = useState("");
   const [expandedDecision, setExpandedDecision] = useState<string | null>(null);
   const [decisionDrafts, setDecisionDrafts] = useState<Record<string, DecisionDraft>>({});
@@ -747,7 +669,7 @@ export default function Home() {
         headers: { accept: "application/json" },
       });
       const rememberedId = localStorage.getItem("work.workspace");
-      const selectedId = directory.workspaces.some((workspace) => workspace.id === rememberedId && workspace.available !== false)
+      const selectedId = directory.workspaces.some((workspace) => workspace.id === rememberedId)
         ? rememberedId
         : directory.activeWorkspaceId;
       if (selectedId) localStorage.setItem("work.workspace", selectedId);
@@ -782,204 +704,6 @@ export default function Home() {
       if (!quiet) setCheckingUpdate(false);
     }
   }, []);
-
-  async function openAiSettings() {
-    setAiError(null);
-    setAiSettingsOpen(true);
-    setSystemMenuOpen(false);
-    try {
-      setAiSettings(await requestJson<AiSettings>("/api/ai/settings"));
-    } catch (error) {
-      setAiError(error instanceof Error ? error.message : "AI settings could not be loaded.");
-    }
-  }
-
-  async function openFederationSettings() {
-    setFederationError(null);
-    setFederationOpen(true);
-    setSystemMenuOpen(false);
-    try {
-      setFederationSettings(await requestJson<FederationSettings>("/api/federation?refresh=1"));
-    } catch (error) {
-      setFederationError(error instanceof Error ? error.message : "Connected instances could not be loaded.");
-    }
-  }
-
-  async function updateFederationName(name: string) {
-    setFederationBusy(true);
-    setFederationError(null);
-    try {
-      const settings = await requestJson<FederationSettings>("/api/federation", {
-        method: "PATCH",
-        headers: { "x-work-federation-settings": "confirm" },
-        body: JSON.stringify({ name }),
-      });
-      setFederationSettings(settings);
-      return settings;
-    } catch (error) {
-      setFederationError(error instanceof Error ? error.message : "The instance name could not be saved.");
-      throw error;
-    } finally {
-      setFederationBusy(false);
-    }
-  }
-
-  async function createFederationGrant(label: string, workspaceIds: string[]) {
-    setFederationBusy(true);
-    setFederationError(null);
-    try {
-      const receipt = await requestJson<FederationGrantReceipt>("/api/federation/grants", {
-        method: "POST",
-        headers: { "x-work-federation-settings": "confirm" },
-        body: JSON.stringify({ label, workspaceIds }),
-      });
-      setFederationSettings((current) => current ? { ...current, grants: [...current.grants, receipt.grant] } : current);
-      return receipt;
-    } catch (error) {
-      setFederationError(error instanceof Error ? error.message : "The access key could not be created.");
-      throw error;
-    } finally {
-      setFederationBusy(false);
-    }
-  }
-
-  async function revokeFederationGrant(id: string) {
-    setFederationBusy(true);
-    setFederationError(null);
-    try {
-      await requestJson<null>(`/api/federation/grants/${encodeURIComponent(id)}`, {
-        method: "DELETE",
-        headers: { "x-work-federation-settings": "confirm" },
-      });
-      setFederationSettings((current) => current ? { ...current, grants: current.grants.filter((grant) => grant.id !== id) } : current);
-    } catch (error) {
-      setFederationError(error instanceof Error ? error.message : "The access key could not be revoked.");
-      throw error;
-    } finally {
-      setFederationBusy(false);
-    }
-  }
-
-  async function connectFederationPeer(baseUrl: string, accessKey: string) {
-    setFederationBusy(true);
-    setFederationError(null);
-    try {
-      await requestJson<FederationPeer>("/api/federation/peers", {
-        method: "POST",
-        headers: { "x-work-federation-settings": "confirm" },
-        body: JSON.stringify({ baseUrl, accessKey }),
-      });
-      setFederationSettings(await requestJson<FederationSettings>("/api/federation?refresh=1"));
-      await loadWorkspace(true);
-    } catch (error) {
-      setFederationError(error instanceof Error ? error.message : "The Work instance could not be connected.");
-      throw error;
-    } finally {
-      setFederationBusy(false);
-    }
-  }
-
-  async function removeFederationPeer(id: string) {
-    setFederationBusy(true);
-    setFederationError(null);
-    try {
-      await requestJson<null>(`/api/federation/peers/${encodeURIComponent(id)}`, {
-        method: "DELETE",
-        headers: { "x-work-federation-settings": "confirm" },
-      });
-      setFederationSettings((current) => current ? { ...current, peers: current.peers.filter((peer) => peer.id !== id) } : current);
-      if (data?.workspace.peer?.id === id) localStorage.removeItem("work.workspace");
-      await loadWorkspace(true);
-    } catch (error) {
-      setFederationError(error instanceof Error ? error.message : "The connected instance could not be removed.");
-      throw error;
-    } finally {
-      setFederationBusy(false);
-    }
-  }
-
-  async function refreshFederation() {
-    setFederationBusy(true);
-    setFederationError(null);
-    try {
-      setFederationSettings(await requestJson<FederationSettings>("/api/federation?refresh=1"));
-      await loadWorkspace(true);
-    } catch (error) {
-      setFederationError(error instanceof Error ? error.message : "Connected instances could not be refreshed.");
-    } finally {
-      setFederationBusy(false);
-    }
-  }
-
-  async function saveAiSettings(input: { provider: AiSettings["provider"]; baseUrl: string; model: string; allowSelfSigned: boolean; apiKey?: string; clearApiKey?: boolean }) {
-    setAiBusy(true);
-    setAiError(null);
-    try {
-      const settings = await requestJson<AiSettings>("/api/ai/settings", {
-        method: "PATCH",
-        headers: { "x-work-ai-settings": "confirm" },
-        body: JSON.stringify(input),
-      });
-      setAiSettings(settings);
-      return settings;
-    } catch (error) {
-      setAiError(error instanceof Error ? error.message : "AI settings could not be saved.");
-      throw error;
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
-  async function testAiSettings() {
-    setAiBusy(true);
-    setAiError(null);
-    try {
-      await requestJson<{ ok: true }>("/api/ai/settings/test", { method: "POST", body: JSON.stringify({}) });
-      return true;
-    } catch (error) {
-      setAiError(error instanceof Error ? error.message : "The AI connection test failed.");
-      return false;
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
-  async function requestAiProposal(artifactType: "task" | "idea", artifactId: string, operation: AiProposal["operation"]) {
-    setAiBusy(true);
-    setAiError(null);
-    try {
-      setAiProposal(await requestJson<AiProposal>("/api/ai/proposals", {
-        method: "POST",
-        body: JSON.stringify({ artifactType, artifactId, operation }),
-      }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "The AI proposal could not be created.";
-      setAiError(message);
-      if (/configure an ai/i.test(message)) await openAiSettings();
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
-  async function applyAiProposal(proposal: AiProposal, selectedFields: string[]) {
-    setAiBusy(true);
-    setAiError(null);
-    try {
-      const updated = await requestJson<WorkTask | ProjectIdea>("/api/ai/apply", {
-        method: "POST",
-        headers: { "x-work-ai-apply": "confirm" },
-        body: JSON.stringify({ proposal, selectedFields, confirm: true }),
-      });
-      if (proposal.artifactType === "task") replaceTask(updated as WorkTask);
-      else replaceIdea(updated as ProjectIdea);
-      setAiProposal(null);
-    } catch (error) {
-      setAiError(error instanceof Error ? error.message : "The AI proposal could not be applied.");
-      throw error;
-    } finally {
-      setAiBusy(false);
-    }
-  }
 
   async function switchWorkspace(workspaceId: string) {
     if (workspaceId === data?.workspace.id) {
@@ -1135,8 +859,6 @@ export default function Home() {
 
   useEffect(() => {
     void loadWorkspace();
-    void requestJson<AiSettings>("/api/ai/settings").then(setAiSettings).catch(() => undefined);
-    void requestJson<FederationSettings>("/api/federation").then(setFederationSettings).catch(() => undefined);
     const interval = window.setInterval(() => void loadWorkspace(true), 12_000);
     const onFocus = () => void loadWorkspace(true);
     window.addEventListener("focus", onFocus);
@@ -2030,9 +1752,7 @@ export default function Home() {
 
   const destination = destinationForCurrentScope();
   const rootProject = data.projects.find((project) => project.path === ".");
-  const workspaceLocationLabel = data.workspace.location === "remote"
-    ? `${data.workspace.peer?.name ?? "Remote instance"} · Remote workspace`
-    : data.workspace.root;
+  const workspaceLocationLabel = data.workspace.root;
 
   return (
     <div className={`app-shell ${captureDockCollapsed ? "capture-collapsed" : ""}`}>
@@ -2220,20 +1940,6 @@ export default function Home() {
               )}
               {serviceRestartError && <small className="service-restart-error" role="alert">{serviceRestartError}</small>}
             </section>
-            <section className="service-control ai-control" aria-label="AI assistance settings">
-              <div>
-                <strong>AI assistance {aiSettings?.configured && <span className="update-badge">Ready</span>}</strong>
-                <small>{aiSettings?.configured ? `${aiSettings.model} · ${aiSettings.baseUrl}` : "Configure one-shot drafting and review without enabling autonomous tools."}</small>
-              </div>
-              <button type="button" onClick={() => void openAiSettings()}>{aiSettings?.configured ? "Configure AI" : "Set up AI"}</button>
-            </section>
-            <section className="service-control federation-control" aria-label="Connected Work instances">
-              <div>
-                <strong>Connected instances {federationSettings?.peers.some((peer) => peer.available) && <span className="update-badge">Linked</span>}</strong>
-                <small>Browse another Work instance through this one without copying its files.</small>
-              </div>
-              <button type="button" onClick={() => void openFederationSettings()}>Manage connections</button>
-            </section>
           </div>
         )}
 
@@ -2251,22 +1957,20 @@ export default function Home() {
               {workspaceDirectory.workspaces.map((workspace) => {
                 const current = workspace.id === data.workspace.id;
                 const confirmingRemoval = workspaceRemovalTarget === workspace.id;
-                const remote = workspace.location === "remote";
                 return (
-                  <div className={`workspace-menu-item${current ? " selected" : ""}${remote ? " remote" : ""}${workspace.available === false ? " offline" : ""}`} role="group" key={workspace.id}>
+                  <div className={`workspace-menu-item${current ? " selected" : ""}`} role="group" key={workspace.id}>
                     <button
                       className="workspace-select"
                       type="button"
                       role="menuitemradio"
                       aria-checked={current}
-                      disabled={workspace.available === false}
                       onClick={() => void switchWorkspace(workspace.id)}
                     >
-                      <span className="workspace-icon" aria-hidden="true">{remote ? "↗" : workspace.name.slice(0, 1).toUpperCase()}</span>
-                      <span><strong>{workspace.name}</strong><small>{remote ? `${workspace.peer?.name ?? "Remote instance"} · ${workspace.available === false ? "Offline" : "Remote"}` : workspace.root}</small></span>
+                      <span className="workspace-icon" aria-hidden="true">{workspace.name.slice(0, 1).toUpperCase()}</span>
+                      <span><strong>{workspace.name}</strong><small>{workspace.root}</small></span>
                       {current && <span className="current-root">Current</span>}
                     </button>
-                    {!remote && !current && !confirmingRemoval && (
+                    {!current && !confirmingRemoval && (
                       <button
                         type="button"
                         className="workspace-remove"
@@ -2354,8 +2058,6 @@ export default function Home() {
             onUpdate={updateProjectIdea}
             onDelete={deleteProjectIdea}
             onScopeWork={scopeIdeaAsWork}
-            onAskAi={(ideaId, operation) => requestAiProposal("idea", ideaId, operation)}
-            aiBusy={aiBusy}
           />
         ) : view === "notes" ? (
           <NotesView
@@ -2679,33 +2381,7 @@ export default function Home() {
           onPatch={(patch) => void patchWorkTask(selectedTask.id, patch).catch(() => {})}
           onToggle={(section, index, checked) => void toggleWorkChecklist(selectedTask.id, section, index, checked)}
           onLog={(message) => logWorkProgress(selectedTask.id, message)}
-          onAskAi={(taskId, operation) => requestAiProposal("task", taskId, operation)}
-          aiBusy={aiBusy}
         />
-      )}
-
-      {aiSettingsOpen && (
-        <AiSettingsPanel settings={aiSettings} busy={aiBusy} error={aiError} onClose={() => { setAiSettingsOpen(false); setAiError(null); }} onSave={saveAiSettings} onTest={testAiSettings} />
-      )}
-
-      {federationOpen && (
-        <FederationPanel
-          settings={federationSettings}
-          localWorkspaces={workspaceDirectory?.workspaces.filter((workspace) => workspace.location !== "remote") ?? []}
-          busy={federationBusy}
-          error={federationError}
-          onClose={() => { setFederationOpen(false); setFederationError(null); }}
-          onRename={updateFederationName}
-          onCreateGrant={createFederationGrant}
-          onRevokeGrant={revokeFederationGrant}
-          onConnect={connectFederationPeer}
-          onRemovePeer={removeFederationPeer}
-          onRefresh={refreshFederation}
-        />
-      )}
-
-      {aiProposal && (
-        <AiProposalPanel proposal={aiProposal} busy={aiBusy} error={aiError} onClose={() => { setAiProposal(null); setAiError(null); }} onApply={applyAiProposal} />
       )}
 
       {captureDockCollapsed ? (
@@ -3600,8 +3276,6 @@ function IdeasView({
   onUpdate,
   onDelete,
   onScopeWork,
-  onAskAi,
-  aiBusy,
 }: {
   scopeLabel: string;
   scopeKind: "root" | "group" | "project";
@@ -3616,8 +3290,6 @@ function IdeasView({
   onUpdate: (ideaId: string, patch: Record<string, unknown>) => Promise<ProjectIdea>;
   onDelete: (ideaId: string) => Promise<void>;
   onScopeWork: (idea: ProjectIdea) => Promise<WorkTask>;
-  onAskAi: (ideaId: string, operation: "expand" | "evaluate") => void;
-  aiBusy: boolean;
 }) {
   const selectedIdea = ideas.find((idea) => idea.id === selectedIdeaId) ?? null;
   const [search, setSearch] = useState("");
@@ -3781,9 +3453,7 @@ function IdeasView({
             <form onSubmit={(event) => void saveIdea(event).catch(() => {})}>
               <div className={`idea-intent ${selectedIdea.agentIntent === "evaluation_requested" ? "evaluation-requested" : "consideration-only"}`}>
                 <div><strong>{selectedIdea.agentIntent === "evaluation_requested" ? "Evaluation requested" : "Consideration only"}</strong><span>{selectedIdea.agentIntent === "evaluation_requested" ? "An agent may assess feasibility, value, unknowns, and options. Implementation is not authorized." : "This preserves a possibility. It is not a task, decision, or approval to implement."}</span></div>
-                <div className="ai-action-group">
-                  <button type="button" className="magic-action" disabled={saving || aiBusy} onClick={() => onAskAi(selectedIdea.id, "expand")}><span aria-hidden="true">✦</span> Expand with AI</button>
-                  <button type="button" className="magic-action" disabled={saving || aiBusy} onClick={() => onAskAi(selectedIdea.id, "evaluate")}><span aria-hidden="true">✦</span> Evaluate with AI</button>
+                <div className="idea-intent-actions">
                   {(selectedIdea.status !== "adopted" || selectedIdea.agentIntent === "evaluation_requested") && <button type="button" disabled={saving} onClick={() => void toggleEvaluationRequest().catch(() => {})}>{selectedIdea.agentIntent === "evaluation_requested" ? "Clear request" : "Ask agent to evaluate"}</button>}
                 </div>
               </div>
@@ -4383,242 +4053,6 @@ function ActivityView({ scopeLabel, tasks, projects, onOpenTask }: { scopeLabel:
   );
 }
 
-function FederationPanel({ settings, localWorkspaces, busy, error, onClose, onRename, onCreateGrant, onRevokeGrant, onConnect, onRemovePeer, onRefresh }: {
-  settings: FederationSettings | null;
-  localWorkspaces: WorkspaceSummary[];
-  busy: boolean;
-  error: string | null;
-  onClose: () => void;
-  onRename: (name: string) => Promise<FederationSettings>;
-  onCreateGrant: (label: string, workspaceIds: string[]) => Promise<FederationGrantReceipt>;
-  onRevokeGrant: (id: string) => Promise<void>;
-  onConnect: (baseUrl: string, accessKey: string) => Promise<void>;
-  onRemovePeer: (id: string) => Promise<void>;
-  onRefresh: () => Promise<void>;
-}) {
-  const [instanceName, setInstanceName] = useState(settings?.instance.name ?? "");
-  const [grantLabel, setGrantLabel] = useState("");
-  const [selectedWorkspaces, setSelectedWorkspaces] = useState(() => new Set(localWorkspaces.map((workspace) => workspace.id)));
-  const [newAccessKey, setNewAccessKey] = useState<string | null>(null);
-  const [peerUrl, setPeerUrl] = useState("");
-  const [peerKey, setPeerKey] = useState("");
-  const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null);
-  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
-  const [receipt, setReceipt] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (settings) setInstanceName(settings.instance.name);
-  }, [settings?.instance.name]);
-
-  useEffect(() => {
-    setSelectedWorkspaces((current) => current.size > 0 ? current : new Set(localWorkspaces.map((workspace) => workspace.id)));
-  }, [localWorkspaces.map((workspace) => workspace.id).join("|")]);
-
-  function toggleWorkspace(id: string, checked: boolean) {
-    setSelectedWorkspaces((current) => {
-      const next = new Set(current);
-      if (checked) next.add(id); else next.delete(id);
-      return next;
-    });
-  }
-
-  async function createGrant() {
-    setReceipt(null);
-    const result = await onCreateGrant(grantLabel, [...selectedWorkspaces]);
-    setNewAccessKey(result.accessKey);
-    setGrantLabel("");
-  }
-
-  async function copyAccessKey() {
-    if (!newAccessKey) return;
-    try {
-      await navigator.clipboard.writeText(newAccessKey);
-      setReceipt("Access key copied.");
-    } catch {
-      setReceipt("Select and copy the access key manually.");
-    }
-  }
-
-  async function copyReachableUrl() {
-    if (!settings?.network.reachableUrl) return;
-    try {
-      await navigator.clipboard.writeText(settings.network.reachableUrl);
-      setReceipt("Tailnet API URL copied.");
-    } catch {
-      setReceipt("Select and copy the tailnet API URL manually.");
-    }
-  }
-
-  async function connect() {
-    setReceipt(null);
-    await onConnect(peerUrl, peerKey);
-    setPeerUrl("");
-    setPeerKey("");
-    setReceipt("Work instance connected.");
-  }
-
-  return (
-    <div className="ai-panel-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-      <section className="federation-panel" role="dialog" aria-modal="true" aria-labelledby="federation-heading">
-        <header>
-          <div><p className="eyebrow">Direct, paired federation</p><h2 id="federation-heading">Connected Work instances</h2><p>This Work server remains the only endpoint your browser and local agents need. It forwards selected workspace operations to the instance that owns the files.</p></div>
-          <button type="button" onClick={onClose} aria-label="Close connected instances">×</button>
-        </header>
-
-        {!settings ? <div className="federation-loading">Loading connection settings…</div> : <>
-          <section className="federation-section">
-            <div className="federation-section-heading"><div><h3>This instance</h3><p>The name appears beside its workspaces on connected machines.</p></div><code>{settings.instance.id}</code></div>
-            <div className="federation-inline-form">
-              <label><span>Instance name</span><input value={instanceName} onChange={(event) => setInstanceName(event.target.value)} /></label>
-              <button type="button" disabled={busy || !instanceName.trim() || instanceName.trim() === settings.instance.name} onClick={() => void onRename(instanceName).then(() => setReceipt("Instance name saved.")).catch(() => {})}>Save name</button>
-            </div>
-            {settings.network.mode === "tailscale" && settings.network.reachableUrl ? (
-              <div className="federation-network ready"><span className="peer-status" aria-hidden="true" /><div><strong>Ready for tailnet pairing</strong><small>Use this API URL when connecting from another Work instance.</small><code>{settings.network.reachableUrl}</code></div><button type="button" onClick={() => void copyReachableUrl()}>Copy URL</button></div>
-            ) : (
-              <div className="federation-network"><div><strong>Available on this machine only</strong><small>Restart with <code>work --tailscale</code> to get a tailnet API URL for direct instance pairing.</small></div></div>
-            )}
-          </section>
-
-          <section className="federation-section">
-            <div className="federation-section-heading"><div><h3>Let another instance browse this one</h3><p>Create a one-time access key. Only a hash stays here; the receiving Work instance stores the key in its operating system credential store.</p></div></div>
-            <div className="federation-grant-form">
-              <label><span>Key label</span><input value={grantLabel} onChange={(event) => setGrantLabel(event.target.value)} placeholder="Home server or MacBook" /></label>
-              <fieldset><legend>Workspace access</legend>{localWorkspaces.map((workspace) => <label key={workspace.id}><input type="checkbox" checked={selectedWorkspaces.has(workspace.id)} onChange={(event) => toggleWorkspace(workspace.id, event.target.checked)} /><span><strong>{workspace.name}</strong><small>{workspace.root}</small></span></label>)}</fieldset>
-              <button type="button" className="primary-action" disabled={busy || !grantLabel.trim() || selectedWorkspaces.size === 0} onClick={() => void createGrant().catch(() => {})}>Create access key</button>
-            </div>
-            {newAccessKey && <div className="federation-key-receipt" role="status"><strong>Copy this key now—it will not be shown again.</strong><div><input readOnly value={newAccessKey} onFocus={(event) => event.currentTarget.select()} aria-label="New federation access key" /><button type="button" onClick={() => void copyAccessKey()}>Copy</button></div><small>On the other machine, open this panel and use the key under “Browse another instance.”</small></div>}
-            {settings.grants.length > 0 && <div className="federation-list"><h4>Active access keys</h4>{settings.grants.map((grant) => <article key={grant.id}><div><strong>{grant.label}</strong><small>{grant.workspaceIds.length} workspace{grant.workspaceIds.length === 1 ? "" : "s"} · {grant.lastUsedAt ? `Used ${shortTime(grant.lastUsedAt)}` : "Not used yet"}</small></div>{confirmRevoke === grant.id ? <div className="federation-confirm"><button type="button" onClick={() => setConfirmRevoke(null)}>Cancel</button><button type="button" className="danger-action" disabled={busy} onClick={() => void onRevokeGrant(grant.id).then(() => setConfirmRevoke(null)).catch(() => {})}>Confirm revoke</button></div> : <button type="button" onClick={() => setConfirmRevoke(grant.id)}>Revoke</button>}</article>)}</div>}
-          </section>
-
-          <section className="federation-section">
-            <div className="federation-section-heading"><div><h3>Browse another instance here</h3><p>Paste the API URL printed by <code>work --tailscale</code> on that machine and an access key created by that instance.</p></div><button type="button" className="text-action" disabled={busy} onClick={() => void onRefresh()}>Refresh</button></div>
-            <div className="federation-connect-form">
-              <label><span>Reachable Work URL</span><input value={peerUrl} onChange={(event) => setPeerUrl(event.target.value)} placeholder="Paste the API URL shown on that machine" /></label>
-              <label><span>Access key</span><input type="password" value={peerKey} onChange={(event) => setPeerKey(event.target.value)} placeholder="work_peer_…" autoComplete="off" /></label>
-              <button type="button" className="primary-action" disabled={busy || !peerUrl.trim() || !peerKey.trim()} onClick={() => void connect().catch(() => {})}>{busy ? "Connecting…" : "Connect instance"}</button>
-            </div>
-            {settings.peers.length > 0 && <div className="federation-list"><h4>Instances available through this server</h4>{settings.peers.map((peer) => <article key={peer.id} className={peer.available ? "online" : "offline"}><span className="peer-status" aria-label={peer.available ? "Available" : "Offline"} /><div><strong>{peer.name}</strong><small>{peer.available ? `${peer.workspaceCount} workspace${peer.workspaceCount === 1 ? "" : "s"} · Available` : `Offline${peer.lastSeenAt ? ` · Last seen ${shortTime(peer.lastSeenAt)}` : ""}`}</small><small>{peer.baseUrl}</small>{peer.error && !peer.available && <small className="peer-error">{peer.error}</small>}</div>{confirmRemove === peer.id ? <div className="federation-confirm"><button type="button" onClick={() => setConfirmRemove(null)}>Cancel</button><button type="button" className="danger-action" disabled={busy} onClick={() => void onRemovePeer(peer.id).then(() => setConfirmRemove(null)).catch(() => {})}>Confirm remove</button></div> : <button type="button" onClick={() => setConfirmRemove(peer.id)}>Remove</button>}</article>)}</div>}
-            <p className="federation-reverse-note">Connections are deliberately one-way. To browse this machine from the other instance too, create a key here and repeat the connection there.</p>
-          </section>
-        </>}
-        {error && <p className="task-error" role="alert">{error}</p>}
-        {receipt && <p className="ai-receipt" role="status">{receipt}</p>}
-        <footer><button type="button" className="secondary-action" onClick={onClose} disabled={busy}>Done</button></footer>
-      </section>
-    </div>
-  );
-}
-
-function AiSettingsPanel({ settings, busy, error, onClose, onSave, onTest }: {
-  settings: AiSettings | null;
-  busy: boolean;
-  error: string | null;
-  onClose: () => void;
-  onSave: (input: { provider: AiSettings["provider"]; baseUrl: string; model: string; allowSelfSigned: boolean; apiKey?: string; clearApiKey?: boolean }) => Promise<AiSettings>;
-  onTest: () => Promise<boolean>;
-}) {
-  const [provider, setProvider] = useState<AiSettings["provider"]>(settings?.provider ?? "openai-compatible");
-  const [baseUrl, setBaseUrl] = useState(settings?.baseUrl ?? "https://api.openai.com/v1");
-  const [model, setModel] = useState(settings?.model ?? "");
-  const [allowSelfSigned, setAllowSelfSigned] = useState(settings?.allowSelfSigned ?? false);
-  const [apiKey, setApiKey] = useState("");
-  const [clearApiKey, setClearApiKey] = useState(false);
-  const [receipt, setReceipt] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!settings) return;
-    setProvider(settings.provider);
-    setBaseUrl(settings.baseUrl);
-    setModel(settings.model);
-    setAllowSelfSigned(settings.allowSelfSigned);
-  }, [settings?.provider, settings?.baseUrl, settings?.model, settings?.allowSelfSigned]);
-
-  async function save(testAfter = false) {
-    setReceipt(null);
-    await onSave({ provider, baseUrl, model, allowSelfSigned, apiKey: apiKey || undefined, clearApiKey });
-    setApiKey("");
-    setClearApiKey(false);
-    if (testAfter) {
-      const passed = await onTest();
-      if (passed) setReceipt("Connection verified.");
-    } else {
-      onClose();
-    }
-  }
-
-  return (
-    <div className="ai-panel-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="ai-settings-panel" role="dialog" aria-modal="true" aria-labelledby="ai-settings-heading">
-        <header><div><p className="eyebrow">One-shot assistance</p><h2 id="ai-settings-heading">AI settings</h2><p>Work sends bounded artifact context and receives proposed edits. It does not grant tools or autonomous execution.</p></div><button type="button" onClick={onClose} aria-label="Close AI settings">×</button></header>
-        <div className="ai-settings-form">
-          <label><span>Provider format</span><select value={provider} onChange={(event) => {
-            const next = event.target.value as AiSettings["provider"];
-            setProvider(next);
-            if (baseUrl === "https://api.openai.com/v1" || baseUrl === "https://api.anthropic.com/v1") setBaseUrl(next === "anthropic-compatible" ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1");
-          }}><option value="openai-compatible">OpenAI-compatible</option><option value="anthropic-compatible">Anthropic-compatible</option></select></label>
-          <label><span>Base URL</span><input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1" autoFocus /></label>
-          <label><span>Model</span><input value={model} onChange={(event) => setModel(event.target.value)} placeholder="gpt-5-mini" /></label>
-          <label><span>API key</span><input type="password" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setClearApiKey(false); }} placeholder={settings?.apiKeyHint ? `${settings.credentialSource === "environment" ? "Environment" : "Keychain"} ${settings.apiKeyHint} · leave blank to keep` : "Required"} autoComplete="off" /></label>
-          <label className="ai-self-signed"><input type="checkbox" checked={allowSelfSigned} onChange={(event) => setAllowSelfSigned(event.target.checked)} /><span><strong>Allow a self-signed HTTPS certificate</strong><small>Disables certificate verification only for requests to this AI endpoint. Use only for a server you control.</small></span></label>
-          {settings?.credentialSource === "system" && <label className="ai-clear-key"><input type="checkbox" checked={clearApiKey} onChange={(event) => { setClearApiKey(event.target.checked); if (event.target.checked) setApiKey(""); }} /><span>Remove the saved API key from the system credential store</span></label>}
-          <p className="ai-secret-note">The key is stored in this machine's native credential store—not in JSON, Markdown, or browser storage. Headless services can provide WORK_AI_API_KEY instead.</p>
-        </div>
-        {error && <p className="task-error" role="alert">{error}</p>}
-        {receipt && <p className="ai-receipt" role="status">{receipt}</p>}
-        <footer><button type="button" className="secondary-action" onClick={onClose}>Cancel</button><button type="button" className="secondary-action" disabled={busy || !baseUrl.trim() || !model.trim() || (!settings?.hasApiKey && !apiKey.trim())} onClick={() => void save(true).catch(() => {})}>{busy ? "Testing…" : "Save & test"}</button><button type="button" className="primary-action" disabled={busy || !baseUrl.trim() || !model.trim() || (!settings?.hasApiKey && !apiKey.trim())} onClick={() => void save(false).catch(() => {})}>{busy ? "Saving…" : "Save settings"}</button></footer>
-      </section>
-    </div>
-  );
-}
-
-function proposalValue(value: unknown) {
-  if (Array.isArray(value)) return value.map((item) => typeof item === "string" ? item : typeof item?.text === "string" ? `${item.checked ? "[x]" : "[ ]"} ${item.text}` : JSON.stringify(item)).join("\n");
-  if (value == null || value === "") return "Not set";
-  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
-}
-
-function AiProposalPanel({ proposal, busy, error, onClose, onApply }: {
-  proposal: AiProposal;
-  busy: boolean;
-  error: string | null;
-  onClose: () => void;
-  onApply: (proposal: AiProposal, selectedFields: string[]) => Promise<void>;
-}) {
-  const [selected, setSelected] = useState(() => new Set(proposal.fields.map((field) => field.field)));
-
-  function toggle(field: string, checked: boolean) {
-    setSelected((current) => {
-      const next = new Set(current);
-      if (checked) next.add(field); else next.delete(field);
-      return next;
-    });
-  }
-
-  return (
-    <div className="ai-panel-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-      <section className="ai-proposal-panel" role="dialog" aria-modal="true" aria-labelledby="ai-proposal-heading">
-        <header><div><p className="eyebrow">AI proposal · {proposal.operation}</p><h2 id="ai-proposal-heading">{proposal.summary}</h2><p>{proposal.explanation || "Review every suggested field before applying it."}</p></div><button type="button" onClick={onClose} disabled={busy} aria-label="Close AI proposal">×</button></header>
-        {proposal.context.project && <p className="ai-context-note">Context: {proposal.context.project.name} · project description, active work, open decisions, and current ideas</p>}
-        {proposal.fields.length === 0 ? (
-          <div className="empty-panel"><strong>No field changes were proposed.</strong><span>The model may need clearer source material or a more specific artifact.</span></div>
-        ) : (
-          <div className="ai-proposal-fields">
-            {proposal.fields.map((field) => (
-              <article key={field.field} className={selected.has(field.field) ? "selected" : ""}>
-                <label><input type="checkbox" checked={selected.has(field.field)} onChange={(event) => toggle(field.field, event.target.checked)} /><strong>{field.label}</strong></label>
-                <div><section><small>Current</small><pre>{proposalValue(field.current)}</pre></section><section><small>Proposed</small><pre>{proposalValue(field.proposed)}</pre></section></div>
-              </article>
-            ))}
-          </div>
-        )}
-        {proposal.questions.length > 0 && <section className="ai-questions"><h3>Questions to consider</h3><ul>{proposal.questions.map((question) => <li key={question}>{question}</li>)}</ul></section>}
-        {error && <p className="task-error" role="alert">{error}</p>}
-        <footer><span>{selected.size} of {proposal.fields.length} fields selected</span><div><button type="button" className="secondary-action" onClick={onClose} disabled={busy}>Discard</button><button type="button" className="primary-action" disabled={busy || selected.size === 0} onClick={() => void onApply(proposal, [...selected]).catch(() => {})}>{busy ? "Applying…" : "Apply selected changes"}</button></div></footer>
-      </section>
-    </div>
-  );
-}
-
 function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error, onClose, onCreate }: {
   projects: Project[];
   statuses: string[];
@@ -4691,7 +4125,7 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
   );
 }
 
-function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClose, onMove, onPatch, onToggle, onLog, onAskAi, aiBusy }: {
+function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClose, onMove, onPatch, onToggle, onLog }: {
   task: WorkTask;
   tasks: WorkTask[];
   projects: Project[];
@@ -4703,8 +4137,6 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClo
   onPatch: (patch: Record<string, unknown>) => void;
   onToggle: (section: "requirements" | "acceptance", index: number, checked: boolean) => void;
   onLog: (message: string) => Promise<void>;
-  onAskAi: (taskId: string, operation: "draft" | "review") => void;
-  aiBusy: boolean;
 }) {
   const [title, setTitle] = useState(task.title);
   const [projectPath, setProjectPath] = useState(task.projectPath ?? "");
@@ -4746,7 +4178,7 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClo
 
   return (
     <aside className="task-panel" aria-labelledby="task-detail-heading">
-      <div className="task-panel-header"><div><p className="eyebrow">{task.id} · {task.type} · {task.priority}</p><h2 id="task-detail-heading">{task.title}</h2></div><div className="task-panel-header-actions"><button type="button" className="magic-action" disabled={saving || aiBusy} onClick={() => onAskAi(task.id, "draft")}><span aria-hidden="true">✦</span> Draft</button><button type="button" className="magic-action" disabled={saving || aiBusy} onClick={() => onAskAi(task.id, "review")}><span aria-hidden="true">✦</span> Review</button><button type="button" onClick={onClose} aria-label="Close work item">×</button></div></div>
+      <div className="task-panel-header"><div><p className="eyebrow">{task.id} · {task.type} · {task.priority}</p><h2 id="task-detail-heading">{task.title}</h2></div><div className="task-panel-header-actions"><button type="button" onClick={onClose} aria-label="Close work item">×</button></div></div>
       <div className="task-state-strip"><label><span>Status</span><select value={task.status} onChange={(event) => onMove(event.target.value)} disabled={saving}>{[...statuses, "cancelled", "archived"].map((status) => <option key={status} value={status} disabled={status === "review" && progress.complete < progress.total}>{status === "review" && progress.complete < progress.total ? "Review — complete checklist first" : statusLabel(status)}</option>)}</select></label><span>{progress.complete}/{progress.total} checks complete</span><span>Updated {shortTime(task.updatedAt)}</span></div>
       {task.status === "review" && progress.complete < progress.total && <div className="task-error" role="status">This legacy review card has unchecked requirements or acceptance criteria. Verify its checklist before treating it as review-ready.</div>}
       {error && <div className="task-error" role="alert">{error}</div>}
