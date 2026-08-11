@@ -706,6 +706,24 @@ export default function Home() {
     return project;
   }
 
+  const [confirmingProjectDelete, setConfirmingProjectDelete] = useState(false);
+  const [deletingProject, setDeletingProject] = useState(false);
+  const [projectDeleteError, setProjectDeleteError] = useState<string | null>(null);
+
+  async function confirmProjectDelete() {
+    if (!selectedProject || deletingProject) return;
+    setDeletingProject(true);
+    setProjectDeleteError(null);
+    try {
+      await deleteWorkProject(selectedProject.path);
+      setConfirmingProjectDelete(false);
+    } catch (error) {
+      setProjectDeleteError(error instanceof Error ? error.message : "The project could not be deleted.");
+    } finally {
+      setDeletingProject(false);
+    }
+  }
+
   async function deleteWorkProject(projectPath: string) {
     await requestJson<{ projectPath: string; folderRemoved: boolean }>(
       `/api/projects?projectPath=${encodeURIComponent(projectPath)}`,
@@ -1807,7 +1825,6 @@ export default function Home() {
               onOpenBoard={() => setView("board")}
               onOpenTask={(taskId) => { setView("board"); setSelectedTaskId(taskId); }}
               onUpdateProfile={updateProjectProfile}
-              onDelete={deleteWorkProject}
             />
           ) : (
             <div className="portfolio-intro">
@@ -2064,9 +2081,36 @@ export default function Home() {
           )}
         </section>
         </div>
+
+        {scopeKind === "project" && selectedProject && (
+          <section className="danger-zone" aria-label="Danger zone">
+            <button type="button" className="danger-zone-button" onClick={() => { setProjectDeleteError(null); setConfirmingProjectDelete(true); }}>
+              {TRASH_GLYPH} Delete project
+            </button>
+          </section>
+        )}
           </>
         )}
       </main>
+
+      {confirmingProjectDelete && selectedProject && (
+        <div className="capture-move-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !deletingProject) setConfirmingProjectDelete(false); }}>
+          <section className="project-delete-panel" role="dialog" aria-modal="true" aria-labelledby="project-delete-heading">
+            <div className="capture-move-heading">
+              <div><p className="eyebrow">Danger zone</p><h2 id="project-delete-heading">Delete {selectedProject.name}?</h2></div>
+              <button type="button" onClick={() => setConfirmingProjectDelete(false)} aria-label="Close delete confirmation" disabled={deletingProject}>×</button>
+            </div>
+            <p className="project-delete-copy">Removes the project and its Work records. Your files stay unless the folder is empty.</p>
+            {projectDeleteError && <p className="field-error" role="alert">{projectDeleteError}</p>}
+            <div className="project-delete-actions">
+              <button type="button" onClick={() => setConfirmingProjectDelete(false)} disabled={deletingProject}>Cancel</button>
+              <button type="button" className="danger-zone-button" disabled={deletingProject} onClick={() => void confirmProjectDelete()}>
+                {TRASH_GLYPH} {deletingProject ? "Deleting…" : "Delete project"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {captureToMove && (
         <div className="capture-move-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCaptureToMove(null); }}>
@@ -2242,6 +2286,12 @@ function InlineProjectCreate({
   );
 }
 
+const TRASH_GLYPH = (
+  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+    <path d="M2.5 4.5h11m-8-2h5m-6.6 2 .7 8.3a1 1 0 0 0 1 .9h4.8a1 1 0 0 0 1-.9l.7-8.3M6.6 7v4.5M9.4 7v4.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
 function ConfirmAction({
   label,
   message,
@@ -2322,14 +2372,13 @@ function DecisionChoice({
   );
 }
 
-function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpdateProfile, onDelete }: {
+function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpdateProfile }: {
   project: Project;
   captures: Capture[];
   tasks: WorkTask[];
   onOpenBoard: () => void;
   onOpenTask: (taskId: string) => void;
   onUpdateProfile: (projectPath: string, patch: { name?: string; description?: string }) => Promise<Project>;
-  onDelete: (projectPath: string) => Promise<void>;
 }) {
   const [editingName, setEditingName] = useState(false);
   const [name, setName] = useState(project.name);
@@ -2339,8 +2388,6 @@ function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpd
   const [purpose, setPurpose] = useState(project.description ?? "");
   const [savingPurpose, setSavingPurpose] = useState(false);
   const [purposeError, setPurposeError] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const updates = captures.filter((capture) => capture.kind === "update");
   const inFlight = tasks.filter((task) => ["in_progress", "blocked", "review"].includes(task.status));
   const queued = tasks.filter((task) => ["ready", "backlog"].includes(task.status));
@@ -2362,7 +2409,6 @@ function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpd
     setPurpose(project.description ?? "");
     setEditingPurpose(false);
     setPurposeError(null);
-    setDeleteError(null);
   }, [project.path, project.name, project.description]);
 
   async function saveName(event: FormEvent) {
@@ -2389,19 +2435,6 @@ function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpd
       setPurposeError(error instanceof Error ? error.message : "The project purpose could not be saved.");
     } finally {
       setSavingPurpose(false);
-    }
-  }
-
-  async function removeProject() {
-    if (deleting) return;
-    setDeleting(true);
-    setDeleteError(null);
-    try {
-      await onDelete(project.path);
-    } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : "The project could not be deleted.");
-    } finally {
-      setDeleting(false);
     }
   }
 
@@ -2483,20 +2516,6 @@ function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpd
         </aside>
       </div>
 
-      <footer className="project-danger" aria-label="Delete this project">
-        <ConfirmAction
-          key={project.path}
-          label="Delete project"
-          triggerClassName="project-delete"
-          message={`Delete ${project.name}? Removes it from Work. Your files stay unless the folder is empty.`}
-          confirmLabel="Delete"
-          busyLabel="Deleting…"
-          busy={deleting}
-          confirmClassName="project-delete-confirm"
-          onConfirm={() => void removeProject()}
-        />
-        {deleteError && <p className="field-error" role="alert">{deleteError}</p>}
-      </footer>
     </article>
   );
 }

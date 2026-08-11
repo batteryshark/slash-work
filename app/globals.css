@@ -476,12 +476,15 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .pulse-progress > small { margin-top: auto; color: var(--muted); font-size: 11px; }
 .pulse-empty { margin: 18px 2px 8px; color: var(--muted); line-height: 1.5; }
 
-.project-danger { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
-.project-delete, .project-delete-confirm button { min-height: 42px; padding: 0 10px; border: 0; border-radius: 10px; background: transparent; color: var(--muted); cursor: pointer; font-weight: 680; }
-.project-delete:hover { background: var(--danger-soft); color: var(--danger); }
-.project-delete-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.project-delete-confirm > span { color: var(--danger); font-size: 12px; font-weight: 700; }
-.project-delete-confirm .danger-action { padding-inline: 13px; background: var(--danger); color: white; }
+.danger-zone { display: flex; justify-content: flex-end; margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--line); }
+.danger-zone-button { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px; border: 0; border-radius: 11px; background: var(--danger); color: white; font-weight: 720; cursor: pointer; }
+.danger-zone-button:hover:not(:disabled) { filter: brightness(1.08); }
+.danger-zone-button:disabled { opacity: 0.55; cursor: default; }
+.project-delete-panel { width: min(430px, calc(100vw - 32px)); background: var(--surface); border: 1px solid var(--danger-line, var(--line)); border-radius: 16px; padding: 20px; display: grid; gap: 14px; box-shadow: var(--shadow); }
+.project-delete-copy { color: var(--muted); font-size: 14px; margin: 0; }
+.project-delete-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.project-delete-actions button { min-height: 44px; padding: 0 16px; border: 0; border-radius: 11px; background: var(--surface-muted); color: var(--ink); font-weight: 680; cursor: pointer; }
+.project-delete-actions .danger-zone-button { background: var(--danger); color: white; }
 
 .portfolio-intro { padding: 10px 2px 34px; }
 .portfolio-intro h1 { max-width: 850px; margin: 30px 0 32px; font-size: clamp(36px, 4.1vw, 58px); line-height: 0.98; letter-spacing: -0.048em; }
@@ -1040,6 +1043,7 @@ html[data-theme="dark"] .task-panel { box-shadow: -24px 0 70px rgba(0, 0, 0, 0.4
 html[data-theme="dark"] .task-panel-header { background: rgba(29, 31, 38, 0.97); }
 html[data-theme="dark"] .task-log li { border-bottom-color: var(--line); }
 html[data-theme="dark"] .issue-state-note.needs-human { border-color: #705a28; background: #322a19; }
+html[data-theme="dark"] .danger-zone-button { background: var(--danger); color: #1c1114; }
 
 @media (min-width: 1121px) and (max-width: 1360px) {
   .topbar { grid-template-columns: auto minmax(0, 1fr) auto auto auto; gap: 16px; padding-inline: 22px; }

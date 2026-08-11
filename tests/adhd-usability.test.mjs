@@ -31,7 +31,8 @@ test("keeps the ADHD usability gates present in the interface", async () => {
   assert.match(page, /id="needs-you"/);
 
   // Deleting a project requires an inline second confirmation.
-  assert.match(page, /project-delete-confirm/);
+  assert.match(page, /project-delete-panel/);
+  assert.match(page, /danger-zone-button/);
 
   // No modal interruptions and no required form fields.
   assert.doesNotMatch(page, /<dialog|window\.alert|window\.confirm|\brequired=/i);
