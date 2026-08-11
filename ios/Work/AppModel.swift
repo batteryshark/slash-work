@@ -244,11 +244,14 @@ final class AppModel: ObservableObject {
         else { defaults.removeObject(forKey: key) }
     }
 
-    func createCapture(text: String, kind: String) async -> Bool {
+    func createCapture(text: String, kind: String, toProject: Bool = false) async -> Bool {
         await mutate {
             guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
+            // Captures default to the workspace inbox; a project only receives
+            // one when the person explicitly aims the capture at it.
             _ = try await client.createCapture(text: text, kind: kind,
-                                               projectPath: self.selectedProjectPath, workspaceID: workspaceID)
+                                               projectPath: toProject ? self.selectedProjectPath : nil,
+                                               workspaceID: workspaceID)
         }
     }
 

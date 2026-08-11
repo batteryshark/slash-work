@@ -5,6 +5,7 @@ struct CaptureView: View {
     @State private var text = ""
     @State private var kind = "update"
     @State private var saved = false
+    @State private var captureToProject = false
     @State private var savedTask: Task<Void, Never>?
     @FocusState private var focused: Bool
 
@@ -44,10 +45,19 @@ struct CaptureView: View {
                         }
 
                     if let project = model.selectedProject {
-                        Label("Saving to \(project.name)", systemImage: "folder.fill")
-                            .font(.subheadline).foregroundStyle(.secondary)
+                        Button {
+                            captureToProject.toggle()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Label(captureToProject ? "Saving to \(project.name)" : "Saving to the Inbox",
+                                      systemImage: captureToProject ? "folder.fill" : "tray.fill")
+                                Text("· switch").foregroundStyle(.tertiary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .font(.subheadline).foregroundStyle(.secondary)
                     } else {
-                        Label("Saving to the workspace inbox", systemImage: "tray.fill")
+                        Label("Saving to the Inbox", systemImage: "tray.fill")
                             .font(.subheadline).foregroundStyle(.secondary)
                     }
 
@@ -113,7 +123,7 @@ struct CaptureView: View {
         let content = text.trimmingCharacters(in: .whitespacesAndNewlines)
         focused = false
         Task {
-            if await model.createCapture(text: content, kind: kind) {
+            if await model.createCapture(text: content, kind: kind, toProject: captureToProject) {
                 text = ""
                 saved = true
                 savedTask?.cancel()
