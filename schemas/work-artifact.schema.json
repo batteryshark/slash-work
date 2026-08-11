@@ -211,6 +211,8 @@
         "state": { "enum": ["queued", "in_progress", "needs_human", "resolved", "closed"] },
         "scopePath": { "$ref": "#/$defs/scopePath" },
         "projectPath": { "$ref": "#/$defs/projectPath" },
+        "agents": { "$ref": "#/$defs/stringList" },
+        "refs": { "$ref": "#/$defs/stringList" },
         "claimedBy": {
           "oneOf": [
             {
@@ -303,6 +305,7 @@
         "agents": { "$ref": "#/$defs/stringList" },
         "priority": { "enum": ["critical", "high", "medium", "low", "none"] },
         "tags": { "$ref": "#/$defs/stringList" },
+        "refs": { "$ref": "#/$defs/stringList" },
         "dependsOn": { "$ref": "#/$defs/taskIdList" },
         "blockedBy": { "$ref": "#/$defs/taskIdList" },
         "blockedReason": { "oneOf": [{ "type": "string", "maxLength": 10000 }, { "type": "null" }] },

@@ -31,6 +31,57 @@ async function requestJson(origin, pathname, { method = "GET", body, headers = {
   return { response, payload: text ? JSON.parse(text) : null };
 }
 
+test("lets agents file attributed issues while delegation stays human-only", async () => {
+  const root = await temporaryDirectory();
+  const api = await startLocalApi({ root, port: 0 });
+
+  try {
+    const missingIdentity = await requestJson(api.origin, "/api/agent/issues", {
+      method: "POST",
+      body: { title: "Flaky retry loop", body: "Discovered while profiling the sweeper." },
+    });
+    assert.equal(missingIdentity.response.status, 400);
+    assert.equal(missingIdentity.payload.error.code, "agent_identity_required");
+
+    const filed = await requestJson(api.origin, "/api/agent/issues", {
+      method: "POST",
+      body: { title: "Flaky retry loop", body: "Discovered while profiling the sweeper.", agents: ["self-delegated"] },
+      headers: { "x-work-agent": "orchestra/brisk_otter" },
+    });
+    assert.equal(filed.response.status, 201);
+    assert.equal(filed.payload.state, "queued");
+    assert.equal(filed.payload.claimedBy, null);
+    assert.deepEqual(filed.payload.agents, [], "agent-filed issues must start with an empty agents list");
+    assert.deepEqual(filed.payload.stateHistory[0].actor, { kind: "agent", name: "orchestra/brisk_otter" });
+
+    const delegated = await requestJson(api.origin, `/api/issues/${filed.payload.id}`, {
+      method: "PATCH",
+      body: { agents: ["orchestra"], refs: ["W-0001"] },
+    });
+    assert.equal(delegated.response.status, 200);
+    assert.deepEqual(delegated.payload.agents, ["orchestra"]);
+    assert.deepEqual(delegated.payload.refs, ["W-0001"]);
+
+    const stored = await readFile(join(root, ".work", "issues", `${filed.payload.id}.md`), "utf8");
+    assert.match(stored, /agents: \["orchestra"\]/);
+    assert.match(stored, /refs: \["W-0001"\]/);
+
+    const stale = await requestJson(api.origin, `/api/issues?updatedSince=${encodeURIComponent(delegated.payload.updatedAt)}`);
+    assert.deepEqual(stale.payload.issues, []);
+    const fresh = await requestJson(api.origin, "/api/issues?updatedSince=2000-01-01T00:00:00Z");
+    assert.equal(fresh.payload.issues[0].id, filed.payload.id);
+    assert.deepEqual(fresh.payload.issues[0].agents, ["orchestra"]);
+    const agentStale = await requestJson(api.origin, `/api/agent/issues?updatedSince=${encodeURIComponent(delegated.payload.updatedAt)}`, {
+      headers: { "x-work-agent": "orchestra/brisk_otter" },
+    });
+    assert.deepEqual(agentStale.payload.issues, []);
+    const invalidCursor = await requestJson(api.origin, "/api/issues?updatedSince=not-a-date");
+    assert.equal(invalidCursor.response.status, 400);
+  } finally {
+    await closeLocalApi(api.server);
+  }
+});
+
 test("persists issue conversations and keeps final closure under human control", async () => {
   const root = await temporaryDirectory();
   const projectRoot = join(root, "project");
@@ -273,6 +324,9 @@ test("persists issue conversations and keeps final closure under human control",
     const claimOperation = openapi.payload.paths["/api/agent/issues/{id}/claim"].post;
     assert.equal(claimOperation.operationId, "issues.claim");
     assert.equal(claimOperation.parameters.some((parameter) => parameter.name === "X-Work-Agent"), true);
+    const createOperation = openapi.payload.paths["/api/agent/issues"].post;
+    assert.equal(createOperation.operationId, "issues.create");
+    assert.equal(createOperation.parameters.some((parameter) => parameter.name === "X-Work-Agent"), true);
   } finally {
     await closeLocalApi(restarted.server);
   }

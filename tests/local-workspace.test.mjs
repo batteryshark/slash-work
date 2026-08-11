@@ -1794,3 +1794,119 @@ test("persists a full Kanban lifecycle with fields, checklists, dependencies, an
     await closeLocalApi(restarted.server);
   }
 });
+
+test("keeps terminal task moves human-only and surfaces one needs-you queue", async () => {
+  const { root } = await makeWorkspaceFixture();
+  const api = await startLocalApi({ root, port: 0 });
+
+  try {
+    const created = await apiRequest(api.origin, "/api/tasks", {
+      method: "POST",
+      body: {
+        title: "Ship the sweeper contract",
+        projectPath: "software/rekit",
+        status: "ready",
+        agents: ["orchestra"],
+        refs: ["issue_auth_timeout"],
+      },
+    });
+    assert.equal(created.response.status, 201);
+    assert.deepEqual(created.payload.refs, ["issue_auth_timeout"]);
+    const taskFile = await readFile(join(root, "software", "rekit", ".work", "tasks", `${created.payload.id}.md`), "utf8");
+    assert.match(taskFile, /refs: \["issue_auth_timeout"\]/);
+
+    const agentStarts = await apiRequest(api.origin, `/api/tasks/${created.payload.id}/move`, {
+      method: "POST",
+      body: { status: "in_progress" },
+      headers: { "x-work-agent": "orchestra/brisk_otter" },
+    });
+    assert.equal(agentStarts.response.status, 200);
+
+    const agentCompletes = await apiRequest(api.origin, `/api/tasks/${created.payload.id}/move`, {
+      method: "POST",
+      body: { status: "done" },
+      headers: { "x-work-agent": "orchestra/brisk_otter" },
+    });
+    assert.equal(agentCompletes.response.status, 403);
+    assert.equal(agentCompletes.payload.error.code, "task_status_forbidden");
+
+    const agentBlocks = await apiRequest(api.origin, `/api/tasks/${created.payload.id}/move`, {
+      method: "POST",
+      body: { status: "blocked" },
+      headers: { "x-work-agent": "orchestra/brisk_otter" },
+    });
+    assert.equal(agentBlocks.response.status, 200);
+
+    const retagged = await apiRequest(api.origin, `/api/tasks/${created.payload.id}`, {
+      method: "PATCH",
+      body: { refs: ["issue_auth_timeout", "W-0001"] },
+    });
+    assert.deepEqual(retagged.payload.refs, ["issue_auth_timeout", "W-0001"]);
+
+    const decision = await apiRequest(api.origin, "/api/decisions", {
+      method: "POST",
+      body: { title: "Choose the sweeper interval" },
+    });
+    assert.equal(decision.response.status, 201);
+    const issue = await apiRequest(api.origin, "/api/issues", {
+      method: "POST",
+      body: { body: "The sweeper misses new comments." },
+    });
+    await apiRequest(api.origin, `/api/agent/issues/${issue.payload.id}/claim`, {
+      method: "POST",
+      body: {},
+      headers: { "x-work-agent": "orchestra/brisk_otter" },
+    });
+    await apiRequest(api.origin, `/api/agent/issues/${issue.payload.id}/state`, {
+      method: "POST",
+      body: { state: "needs_human", reason: "Which interval do you want?" },
+      headers: { "x-work-agent": "orchestra/brisk_otter" },
+    });
+
+    const needsYou = await apiRequest(api.origin, "/api/needs-you");
+    assert.equal(needsYou.response.status, 200);
+    assert.deepEqual(
+      needsYou.payload.entries.map((entry) => entry.type).sort(),
+      ["decision", "issue", "task"],
+    );
+    for (const entry of needsYou.payload.entries) {
+      assert.ok(entry.id);
+      assert.ok(entry.title);
+      assert.ok(entry.updatedAt);
+      assert.ok("projectPath" in entry);
+    }
+    const timestamps = needsYou.payload.entries.map((entry) => entry.updatedAt);
+    assert.deepEqual(timestamps, [...timestamps].sort().reverse());
+
+    const stale = await apiRequest(api.origin, `/api/tasks?updatedSince=${encodeURIComponent(retagged.payload.updatedAt)}`);
+    assert.deepEqual(stale.payload.tasks, []);
+    const fresh = await apiRequest(api.origin, "/api/tasks?updatedSince=2000-01-01T00:00:00Z");
+    assert.equal(fresh.payload.tasks.length, 1);
+    const invalidCursor = await apiRequest(api.origin, "/api/tasks?updatedSince=not-a-date");
+    assert.equal(invalidCursor.response.status, 400);
+
+    const agentPatchCompletes = await apiRequest(api.origin, `/api/tasks/${created.payload.id}`, {
+      method: "PATCH",
+      body: { status: "done" },
+      headers: { "x-work-agent": "orchestra/brisk_otter" },
+    });
+    assert.equal(agentPatchCompletes.response.status, 403);
+    assert.equal(agentPatchCompletes.payload.error.code, "agent_task_edit_forbidden");
+
+    const agentPatchTitle = await apiRequest(api.origin, `/api/tasks/${created.payload.id}`, {
+      method: "PATCH",
+      body: { title: "Rewritten by an agent" },
+      headers: { "x-work-agent": "orchestra/brisk_otter" },
+    });
+    assert.equal(agentPatchTitle.response.status, 403);
+    assert.equal(agentPatchTitle.payload.error.code, "agent_task_edit_forbidden");
+
+    const humanCompletes = await apiRequest(api.origin, `/api/tasks/${created.payload.id}/move`, {
+      method: "POST",
+      body: { status: "done" },
+    });
+    assert.equal(humanCompletes.response.status, 200);
+  } finally {
+    await closeLocalApi(api.server);
+  }
+});

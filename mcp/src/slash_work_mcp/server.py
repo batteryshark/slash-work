@@ -40,9 +40,9 @@ async def projects_list(workspace_id: str) -> dict[str, Any]:
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
-async def tasks_list(workspace_id: str) -> dict[str, Any]:
-    """List task records in one workspace."""
-    return await call("GET", "/api/tasks", workspace_id)
+async def tasks_list(workspace_id: str, updated_since: str | None = None) -> dict[str, Any]:
+    """List task records in one workspace, optionally only those updated after updated_since (ISO-8601)."""
+    return await call("GET", "/api/tasks", workspace_id, params={"updatedSince": updated_since} if updated_since else None)
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
@@ -90,9 +90,9 @@ async def decision_create(workspace_id: str, title: str, project_path: str | Non
 
 
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
-async def task_create(workspace_id: str, title: str, project_path: str | None = None, type: str | None = None, priority: str | None = None, status: str | None = None, goal: str | None = None, requirements: list[str] | None = None, acceptance_criteria: list[str] | None = None, plan: str | None = None, notes: str | None = None, tags: list[str] | None = None, agents: list[str] | None = None) -> dict[str, Any]:
+async def task_create(workspace_id: str, title: str, project_path: str | None = None, type: str | None = None, priority: str | None = None, status: str | None = None, goal: str | None = None, requirements: list[str] | None = None, acceptance_criteria: list[str] | None = None, plan: str | None = None, notes: str | None = None, tags: list[str] | None = None, agents: list[str] | None = None, refs: list[str] | None = None) -> dict[str, Any]:
     """Create authorized executable work with acceptance criteria."""
-    body = {"title": title, "projectPath": project_path, "type": type, "priority": priority, "status": status, "goal": goal, "requirements": requirements, "acceptanceCriteria": acceptance_criteria, "plan": plan, "notes": notes, "tags": tags, "agents": agents}
+    body = {"title": title, "projectPath": project_path, "type": type, "priority": priority, "status": status, "goal": goal, "requirements": requirements, "acceptanceCriteria": acceptance_criteria, "plan": plan, "notes": notes, "tags": tags, "agents": agents, "refs": refs}
     return await call("POST", "/api/tasks", workspace_id, body={key: value for key, value in body.items() if value is not None})
 
 
@@ -115,9 +115,15 @@ async def task_checklist(workspace_id: str, id: str, section: str, index: int, c
 
 
 @mcp.tool(annotations={"readOnlyHint": True})
-async def issues_list(workspace_id: str, agent_name: str | None = None) -> dict[str, Any]:
-    """List issue conversations available for agent investigation."""
-    return await call("GET", "/api/agent/issues", workspace_id, agent_name=require_agent(agent_name))
+async def issues_list(workspace_id: str, updated_since: str | None = None, agent_name: str | None = None) -> dict[str, Any]:
+    """List issue conversations available for agent investigation, optionally only those updated after updated_since (ISO-8601)."""
+    return await call("GET", "/api/agent/issues", workspace_id, agent_name=require_agent(agent_name), params={"updatedSince": updated_since} if updated_since else None)
+
+
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
+async def issue_create(workspace_id: str, title: str, body: str, agent_name: str | None = None) -> dict[str, Any]:
+    """File a new issue attributed to this agent; a human decides whether it becomes work."""
+    return await call("POST", "/api/agent/issues", workspace_id, agent_name=require_agent(agent_name), body={"title": title, "body": body})
 
 
 @mcp.tool(annotations={"readOnlyHint": True})

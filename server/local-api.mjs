@@ -32,6 +32,7 @@ import {
   toggleTaskChecklist,
   updateCaptureDestination,
   updateIdea,
+  updateIssue,
   updateIssueState,
   updateNote,
   updateProjectProfile,
@@ -207,6 +208,26 @@ function requiredAgentName(request) {
     throw new WorkspaceError("X-Work-Agent must be a one-line name of at most 120 characters.", { code: "invalid_agent_identity" });
   }
   return name;
+}
+
+function optionalAgentName(request) {
+  return request.headers["x-work-agent"] == null ? null : requiredAgentName(request);
+}
+
+function updatedSinceCutoff(url) {
+  const value = url.searchParams.get("updatedSince");
+  if (value == null || value === "") return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.valueOf())) {
+    throw new WorkspaceError("updatedSince must be an ISO-8601 date/time.", { code: "invalid_input" });
+  }
+  return parsed.getTime();
+}
+
+// ponytail: filters after reading every record; parse per-record frontmatter (or index updated timestamps) if polling cost matters.
+function filterUpdatedSince(records, cutoff) {
+  if (cutoff == null) return records;
+  return records.filter((record) => new Date(record.updatedAt ?? 0).getTime() > cutoff);
 }
 
 function publicWorkspace(workspace) {
@@ -553,6 +574,20 @@ async function handleRequest(workspaces, service, request, response) {
     sendWorkspaceSnapshot(request, response, await workspaceSnapshot(workspace));
     return;
   }
+  if (method === "GET" && url.pathname === "/api/needs-you") {
+    const [tasks, issues, decisions] = await Promise.all([
+      listTasks(workspace),
+      listIssues(workspace),
+      listDecisions(workspace),
+    ]);
+    const entries = [
+      ...tasks.filter((task) => task.status === "blocked").map((task) => ({ type: "task", id: task.id, title: task.title, updatedAt: task.updatedAt, projectPath: task.projectPath })),
+      ...issues.filter((issue) => issue.state === "needs_human").map((issue) => ({ type: "issue", id: issue.id, title: issue.title, updatedAt: issue.updatedAt, projectPath: issue.projectPath })),
+      ...decisions.filter((decision) => decision.status === "open").map((decision) => ({ type: "decision", id: decision.id, title: decision.title, updatedAt: decision.updatedAt, projectPath: decision.projectPath })),
+    ].sort((left, right) => (right.updatedAt ?? "").localeCompare(left.updatedAt ?? ""));
+    sendJson(request, response, 200, { entries });
+    return;
+  }
   if (method === "GET" && url.pathname === "/api/projects") {
     sendJson(request, response, 200, { projects: await discoverProjects(workspace.root) });
     return;
@@ -646,7 +681,7 @@ async function handleRequest(workspaces, service, request, response) {
     return;
   }
   if (method === "GET" && url.pathname === "/api/issues") {
-    sendJson(request, response, 200, { issues: await listIssues(workspace) });
+    sendJson(request, response, 200, { issues: filterUpdatedSince(await listIssues(workspace), updatedSinceCutoff(url)) });
     return;
   }
   if (method === "POST" && url.pathname === "/api/issues") {
@@ -657,7 +692,14 @@ async function handleRequest(workspaces, service, request, response) {
   }
   if (method === "GET" && url.pathname === "/api/agent/issues") {
     requiredAgentName(request);
-    sendJson(request, response, 200, { issues: await listIssues(workspace) });
+    sendJson(request, response, 200, { issues: filterUpdatedSince(await listIssues(workspace), updatedSinceCutoff(url)) });
+    return;
+  }
+  if (method === "POST" && url.pathname === "/api/agent/issues") {
+    const agentName = requiredAgentName(request);
+    const body = await readJsonBody(request);
+    const projects = await discoverProjects(workspace.root);
+    sendJson(request, response, 201, await createIssue(workspace, body, projects, { agentName }));
     return;
   }
   const issueReplyId = routeId(url.pathname, "issues", "/replies");
@@ -697,6 +739,10 @@ async function handleRequest(workspaces, service, request, response) {
   const issueId = routeId(url.pathname, "issues");
   if (method === "GET" && issueId) {
     sendJson(request, response, 200, await getIssue(workspace, issueId));
+    return;
+  }
+  if (method === "PATCH" && issueId) {
+    sendJson(request, response, 200, await updateIssue(workspace, issueId, await readJsonBody(request)));
     return;
   }
   if (method === "GET" && url.pathname === "/api/ideas") {
@@ -740,7 +786,7 @@ async function handleRequest(workspaces, service, request, response) {
   }
 
   if (method === "GET" && url.pathname === "/api/tasks") {
-    sendJson(request, response, 200, { tasks: await listTasks(workspace) });
+    sendJson(request, response, 200, { tasks: filterUpdatedSince(await listTasks(workspace), updatedSinceCutoff(url)) });
     return;
   }
   if (method === "POST" && url.pathname === "/api/tasks") {
@@ -757,12 +803,13 @@ async function handleRequest(workspaces, service, request, response) {
   if (method === "PATCH" && taskId) {
     const body = await readJsonBody(request);
     const projects = await discoverProjects(workspace.root);
-    sendJson(request, response, 200, await updateTask(workspace, taskId, body, projects));
+    sendJson(request, response, 200, await updateTask(workspace, taskId, body, projects, { agentName: optionalAgentName(request) }));
     return;
   }
   const moveTaskId = routeId(url.pathname, "tasks", "/move");
   if (method === "POST" && moveTaskId) {
-    sendJson(request, response, 200, await moveTask(workspace, moveTaskId, await readJsonBody(request)));
+    const agentName = optionalAgentName(request);
+    sendJson(request, response, 200, await moveTask(workspace, moveTaskId, await readJsonBody(request), { agentName }));
     return;
   }
   const checklistTaskId = routeId(url.pathname, "tasks", "/checklist");
