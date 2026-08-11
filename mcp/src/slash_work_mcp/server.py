@@ -13,16 +13,23 @@ def result(workspace_id: str | None, payload: Any) -> dict[str, Any]:
     return {"workspace_id": selected, "result": payload}
 
 
-async def call(method: str, path: str, workspace_id: str | None = None, *, params: dict[str, Any] | None = None, body: dict[str, Any] | None = None) -> dict[str, Any]:
+async def call(method: str, path: str, workspace_id: str | None = None, *, agent_name: str | None = None, params: dict[str, Any] | None = None, body: dict[str, Any] | None = None) -> dict[str, Any]:
     try:
-        return result(workspace_id, await client.request(method, path, workspace_id=workspace_id, params=params, body=body))
+        return result(workspace_id, await client.request(method, path, workspace_id=workspace_id, agent_name=agent_name, params=params, body=body))
     except WorkError as error:
         raise ValueError(f"{error.code}: {error}") from error
 
 
+def require_agent(agent_name: str | None) -> str:
+    name = (agent_name or client.agent_name or "").strip()
+    if not name:
+        raise ValueError("agent_identity_required: pass agent_name or set WORK_AGENT_NAME.")
+    return name
+
+
 @mcp.tool(annotations={"readOnlyHint": True})
 async def workspaces_list() -> dict[str, Any]:
-    """List available local and federated Work workspaces."""
+    """List available local Work workspaces."""
     return await call("GET", "/api/workspaces")
 
 
@@ -99,3 +106,40 @@ async def task_move(workspace_id: str, id: str, status: str, note: str | None = 
 async def task_log(workspace_id: str, id: str, message: str) -> dict[str, Any]:
     """Append durable task progress without changing status."""
     return await call("POST", f"/api/tasks/{id}/log", workspace_id, body={"message": message})
+
+
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
+async def task_checklist(workspace_id: str, id: str, section: str, index: int, checked: bool) -> dict[str, Any]:
+    """Check or reopen one requirement or acceptance checklist item. Section is requirements or acceptance; index is zero-based."""
+    return await call("POST", f"/api/tasks/{id}/checklist", workspace_id, body={"section": section, "index": index, "checked": checked})
+
+
+@mcp.tool(annotations={"readOnlyHint": True})
+async def issues_list(workspace_id: str, agent_name: str | None = None) -> dict[str, Any]:
+    """List issue conversations available for agent investigation."""
+    return await call("GET", "/api/agent/issues", workspace_id, agent_name=require_agent(agent_name))
+
+
+@mcp.tool(annotations={"readOnlyHint": True})
+async def issue_get(workspace_id: str, id: str, agent_name: str | None = None) -> dict[str, Any]:
+    """Read one issue with its replies, ownership, and state history."""
+    return await call("GET", f"/api/agent/issues/{id}", workspace_id, agent_name=require_agent(agent_name))
+
+
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
+async def issue_claim(workspace_id: str, id: str, agent_name: str | None = None) -> dict[str, Any]:
+    """Claim one queued issue and mark it in progress."""
+    return await call("POST", f"/api/agent/issues/{id}/claim", workspace_id, agent_name=require_agent(agent_name))
+
+
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
+async def issue_reply(workspace_id: str, id: str, body: str, agent_name: str | None = None) -> dict[str, Any]:
+    """Append an attributed Markdown reply to an issue claimed by this agent."""
+    return await call("POST", f"/api/agent/issues/{id}/replies", workspace_id, agent_name=require_agent(agent_name), body={"body": body})
+
+
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
+async def issue_update_state(workspace_id: str, id: str, state: str, reason: str | None = None, resolution_summary: str | None = None, agent_name: str | None = None) -> dict[str, Any]:
+    """Set a claimed issue to in_progress, needs_human, or resolved. Resolving requires resolution_summary."""
+    payload = {"state": state, "reason": reason, "resolutionSummary": resolution_summary}
+    return await call("POST", f"/api/agent/issues/{id}/state", workspace_id, agent_name=require_agent(agent_name), body={key: value for key, value in payload.items() if value is not None})

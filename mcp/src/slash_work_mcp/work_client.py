@@ -15,10 +15,14 @@ class WorkClient:
         origin = os.environ.get("WORK_MCP_API_ORIGIN")
         if not origin:
             raise RuntimeError("WORK_MCP_API_ORIGIN is required")
+        self.agent_name = os.environ.get("WORK_AGENT_NAME", "").strip() or None
         self.client = httpx.AsyncClient(base_url=origin, timeout=httpx.Timeout(10.0, connect=3.0))
 
-    async def request(self, method: str, path: str, *, workspace_id: str | None = None, params: dict[str, Any] | None = None, body: dict[str, Any] | None = None) -> Any:
+    async def request(self, method: str, path: str, *, workspace_id: str | None = None, agent_name: str | None = None, params: dict[str, Any] | None = None, body: dict[str, Any] | None = None) -> Any:
         headers = {"X-Work-Workspace": workspace_id} if workspace_id else {}
+        agent = agent_name or self.agent_name
+        if agent:
+            headers["X-Work-Agent"] = agent
         try:
             response = await self.client.request(method, path, headers=headers, params=params, json=body)
         except httpx.TimeoutException as error:

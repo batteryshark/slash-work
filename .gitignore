@@ -10,3 +10,5 @@ xcuserdata/
 *.log
 .env*
 !.env.example
+
+__pycache__/
