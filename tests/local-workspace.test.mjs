@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { closeLocalApi, startLocalApi } from "../server/local-api.mjs";
-import { discoverProjects, initializeWorkspace } from "../lib/local-workspace.mjs";
+import { createTask, discoverProjects, initializeWorkspace } from "../lib/local-workspace.mjs";
 import { chooseWorkspaceDirectory } from "../lib/native-folder-picker.mjs";
 import { registerWorkspace } from "../lib/workspace-registry.mjs";
 
@@ -2450,4 +2450,56 @@ test("serve auto-prunes dead roots and reports the count on startup", async () =
   } finally {
     await stopChild(child);
   }
+});
+
+test("the workspace id floor sets where new task ids start", async () => {
+  const floored = await temporaryDirectory("work-idfloor-");
+  const workspace = await initializeWorkspace(floored, { force: true, idFloor: 5000 });
+  assert.equal(workspace.idFloor, 5000);
+  assert.equal(JSON.parse(await readFile(join(floored, ".work", "workspace.json"), "utf8")).idFloor, 5000);
+
+  const first = await createTask(workspace, { title: "First floored task" });
+  assert.equal(first.id, "W-5000", "the first id must be the floor itself");
+  const second = await createTask(workspace, { title: "Second floored task" });
+  assert.equal(second.id, "W-5001");
+
+  // A high-water mark above the floor keeps counting from the mark.
+  const lowered = await initializeWorkspace(floored, { force: true, idFloor: 10 });
+  assert.equal(lowered.idFloor, 10);
+  const third = await createTask(lowered, { title: "Third task" });
+  assert.equal(third.id, "W-5002");
+
+  // No floor behaves exactly as before.
+  const plain = await temporaryDirectory("work-idfloor-none-");
+  const plainWorkspace = await initializeWorkspace(plain, { force: true });
+  assert.equal(plainWorkspace.idFloor, 0);
+  assert.equal(JSON.parse(await readFile(join(plain, ".work", "workspace.json"), "utf8")).idFloor, undefined);
+  assert.equal((await createTask(plainWorkspace, { title: "Unfloored task" })).id, "W-0001");
+
+  // Garbage floors are refused, both as an argument and in the marker.
+  for (const bad of [-1, 1.5, "3000"]) {
+    await assert.rejects(
+      () => initializeWorkspace(plain, { force: true, idFloor: bad }),
+      /idFloor .* must be a non-negative integer/,
+      `idFloor ${JSON.stringify(bad)} must be rejected`,
+    );
+  }
+  const markerPath = join(plain, ".work", "workspace.json");
+  const marker = JSON.parse(await readFile(markerPath, "utf8"));
+  await writeFile(markerPath, `${JSON.stringify({ ...marker, idFloor: "many" }, null, 2)}\n`);
+  await assert.rejects(() => initializeWorkspace(plain, { force: true }), /idFloor .* must be a non-negative integer/);
+
+  // `work init --id-floor N` is the set path, on a new or an existing workspace.
+  const viaCli = await temporaryDirectory("work-idfloor-cli-");
+  const registryPath = join(viaCli, "roots.json");
+  const environment = { ...process.env, WORK_REGISTRY_FILE: registryPath };
+  const cliMarker = join(viaCli, ".work", "workspace.json");
+  for (const floor of ["2500", "7000"]) {
+    await execFile(process.execPath, [launcherPath.pathname, "init", viaCli, "--id-floor", floor], { cwd: repositoryRoot, env: environment });
+    assert.equal(JSON.parse(await readFile(cliMarker, "utf8")).idFloor, Number(floor));
+  }
+  await assert.rejects(
+    () => execFile(process.execPath, [launcherPath.pathname, "init", viaCli, "--id-floor", "later"], { cwd: repositoryRoot, env: environment }),
+    /idFloor/,
+  );
 });

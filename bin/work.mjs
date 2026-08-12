@@ -56,6 +56,7 @@ Usage:
   work [root]                         Start the local UI and API
   work serve [root]                   Start the local UI and API
   work init [root]                    Create and register a workspace at this exact root
+                                      (add --id-floor N to set or change its task-id floor)
   work register [root]                Register this exact root for the workspace picker
   work unregister <id|root>           Remove a root from the web workspace picker
   work roots                          List registered roots with project counts
@@ -102,6 +103,7 @@ Options:
   --plan <text>       Plan section
   --notes <text>      Notes section
   --note <text>       Status-change note
+  --id-floor <n>      Lowest task id this workspace may allocate (init only)
   --api-port <port>   Pin the local API port (default preference: ${DEFAULT_API_PORT})
   --ui-port <port>    Local UI port (default preference: ${DEFAULT_UI_PORT})
   --format <format>   Agent output format: markdown or json
@@ -150,6 +152,7 @@ const CLI_FLAGS = {
   plan: { type: "string" },
   notes: { type: "string" },
   note: { type: "string" },
+  "id-floor": { type: "string" },
   "api-port": { type: "string" },
   "ui-port": { type: "string" },
   format: { type: "string" },
@@ -165,6 +168,7 @@ const CLI_FLAGS = {
 const CLI_FLAG_NAMES = {
   "depends-on": "dependsOn",
   "blocked-by": "blockedBy",
+  "id-floor": "idFloor",
   "api-port": "apiPort",
   "ui-port": "uiPort",
   "no-ui": "noUi",
@@ -272,9 +276,10 @@ async function runInit(options, positionals) {
   if (positionals.length > 1) throw new WorkspaceError("init accepts only one root path.");
   const root = options.root ?? positionals[0] ?? process.cwd();
   // init is the explicit registration path: serve never registers on its own.
-  const workspace = await registerWorkspace(root, { force: true });
+  const workspace = await registerWorkspace(root, { force: true, idFloor: options.idFloor == null ? null : Number(options.idFloor) });
   console.log(`Initialized Work at ${workspace.root}`);
   console.log(`Data: ${workspace.dataDir}`);
+  if (workspace.idFloor > 0) console.log(`Task ids start at W-${String(workspace.idFloor).padStart(4, "0")}`);
 }
 
 async function runRegister(options, positionals) {

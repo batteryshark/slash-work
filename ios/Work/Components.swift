@@ -52,13 +52,18 @@ struct WorkScopeMenu: View {
                     } label: {
                         Label("All projects", systemImage: model.selectedProjectPath == nil ? "checkmark" : "square.grid.2x2")
                     }
-                    ForEach(projects) { project in
-                        Button {
-                            model.selectProject(path: project.path)
-                        } label: {
-                            Label(project.name,
-                                  systemImage: project.path == model.selectedProjectPath ? "checkmark" : "folder")
-                        }
+                }
+                if !model.recentProjects.isEmpty {
+                    Section("Recent") {
+                        ForEach(model.recentProjects) { project in projectButton(project) }
+                    }
+                }
+                // Submenus are the menu's collapsed-by-default disclosure group.
+                ForEach(projectGroups(projects)) { group in
+                    Menu {
+                        ForEach(group.projects) { project in projectButton(project) }
+                    } label: {
+                        Label("\(group.title) (\(group.projects.count))", systemImage: "folder")
                     }
                 }
             }
@@ -79,6 +84,15 @@ struct WorkScopeMenu: View {
             }
         }
         .accessibilityLabel("Change workspace or project")
+    }
+
+    private func projectButton(_ project: WorkProject) -> some View {
+        Button {
+            model.selectProject(path: project.path)
+        } label: {
+            Label(project.name,
+                  systemImage: project.path == model.selectedProjectPath ? "checkmark" : "folder")
+        }
     }
 }
 
