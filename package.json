@@ -28,6 +28,7 @@
     "lib",
     "mcp",
     "skills/slash-work",
+    "skills/refine-work-item",
     "server"
   ],
   "publishConfig": {

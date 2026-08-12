@@ -293,8 +293,11 @@ completed_at: null
 cancelled_at: null
 ---
 
+## Description
+Background context: what this is and the situation.
+
 ## Goal
-What this item accomplishes.
+What this item accomplishes: the discrete outcome.
 
 ## Requirements
 - [ ] Required behavior
@@ -315,7 +318,7 @@ Supporting context.
 ## Completion Summary
 ```
 
-Emit all seven canonical `##` sections in that order, even when empty. Checklist
+Emit all eight canonical `##` sections in that order, even when empty. Checklist
 lines must be exactly `- [ ] text` or `- [x] text`. Progress lines must be
 exactly `- <ISO timestamp> — <message>` using an em dash surrounded by spaces.
 Append a progress entry when creating, editing, moving, checking or reopening a

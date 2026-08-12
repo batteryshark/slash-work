@@ -73,6 +73,7 @@ Usage:
   work task "title" [options]         Create a full Kanban work item
   work list                            List work items in the current root
   work show <id>                       Print a complete work item
+  work update <id> [options]           Edit a card's title and sections
   work move <id> <status> [--note n]  Move a card and append to its log
   work log <id> "what happened"        Append a progress entry
   work delegate <id> [--off]           Hand an existing card to an agent (--off takes it back)
@@ -92,9 +93,11 @@ Options:
   --depends-on <id>   Dependency; may be repeated
   --blocked-by <id>   Blocker task; may be repeated
   --status <status>   Initial Kanban status
-  --goal <text>       Goal section
-  --requirement <x>   Requirement checkbox; may be repeated
-  --acceptance <x>    Acceptance criterion; may be repeated
+  --title <text>      Replacement title (update only)
+  --description <x>   Description section: background context
+  --goal <text>       Goal section: the discrete outcome
+  --requirement <x>   Requirement checkbox; may be repeated (update replaces the list)
+  --acceptance <x>    Acceptance criterion; may be repeated (update replaces the list)
   --plan <text>       Plan section
   --notes <text>      Notes section
   --note <text>       Status-change note
@@ -137,6 +140,8 @@ const CLI_FLAGS = {
   "depends-on": repeatable(),
   "blocked-by": repeatable(),
   status: { type: "string" },
+  title: { type: "string" },
+  description: { type: "string" },
   goal: { type: "string" },
   requirement: repeatable(),
   acceptance: repeatable(),
@@ -456,6 +461,7 @@ async function runTask(options, positionals) {
     dependsOn: options.dependsOn,
     blockedBy: options.blockedBy,
     status: options.status,
+    description: options.description,
     goal: options.goal,
     requirements: options.requirement,
     acceptanceCriteria: options.acceptance,
@@ -493,6 +499,21 @@ async function runLog(options, positionals) {
   if (positionals.length < 2) throw new WorkspaceError("log requires a task id and message.");
   const task = await appendTaskLog(await currentWorkspace(options), positionals[0], { message: positionals.slice(1).join(" ") });
   console.log(`Logged progress on ${task.id}`);
+}
+
+async function runUpdate(options, positionals) {
+  if (positionals.length !== 1) throw new WorkspaceError("update requires exactly one task id.");
+  const input = {};
+  for (const key of ["title", "description", "goal", "plan", "notes"]) {
+    if (options[key] != null) input[key] = options[key];
+  }
+  if (options.requirement.length > 0) input.requirements = options.requirement;
+  if (options.acceptance.length > 0) input.acceptanceCriteria = options.acceptance;
+  if (Object.keys(input).length === 0) {
+    throw new WorkspaceError("update requires at least one of --title, --description, --goal, --plan, --notes, --requirement, or --acceptance.");
+  }
+  const task = await updateTask(await currentWorkspace(options), positionals[0], input);
+  console.log(`Updated ${task.id}: ${task.title}`);
 }
 
 async function runDelegate(options, positionals) {
@@ -736,6 +757,7 @@ const COMMANDS = {
   create: runTask,
   list: runList,
   show: runShow,
+  update: runUpdate,
   move: runMove,
   log: runLog,
   delegate: runDelegate,

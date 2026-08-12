@@ -92,9 +92,9 @@ async def decision_create(workspace_id: str, title: str, project_path: str | Non
 
 
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
-async def task_create(workspace_id: str, title: str, project_path: str | None = None, status: str | None = None, delegated: bool | None = None, goal: str | None = None, requirements: list[str] | None = None, acceptance_criteria: list[str] | None = None, plan: str | None = None, notes: str | None = None, tags: list[str] | None = None, refs: list[str] | None = None) -> dict[str, Any]:
-    """Create authorized executable work with acceptance criteria. delegated is a human-only signal; Work rejects it from agent identities."""
-    return await call("POST", "/api/tasks", workspace_id, body=compact(title=title, projectPath=project_path, status=status, delegated=delegated, goal=goal, requirements=requirements, acceptanceCriteria=acceptance_criteria, plan=plan, notes=notes, tags=tags, refs=refs))
+async def task_create(workspace_id: str, title: str, project_path: str | None = None, status: str | None = None, delegated: bool | None = None, description: str | None = None, goal: str | None = None, requirements: list[str] | None = None, acceptance_criteria: list[str] | None = None, plan: str | None = None, notes: str | None = None, tags: list[str] | None = None, refs: list[str] | None = None) -> dict[str, Any]:
+    """Create authorized executable work with acceptance criteria. description is background context; goal is the discrete outcome. delegated is a human-only signal; Work rejects it from agent identities."""
+    return await call("POST", "/api/tasks", workspace_id, body=compact(title=title, projectPath=project_path, status=status, delegated=delegated, description=description, goal=goal, requirements=requirements, acceptanceCriteria=acceptance_criteria, plan=plan, notes=notes, tags=tags, refs=refs))
 
 
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})

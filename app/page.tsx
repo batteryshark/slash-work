@@ -167,6 +167,7 @@ type WorkTask = {
   completedAt: string | null;
   cancelledAt: string | null;
   sections: {
+    description: string;
     goal: string;
     requirements: string;
     acceptanceCriteria: string;
@@ -3615,9 +3616,11 @@ function KanbanBoard({
                     {columnTasks.map((task) => {
                       const progress = checklistProgress(task);
                       const projectName = scopeLabelFor(projects, task.projectPath, "Unassigned");
+                      const descriptionLine = task.sections.description.split("\n").find((line) => line.trim()) ?? "";
                       const hoverSummary = [
                         `${task.id} · ${statusLabel(task.status)}`,
                         task.title,
+                        descriptionLine || null,
                         `Project: ${projectName}`,
                         task.delegated ? "Handed to an agent" : null,
                         task.dependsOn.length > 0 || task.blockedBy.length > 0
@@ -3641,6 +3644,7 @@ function KanbanBoard({
                         >
                           <span className="card-topline"><strong>{task.id}</strong>{task.delegated && <span className="card-delegated">agent</span>}</span>
                           <span className="card-title">{task.title}</span>
+                          {descriptionLine && <span className="card-description">{descriptionLine}</span>}
                           <span className="card-project">{projectName}</span>
                           {task.dueAt && (
                             <time className={`card-due ${scheduleTone({ scheduledAt: task.dueAt, allDay: true })}`} dateTime={task.dueAt}>
@@ -3743,6 +3747,7 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
     parentId: "",
     dueAt: "",
   });
+  const [description, setDescription] = useState("");
   const [goal, setGoal] = useState("");
   const [requirements, setRequirements] = useState("");
   const [acceptance, setAcceptance] = useState("");
@@ -3759,6 +3764,7 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
       tags: commaList(fields.tags),
       parentId: fields.parentId.trim() || null,
       dueAt: fields.dueAt || null,
+      description,
       goal,
       requirements: requirements.split("\n").map((item) => item.trim()).filter(Boolean),
       acceptanceCriteria: acceptance.split("\n").map((item) => item.trim()).filter(Boolean),
@@ -3774,10 +3780,11 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
         <TaskFields projects={projects} values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))}>
           <label><span>Status</span><select value={status} onChange={(event) => setStatus(event.target.value)}>{statuses.map((item) => <option key={item} value={item}>{statusLabel(item)}</option>)}</select></label>
         </TaskFields>
-        <label className="field-wide"><span>Goal</span><textarea value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="What does done accomplish?" /></label>
+        <label className="field-wide"><span>Description</span><textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Background and context — what is this, and what is the situation?" /></label>
+        <label className="field-wide"><span>Goal</span><textarea value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="The discrete outcome — what does done accomplish?" /></label>
         <label className="field-wide"><span>Requirements · one per line</span><textarea value={requirements} onChange={(event) => setRequirements(event.target.value)} placeholder={"Must preserve Markdown\nMust remain root-scoped"} /></label>
         <label className="field-wide"><span>Acceptance criteria · one per line</span><textarea value={acceptance} onChange={(event) => setAcceptance(event.target.value)} placeholder={"Board reflects status\nRestart restores the card"} /></label>
-        <label className="field-wide"><span>Plan</span><textarea value={plan} onChange={(event) => setPlan(event.target.value)} placeholder="Known implementation shape or research steps" /></label>
+        <label className="field-wide"><span>Plan</span><textarea value={plan} onChange={(event) => setPlan(event.target.value)} placeholder="How to get there — known steps or research shape" /></label>
         {error && <div className="task-error" role="alert">{error}</div>}
         <div className="task-panel-actions"><button type="button" className="secondary-action" onClick={onClose}>Cancel</button><button type="submit" className="primary-action" disabled={!title.trim() || saving}>{saving ? "Creating…" : "Create work item"}</button></div>
       </form>
@@ -3810,6 +3817,7 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClo
   const [dependsOn, setDependsOn] = useState(task.dependsOn.join(", "));
   const [blockedBy, setBlockedBy] = useState(task.blockedBy.join(", "));
   const [blockedReason, setBlockedReason] = useState(task.blockedReason ?? "");
+  const [description, setDescription] = useState(task.sections.description);
   const [goal, setGoal] = useState(task.sections.goal);
   const [plan, setPlan] = useState(task.sections.plan);
   const [notes, setNotes] = useState(task.sections.notes);
@@ -3822,13 +3830,13 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClo
     setTitle(task.title);
     setFields(taskFieldValues());
     setDependsOn(task.dependsOn.join(", ")); setBlockedBy(task.blockedBy.join(", ")); setBlockedReason(task.blockedReason ?? "");
-    setGoal(task.sections.goal); setPlan(task.sections.plan); setNotes(task.sections.notes);
+    setDescription(task.sections.description); setGoal(task.sections.goal); setPlan(task.sections.plan); setNotes(task.sections.notes);
     setCompletionSummary(task.sections.completionSummary);
   }, [task.id, task.updatedAt]);
 
   function saveDetails(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onPatch({ title, projectPath: fields.projectPath || null, delegated: fields.delegated, tags: commaList(fields.tags), dependsOn: commaList(dependsOn), blockedBy: commaList(blockedBy), blockedReason: blockedReason.trim() || null, parentId: fields.parentId.trim() || null, dueAt: fields.dueAt || null, goal, plan, notes, completionSummary });
+    onPatch({ title, projectPath: fields.projectPath || null, delegated: fields.delegated, tags: commaList(fields.tags), dependsOn: commaList(dependsOn), blockedBy: commaList(blockedBy), blockedReason: blockedReason.trim() || null, parentId: fields.parentId.trim() || null, dueAt: fields.dueAt || null, description, goal, plan, notes, completionSummary });
   }
 
   const childTasks = tasks.filter((item) => item.parentId === task.id);
@@ -3844,8 +3852,9 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClo
         <label className="field-wide"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
         <TaskFields projects={projects} values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))} />
         <label className="field-wide"><span>Depends on task IDs</span><input value={dependsOn} onChange={(event) => setDependsOn(event.target.value)} placeholder="W-0001, W-0002" /></label>
-        <label className="field-wide"><span>Goal</span><textarea value={goal} onChange={(event) => setGoal(event.target.value)} /></label>
-        <label className="field-wide"><span>Plan</span><textarea value={plan} onChange={(event) => setPlan(event.target.value)} /></label>
+        <label className="field-wide"><span>Description</span><textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Background and context — what is this, and what is the situation?" /></label>
+        <label className="field-wide"><span>Goal</span><textarea value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="The discrete outcome — what does done accomplish?" /></label>
+        <label className="field-wide"><span>Plan</span><textarea value={plan} onChange={(event) => setPlan(event.target.value)} placeholder="How to get there — known steps or research shape" /></label>
         <details className="task-more-fields">
           <summary>More details</summary>
           <label className="field-wide"><span>Blocked by task IDs</span><input value={blockedBy} onChange={(event) => setBlockedBy(event.target.value)} placeholder="W-0001" /></label>

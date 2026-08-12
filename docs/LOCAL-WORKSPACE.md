@@ -229,8 +229,11 @@ completed_at: null
 cancelled_at: null
 ---
 
+## Description
+Background context: what this is and the situation.
+
 ## Goal
-What this item accomplishes.
+What this item accomplishes: the discrete outcome.
 
 ## Requirements
 - [ ] Required behavior

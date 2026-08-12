@@ -221,6 +221,8 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
       "task",
       "Build the operational board",
       "--delegate",
+      "--description",
+      "The team tracks work in three chat threads and loses it.",
       "--requirement",
       "Show work in flight",
       "--acceptance",
@@ -230,12 +232,35 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   );
   assert.match(createdTask.stdout, /Created W-0001/);
   assert.match(createdTask.stdout, /handed to an agent/);
+  const createdTaskFile = await readFile(join(root, ".work", "tasks", "W-0001.md"), "utf8");
+  assert.match(createdTaskFile, /## Description\nThe team tracks work in three chat threads and loses it\./);
+  assert.ok(createdTaskFile.indexOf("## Description") < createdTaskFile.indexOf("## Goal"), "Description precedes Goal on disk");
+  const updatedTask = await execFile(
+    process.execPath,
+    [
+      launcherPath.pathname,
+      "update",
+      "W-0001",
+      "--description",
+      "Work now spans four chat threads.",
+      "--goal",
+      "One durable board owns the work list.",
+    ],
+    { cwd: descendant },
+  );
+  assert.match(updatedTask.stdout, /Updated W-0001/);
+  const updatedTaskFile = await readFile(join(root, ".work", "tasks", "W-0001.md"), "utf8");
+  assert.match(updatedTaskFile, /## Description\nWork now spans four chat threads\./);
+  assert.match(updatedTaskFile, /## Goal\nOne durable board owns the work list\./);
+  assert.match(updatedTaskFile, /- \[ \] Show work in flight/, "update leaves unpassed sections untouched");
   await execFile(process.execPath, [launcherPath.pathname, "move", "W-0001", "in_progress"], { cwd: descendant });
   await execFile(process.execPath, [launcherPath.pathname, "log", "W-0001", "Board implementation started"], { cwd: descendant });
   const listedTasks = await execFile(process.execPath, [launcherPath.pathname, "list"], { cwd: descendant });
   assert.match(listedTasks.stdout, /W-0001\s+in_progress/);
   const shownTask = await execFile(process.execPath, [launcherPath.pathname, "show", "W-0001"], { cwd: descendant });
   assert.match(shownTask.stdout, /Board implementation started/);
+  assert.match(shownTask.stdout, /Work now spans four chat threads\./);
+  assert.match(shownTask.stdout, /One durable board owns the work list\./);
 
   const launched = await launchApiFromCli(root);
   try {
@@ -1568,6 +1593,9 @@ Keep loading old records.
 `);
     const legacyTask = await apiRequest(api.origin, "/api/tasks/W-0042");
     assert.equal(legacyTask.response.status, 200);
+    assert.equal(legacyTask.payload.sections.description, "", "a legacy record without a Description section loads with an empty description");
+    const untouched = await readFile(join(root, ".work", "tasks", "W-0042.md"), "utf8");
+    assert.doesNotMatch(untouched, /## Description/, "reading a legacy record does not rewrite it with new sections");
     assert.equal("priority" in legacyTask.payload, false);
     assert.equal("type" in legacyTask.payload, false);
     assert.equal("assignee" in legacyTask.payload, false);
@@ -1591,6 +1619,18 @@ Keep loading old records.
     assert.match(rewrittenTask, /startedAt: "2026-01-01T12:00:00\.000Z"/);
     assert.doesNotMatch(rewrittenTask, /task_type|project_path|blocked_reason|created_at|updated_at|started_at/);
     assert.doesNotMatch(rewrittenTask, /priority|assignee|estimate|agents|type:/);
+
+    // Setting a description on a legacy record writes it as the first section.
+    const described = await apiRequest(api.origin, "/api/tasks/W-0042", {
+      method: "PATCH",
+      body: { description: "Old parser records predate the Description section." },
+    });
+    assert.equal(described.response.status, 200);
+    assert.equal(described.payload.sections.description, "Old parser records predate the Description section.");
+    assert.equal(described.payload.sections.goal, "Keep loading old records.", "setting a description leaves the goal untouched");
+    const describedTask = await readFile(join(root, ".work", "tasks", "W-0042.md"), "utf8");
+    assert.match(describedTask, /## Description\nOld parser records predate the Description section\./);
+    assert.ok(describedTask.indexOf("## Description") < describedTask.indexOf("## Goal"), "Description precedes Goal on disk");
   } finally {
     await closeLocalApi(api.server);
   }
@@ -1878,6 +1918,7 @@ test("persists a full Kanban lifecycle with fields, checklists, dependencies, an
         projectPath: "software/rekit",
         delegated: true,
         tags: ["kanban", "storage"],
+        description: "The board loses cards across restarts because nothing persists them.",
         goal: "Persist complete project state in Markdown.",
         requirements: ["One file per task", "Append-only progress log"],
         acceptanceCriteria: ["Survives restart", "Board reflects status"],
@@ -1887,6 +1928,7 @@ test("persists a full Kanban lifecycle with fields, checklists, dependencies, an
     assert.equal(foundation.response.status, 201);
     assert.equal(foundation.payload.id, "W-0001");
     assert.equal(foundation.payload.status, "backlog");
+    assert.equal(foundation.payload.sections.description, "The board loses cards across restarts because nothing persists them.");
     assert.equal(foundation.payload.requirements.length, 2);
 
     const dependent = await apiRequest(first.origin, "/api/tasks", {
@@ -1962,6 +2004,8 @@ test("persists a full Kanban lifecycle with fields, checklists, dependencies, an
 
     const taskFile = await readFile(join(root, "software", "rekit", ".work", "tasks", "W-0001.md"), "utf8");
     assert.match(taskFile, /delegated: true/);
+    assert.match(taskFile, /## Description\nThe board loses cards across restarts/);
+    assert.ok(taskFile.indexOf("## Description") < taskFile.indexOf("## Goal"), "Description is the first task section");
     assert.match(taskFile, /## Requirements/);
     assert.match(taskFile, /- \[x\] One file per task/);
     assert.match(taskFile, /## Acceptance Criteria/);
