@@ -39,8 +39,12 @@ struct MoreView: View {
                     if let workspace = model.selectedWorkspace {
                         LabeledContent("Workspace", value: workspace.name)
                     }
+                    // Named for the instance it describes: with several
+                    // servers saved, an unqualified "Work version" reads as
+                    // though it applied to all of them.
                     if let version = model.serviceVersion {
-                        LabeledContent("Work version", value: version)
+                        LabeledContent(model.activeProfile.map { "\($0.name) version" } ?? "Work version",
+                                       value: version)
                     }
                 }
 
@@ -794,21 +798,33 @@ private struct NewProjectSheet: View {
 private struct ConnectionsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var profileToForget: ServerProfile?
+    @State private var addingInstance = false
 
     var body: some View {
         List {
+            if model.profiles.isEmpty {
+                ContentUnavailableView("No Work instances", systemImage: "server.rack",
+                                       description: Text("Add the URL that `work --tailscale` prints."))
+            }
             ForEach(model.profiles) { profile in
+                let active = profile.id == model.activeProfileID
                 VStack(alignment: .leading, spacing: 5) {
                     HStack {
-                        Label(profile.name, systemImage: profile.id == model.activeProfileID ? "checkmark.circle.fill" : "server.rack")
+                        Label(profile.name, systemImage: active ? "checkmark.circle.fill" : "server.rack")
                         Spacer()
-                        if profile.id == model.activeProfileID { Text("Connected").font(.caption).foregroundStyle(.green) }
+                        // The version is only known for the instance actually
+                        // connected, so it is labelled per row rather than once
+                        // on the More page as though it described all of them.
+                        if active {
+                            Text(model.serviceVersion.map { "Connected · \($0)" } ?? "Connected")
+                                .font(.caption).foregroundStyle(.green)
+                        }
                     }
                     Text(profile.url).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    guard profile.id != model.activeProfileID else { return }
+                    guard !active else { return }
                     Task { await model.connect(to: profile) }
                 }
                 .swipeActions {
@@ -817,8 +833,22 @@ private struct ConnectionsView: View {
                     }
                 }
             }
+            .onDelete { offsets in
+                if let index = offsets.first, model.profiles.indices.contains(index) {
+                    profileToForget = model.profiles[index]
+                }
+            }
         }
         .navigationTitle("Work Instances")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { addingInstance = true } label: { Label("Add", systemImage: "plus") }
+                    .accessibilityLabel("Add a Work instance")
+            }
+            // Swipe-to-forget alone hid the capability; Edit makes it visible.
+            ToolbarItem(placement: .topBarLeading) { EditButton() }
+        }
+        .sheet(isPresented: $addingInstance) { AddInstanceSheet() }
         .confirmationDialog("Forget this Work instance?", isPresented: Binding(
             get: { profileToForget != nil }, set: { if !$0 { profileToForget = nil } }
         ), titleVisibility: .visible) {
@@ -828,6 +858,72 @@ private struct ConnectionsView: View {
             }
         } message: {
             Text("Its cached snapshots will also be removed from this device.")
+        }
+    }
+}
+
+/// Adding an instance was possible only on the first-run connection screen, so
+/// a second Work server could not be added once one was connected.
+private struct AddInstanceSheet: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var url = ""
+    @State private var error: String?
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("http://100.x.y.z:43170", text: $url)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                        .textContentType(.URL)
+                        .submitLabel(.go)
+                        .focused($focused)
+                        .onSubmit { add() }
+                } header: {
+                    Text("Work URL")
+                } footer: {
+                    Text("Start Work with `work --tailscale`, then enter the API URL it prints. Adding an instance connects to it.")
+                }
+                if let error {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote).foregroundStyle(.red)
+                }
+            }
+            .navigationTitle("Add Instance")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Connect") { add() }
+                        .disabled(url.trimmingCharacters(in: .whitespaces).isEmpty
+                                  || model.connectionState == .connecting)
+                }
+            }
+            .onAppear { focused = true }
+        }
+    }
+
+    private func add() {
+        let candidate = url.trimmingCharacters(in: .whitespaces)
+        guard !candidate.isEmpty else { return }
+        do {
+            _ = try WorkAPIClient.validatedURL(from: candidate)
+        } catch {
+            self.error = error.localizedDescription
+            return
+        }
+        model.serverURL = candidate
+        Task {
+            await model.connect()
+            if case .failed(let message) = model.connectionState {
+                self.error = message
+            } else {
+                dismiss()
+            }
         }
     }
 }
