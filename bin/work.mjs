@@ -71,7 +71,7 @@ Usage:
   work add "thought" [options]        Capture from any workspace descendant
   work decision "question" [options] Create a decision from any descendant
   work task "title" [options]         Create a full Kanban work item
-  work list                            List work items in the current root
+  work list [--project p|--unassigned] List work items; filter to one project or to workspace scope
   work show <id>                       Print a complete work item
   work update <id> [options]           Edit a card's title and sections
   work move <id> <status> [--note n]  Move a card and append to its log
@@ -477,9 +477,29 @@ async function runTask(options, positionals) {
 
 async function runList(options, positionals) {
   if (positionals.length > 0) throw new WorkspaceError("list does not accept positional arguments.");
-  const tasks = await listTasks(await currentWorkspace(options));
+  if (options.project && options.unassigned) {
+    throw new WorkspaceError("Use either --project or --unassigned, not both.");
+  }
+  const workspace = await currentWorkspace(options);
+  let tasks = await listTasks(workspace);
+  let scope = "this root";
+  if (options.unassigned) {
+    tasks = tasks.filter((task) => !task.projectPath);
+    scope = "the workspace scope";
+  } else if (options.project) {
+    // An unknown path used to return silently, which reads as "no work here"
+    // rather than "you named a project that does not exist".
+    const projects = await discoverProjects(workspace.root);
+    const match = projects.find((project) => project.path === options.project);
+    if (!match) {
+      throw new WorkspaceError(
+        `No project at ${options.project}. Run \`work projects\` to see the exact paths.`);
+    }
+    tasks = tasks.filter((task) => task.projectPath === match.path);
+    scope = match.path;
+  }
   if (tasks.length === 0) {
-    console.log("No work items in this root.");
+    console.log(`No work items in ${scope}.`);
     return;
   }
   for (const task of tasks) {

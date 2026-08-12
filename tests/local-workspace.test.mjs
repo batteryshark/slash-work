@@ -257,6 +257,19 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   await execFile(process.execPath, [launcherPath.pathname, "log", "W-0001", "Board implementation started"], { cwd: descendant });
   const listedTasks = await execFile(process.execPath, [launcherPath.pathname, "list"], { cwd: descendant });
   assert.match(listedTasks.stdout, /W-0001\s+in_progress/);
+
+  // --project filters rather than being ignored, and a path that matches no
+  // project says so instead of printing an empty list that reads as "no work".
+  await execFile(process.execPath, [launcherPath.pathname, "new", "Filtered"], { cwd: root });
+  const filtered = await execFile(
+    process.execPath, [launcherPath.pathname, "list", "--project", "filtered"], { cwd: root });
+  assert.match(filtered.stdout, /No work items in filtered\./);
+  const unassigned = await execFile(
+    process.execPath, [launcherPath.pathname, "list", "--unassigned"], { cwd: root });
+  assert.match(unassigned.stdout, /W-0001/, "the root-scoped task is workspace scope, not a project");
+  await assert.rejects(
+    execFile(process.execPath, [launcherPath.pathname, "list", "--project", "nope"], { cwd: root }),
+    /No project at nope/);
   const shownTask = await execFile(process.execPath, [launcherPath.pathname, "show", "W-0001"], { cwd: descendant });
   assert.match(shownTask.stdout, /Board implementation started/);
   assert.match(shownTask.stdout, /Work now spans four chat threads\./);
