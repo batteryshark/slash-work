@@ -309,6 +309,7 @@ work add "check whether the release needs a migration"
 work decision "Where should the lab live?" --option "Keep unassigned" --option "Assign later"
 work task "Implement the board" --project software/rekit --delegate
 work task "Workspace-wide maintenance" --unassigned
+work delegate W-0001
 work move W-0001 in_progress --note "Agent team started"
 work log W-0001 "Dependency and restart tests pass"
 work list

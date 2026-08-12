@@ -205,7 +205,9 @@ Do not commit `.work/` if the workspace contains private operational notes.
   beside the project. A title and categorization are never
   required. Issue messages support Markdown and code blocks. Filing an issue
   authorizes investigation and replies, not repository changes; create a task
-  when you authorize execution.
+  when you authorize execution. Tasks and issues both carry a human-only
+  "Hand to an agent" toggle; an agent runner picks up delegated items on its
+  next pass, and Work rejects the flag from any agent identity.
 - An agent may mark an issue **Resolved** with a resolution summary, but that is
   its assessment rather than a permanent closure. Only a human can choose
   **Close**. **Reopen** remains available after either state, and a human reply
@@ -245,6 +247,7 @@ work agent
 work projects
 work task "Implement the board" --project software/rekit --delegate
 work task "Workspace-wide maintenance" --unassigned
+work delegate W-0001
 work move W-0001 in_progress --note "UI team started"
 work log W-0001 "Requirements and dependency gate pass"
 work list

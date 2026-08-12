@@ -23,6 +23,7 @@ import {
   moveTask,
   projectForScope,
   readWorkspace,
+  updateTask,
 } from "../lib/local-workspace.mjs";
 import {
   listRegisteredWorkspaces,
@@ -74,6 +75,7 @@ Usage:
   work show <id>                       Print a complete work item
   work move <id> <status> [--note n]  Move a card and append to its log
   work log <id> "what happened"        Append a progress entry
+  work delegate <id> [--off]           Hand an existing card to an agent (--off takes it back)
 
 Options:
   --root <path>       Select a root (otherwise search upward from the current directory)
@@ -130,6 +132,7 @@ const CLI_FLAGS = {
   option: repeatable(),
   recommend: { type: "string" },
   delegate: { type: "boolean" },
+  off: { type: "boolean" },
   tag: repeatable(),
   "depends-on": repeatable(),
   "blocked-by": repeatable(),
@@ -492,6 +495,12 @@ async function runLog(options, positionals) {
   console.log(`Logged progress on ${task.id}`);
 }
 
+async function runDelegate(options, positionals) {
+  if (positionals.length !== 1) throw new WorkspaceError("delegate requires exactly one task id.");
+  const task = await updateTask(await currentWorkspace(options), positionals[0], { delegated: options.off !== true });
+  console.log(`${task.id} ${task.delegated ? "handed to an agent" : "back with you"}`);
+}
+
 const UI_MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -729,6 +738,7 @@ const COMMANDS = {
   show: runShow,
   move: runMove,
   log: runLog,
+  delegate: runDelegate,
 };
 
 async function main() {

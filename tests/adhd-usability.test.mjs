@@ -34,6 +34,10 @@ test("keeps the ADHD usability gates present in the interface", async () => {
   // type, assignee, and estimate theater; rarely-touched fields sit behind
   // one disclosure; a project can render as a plain list.
   assert.match(page, /Hand to an agent/);
+  // The delegation toggle exists on both surfaces and explains itself: the
+  // task form (field-delegate) and the issue thread (issue-delegate).
+  assert.match(page, /issue-delegate/);
+  assert.match(page, /An agent runner picks up delegated items on its next pass\./);
   assert.match(page, /task-more-fields/);
   assert.match(page, /project-view-toggle/);
   assert.doesNotMatch(page, /\bpriority\b|\bassignee\b|\bestimate\b/i);

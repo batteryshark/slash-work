@@ -86,6 +86,14 @@ test("lets agents file attributed issues while delegation stays human-only", asy
     assert.deepEqual(agentStale.payload.issues, []);
     const invalidCursor = await requestJson(api.origin, "/api/issues?updatedSince=not-a-date");
     assert.equal(invalidCursor.response.status, 400);
+
+    // A human can file an issue that is delegated from the start.
+    const humanFiled = await requestJson(api.origin, "/api/issues", {
+      method: "POST",
+      body: { title: "Sweep the retry queue", body: "Hand this straight to automation.", delegated: true },
+    });
+    assert.equal(humanFiled.response.status, 201);
+    assert.equal(humanFiled.payload.delegated, true, "a human may create an issue already delegated");
   } finally {
     await closeLocalApi(api.server);
   }

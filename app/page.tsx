@@ -60,6 +60,7 @@ type Issue = {
   state: IssueState;
   scopePath: string;
   projectPath: string | null;
+  delegated: boolean;
   claimedBy: { kind: "agent"; name: string } | null;
   resolutionSummary: string | null;
   messages: IssueMessage[];
@@ -1166,6 +1167,17 @@ export default function Home() {
     }, { saving: setSavingIssue, error: setIssueError, fallback: "The issue state could not be changed." });
   }
 
+  function setIssueDelegated(issueId: string, delegated: boolean) {
+    return run(async () => {
+      const issue = await requestJson<Issue>(`/api/issues/${encodeURIComponent(issueId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ delegated }),
+      });
+      replaceIn("issues", issue);
+      return issue;
+    }, { saving: setSavingIssue, error: setIssueError, fallback: "The delegation flag could not be changed." });
+  }
+
   function createProjectNote(input: { title?: string; text?: string } = {}) {
     return run(async () => {
       const note = await requestJson<ProjectNote>("/api/notes", {
@@ -1789,6 +1801,7 @@ export default function Home() {
             onCreate={createIssue}
             onReply={replyToIssue}
             onSetState={setIssueState}
+            onSetDelegated={setIssueDelegated}
           />
         ) : view === "notes" ? (
           <NotesView
@@ -2847,6 +2860,7 @@ function IssuesView({
   onCreate,
   onReply,
   onSetState,
+  onSetDelegated,
 }: {
   scopeLabel: string;
   scopePath: string;
@@ -2860,6 +2874,7 @@ function IssuesView({
   onCreate: (body: string) => Promise<Issue>;
   onReply: (issueId: string, body: string) => Promise<Issue>;
   onSetState: (issueId: string, state: "queued" | "closed") => Promise<Issue>;
+  onSetDelegated: (issueId: string, delegated: boolean) => Promise<Issue>;
 }) {
   const selectedIssue = issues.find((issue) => issue.id === selectedIssueId) ?? null;
   const stateNote = selectedIssue ? ISSUE_STATE_NOTES[selectedIssue.state] : undefined;
@@ -2976,6 +2991,7 @@ function IssuesView({
                 >
                   <span className="issue-list-title"><strong>{issue.title}</strong></span>
                   <span className={`issue-state state-${issue.state}`}>{ISSUE_STATE_LABELS[issue.state]}</span>
+                  {issue.delegated && <span className="card-delegated">agent</span>}
                   <small>{issueLocation(issue)} · {shortTime(issue.updatedAt)}</small>
                 </button>
               ))}
@@ -3011,6 +3027,16 @@ function IssuesView({
                   )}
                 </div>
               </header>
+
+              <label className="field-delegate issue-delegate">
+                <input
+                  type="checkbox"
+                  checked={selectedIssue.delegated}
+                  disabled={saving}
+                  onChange={(event) => void onSetDelegated(selectedIssue.id, event.target.checked).catch(() => {})}
+                />
+                <span><strong>Hand to an agent</strong><small>An agent runner picks up delegated items on its next pass.</small></span>
+              </label>
 
               {stateNote && (
                 <div className={`issue-state-note ${stateNote.className}`}>
@@ -3693,7 +3719,7 @@ function TaskFields({ projects, values, onChange, children }: {
         <label><span>Due date</span><input type="date" value={values.dueAt} onChange={(event) => onChange({ dueAt: event.target.value })} /></label>
         <label><span>Parent task ID</span><input value={values.parentId} onChange={(event) => onChange({ parentId: event.target.value })} placeholder="W-0001" /></label>
       </div>
-      <label className="field-delegate"><input type="checkbox" checked={values.delegated} onChange={(event) => onChange({ delegated: event.target.checked })} /><span>Hand to an agent</span></label>
+      <label className="field-delegate"><input type="checkbox" checked={values.delegated} onChange={(event) => onChange({ delegated: event.target.checked })} /><span><strong>Hand to an agent</strong><small>An agent runner picks up delegated items on its next pass.</small></span></label>
       <label className="field-wide"><span>Tags</span><input value={values.tags} onChange={(event) => onChange({ tags: event.target.value })} placeholder="Comma-separated" /></label>
     </>
   );
