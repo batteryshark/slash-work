@@ -286,6 +286,25 @@ function displaySegment(segment: string) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+// Grouping for the project pickers: the folder path is the taxonomy, so a
+// project's first path segment is its group. Paths without a folder sit in a
+// "Straight in this root" group that is listed first.
+function groupByFirstSegment<Item>(items: Item[], pathOf: (item: Item) => string) {
+  const groups = new Map<string, { key: string; label: string; items: Item[] }>();
+  for (const item of items) {
+    const parts = pathParts(pathOf(item));
+    const key = parts.length > 1 ? parts[0] : "";
+    const group = groups.get(key) ?? { key, label: key ? displaySegment(key) : "Straight in this root", items: [] };
+    group.items.push(item);
+    groups.set(key, group);
+  }
+  return [...groups.values()].sort((left, right) => {
+    if (!left.key) return -1;
+    if (!right.key) return 1;
+    return left.label.localeCompare(right.label);
+  });
+}
+
 function pathContains(candidate: string | null, scope: string) {
   if (!candidate) return scope === ".";
   if (scope === ".") return true;
@@ -579,6 +598,8 @@ export default function Home() {
     return saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
   });
   const [scopePath, setScopePath] = useState(".");
+  const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
+  const [recentProjectPaths, setRecentProjectPaths] = useState<string[]>([]);
   const [command, setCommand] = useState("");
   const [savingCapture, setSavingCapture] = useState(false);
   const [movingCaptureId, setMovingCaptureId] = useState<string | null>(null);
@@ -913,6 +934,39 @@ export default function Home() {
     localStorage.setItem(`work.scope.${data.workspace.root}`, scopePath);
   }, [data, scopePath]);
 
+  // Picker memory, same per-root shape as work.scope.*: which project groups the
+  // owner left open, and the projects they opened most recently.
+  useEffect(() => {
+    if (!data) return;
+    const read = (key: string) => {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(`${key}.${data.workspace.root}`) ?? "[]");
+        return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === "string") : [];
+      } catch {
+        return [];
+      }
+    };
+    setExpandedGroups(read("work.projectGroups"));
+    setRecentProjectPaths(read("work.recentProjects"));
+  }, [data?.workspace.root]);
+
+  function rememberRecentProject(path: string) {
+    if (!data || path === "." || !data.projects.some((project) => project.path === path)) return;
+    setRecentProjectPaths((current) => {
+      const next = [path, ...current.filter((entry) => entry !== path)].slice(0, 5);
+      localStorage.setItem(`work.recentProjects.${data.workspace.root}`, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  function toggleProjectGroup(key: string) {
+    setExpandedGroups((current) => {
+      const next = current.includes(key) ? current.filter((entry) => entry !== key) : [...current, key];
+      if (data) localStorage.setItem(`work.projectGroups.${data.workspace.root}`, JSON.stringify(next));
+      return next;
+    });
+  }
+
   useEffect(() => {
     const onGlobalKeyDown = (event: globalThis.KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -1102,6 +1156,16 @@ export default function Home() {
     );
   }, [data, projectSearch]);
 
+  const projectMenuGroups = useMemo(
+    () => groupByFirstSegment(filteredProjectMenu, (project) => project.path),
+    [filteredProjectMenu],
+  );
+
+  const recentProjects = useMemo(
+    () => recentProjectPaths.flatMap((path) => data?.projects.filter((project) => project.path === path) ?? []),
+    [data?.projects, recentProjectPaths],
+  );
+
   const projectInventory = useMemo(() => {
     const logicalProjects = data?.projects.filter((project) => project.path !== ".") ?? [];
     return {
@@ -1112,11 +1176,35 @@ export default function Home() {
 
   function navigate(nextScope: string) {
     setScopePath(nextScope || ".");
+    rememberRecentProject(nextScope || ".");
     setSystemMenuOpen(false);
     setProjectMenuOpen(false);
     setWorkspaceMenuOpen(false);
     setProjectSearch("");
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function projectMenuButton(project: Project) {
+    const aliasPaths = project.aliasPaths ?? [];
+    const worktreeCount = aliasPaths.length;
+    const worktreeLabel = `${worktreeCount} linked worktree${worktreeCount === 1 ? "" : "s"} grouped`;
+    return (
+      <button
+        type="button"
+        key={project.id}
+        onClick={() => navigate(project.path)}
+        className={project.path === scopePath ? "selected" : ""}
+        aria-label={worktreeCount > 0 ? `${project.name}, logical project, ${worktreeLabel}` : project.name}
+        title={worktreeCount > 0 ? `${worktreeLabel}: ${aliasPaths.join(", ")}` : project.path}
+      >
+        <span className="project-code" aria-hidden="true">{project.name.slice(0, 2).toUpperCase()}</span>
+        <span>
+          <strong>{project.name}</strong>
+          <small>{project.path}</small>
+          {worktreeCount > 0 && <em className="project-worktree-note">{worktreeLabel}</em>}
+        </span>
+      </button>
+    );
   }
 
   function openHomeSection(section: "inbox" | "needs-you") {
@@ -1625,30 +1713,36 @@ export default function Home() {
               aria-label="Find a project in this root"
               autoFocus
             />
-            <div className="project-menu-grid">
-              {filteredProjectMenu.map((project) => {
-                const aliasPaths = project.aliasPaths ?? [];
-                const worktreeCount = aliasPaths.length;
-                const worktreeLabel = `${worktreeCount} linked worktree${worktreeCount === 1 ? "" : "s"} grouped`;
-                return (
-                <button
-                  type="button"
-                  key={project.id}
-                  onClick={() => navigate(project.path)}
-                  className={project.path === scopePath ? "selected" : ""}
-                  aria-label={worktreeCount > 0 ? `${project.name}, logical project, ${worktreeLabel}` : project.name}
-                  title={worktreeCount > 0 ? `${worktreeLabel}: ${aliasPaths.join(", ")}` : project.path}
-                >
-                  <span className="project-code" aria-hidden="true">{project.name.slice(0, 2).toUpperCase()}</span>
-                  <span>
-                    <strong>{project.name}</strong>
-                    <small>{project.path}</small>
-                    {worktreeCount > 0 && <em className="project-worktree-note">{worktreeLabel}</em>}
-                  </span>
-                </button>
-                );
-              })}
-            </div>
+            {recentProjects.length > 0 && !projectSearch.trim() && (
+              <section className="project-menu-recent" aria-label="Recently opened projects">
+                <p className="project-menu-group-title">Recent</p>
+                <div className="project-menu-grid">{recentProjects.map(projectMenuButton)}</div>
+              </section>
+            )}
+            {projectSearch.trim() ? (
+              <div className="project-menu-grid">{filteredProjectMenu.map(projectMenuButton)}</div>
+            ) : (
+              <div className="project-menu-groups">
+                {projectMenuGroups.map((group) => {
+                  const expanded = expandedGroups.includes(group.key);
+                  return (
+                    <section className="project-menu-group" key={group.key || "root"}>
+                      <button
+                        type="button"
+                        className="project-menu-group-header"
+                        aria-expanded={expanded}
+                        onClick={() => toggleProjectGroup(group.key)}
+                      >
+                        <span className="group-caret" aria-hidden="true">{expanded ? "⌄" : "›"}</span>
+                        <strong>{group.label}</strong>
+                        <span className="count-badge">{group.items.length}</span>
+                      </button>
+                      {expanded && <div className="project-menu-grid">{group.items.map(projectMenuButton)}</div>}
+                    </section>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -2084,13 +2178,45 @@ export default function Home() {
             <p className="capture-move-preview">“{captureToMove.text}”</p>
             <label className="field-wide"><span className="sr-only">Find a destination</span><input type="search" value={captureMoveSearch} onChange={(event) => setCaptureMoveSearch(event.target.value)} placeholder="Find a project or folder…" autoFocus /></label>
             <div className="capture-destination-list">
-              {[
-                { value: "scope:.", title: "Root inbox", detail: `${data.workspace.name} · Unassigned` },
-                ...inboxFolderScopes.map((path) => ({ value: `scope:${path}`, title: displaySegment(pathParts(path).at(-1) ?? path), detail: `Folder inbox · ${path}` })),
-                ...data.projects.filter((project) => project.path !== ".").map((project) => ({ value: `project:${project.path}`, title: project.name, detail: `Project inbox · ${project.path}` })),
-              ].filter((item) => `${item.title} ${item.detail}`.toLowerCase().includes(captureMoveSearch.trim().toLowerCase())).map((item) => (
-                <button type="button" key={item.value} disabled={movingCaptureId === captureToMove.id} onClick={() => void moveCapture(captureToMove, item.value)}><span><strong>{item.title}</strong><small>{item.detail}</small></span><span aria-hidden="true">→</span></button>
-              ))}
+              {(() => {
+                const query = captureMoveSearch.trim().toLowerCase();
+                const scopeEntries = [
+                  { value: "scope:.", path: ".", title: "Root inbox", detail: `${data.workspace.name} · Unassigned` },
+                  ...inboxFolderScopes.map((path) => ({ value: `scope:${path}`, path, title: displaySegment(pathParts(path).at(-1) ?? path), detail: `Folder inbox · ${path}` })),
+                ];
+                const projectEntries = data.projects.filter((project) => project.path !== ".").map((project) => ({ value: `project:${project.path}`, path: project.path, title: project.name, detail: `Project inbox · ${project.path}` }));
+                const destinationButton = (item: { value: string; title: string; detail: string }) => (
+                  <button type="button" key={item.value} disabled={movingCaptureId === captureToMove.id} onClick={() => void moveCapture(captureToMove, item.value)}><span><strong>{item.title}</strong><small>{item.detail}</small></span><span aria-hidden="true">→</span></button>
+                );
+                if (query) {
+                  return [...scopeEntries, ...projectEntries]
+                    .filter((item) => `${item.title} ${item.detail}`.toLowerCase().includes(query))
+                    .map(destinationButton);
+                }
+                return (
+                  <>
+                    {scopeEntries.map(destinationButton)}
+                    {groupByFirstSegment(projectEntries, (entry) => entry.path).map((group) => {
+                      const expanded = expandedGroups.includes(group.key);
+                      return (
+                        <section className="project-menu-group" key={group.key || "root"}>
+                          <button
+                            type="button"
+                            className="project-menu-group-header"
+                            aria-expanded={expanded}
+                            onClick={() => toggleProjectGroup(group.key)}
+                          >
+                            <span className="group-caret" aria-hidden="true">{expanded ? "⌄" : "›"}</span>
+                            <strong>{group.label}</strong>
+                            <span className="count-badge">{group.items.length}</span>
+                          </button>
+                          {expanded && group.items.map(destinationButton)}
+                        </section>
+                      );
+                    })}
+                  </>
+                );
+              })()}
             </div>
           </section>
         </div>

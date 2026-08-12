@@ -19,6 +19,9 @@ final class AppModel: ObservableObject {
             "work.project.\(serverID).\(workspaceID)"
         }
         static func directory(_ serverID: String) -> String { "work.directory.\(serverID)" }
+        static func recentProjects(_ serverID: String, _ workspaceID: String) -> String {
+            "work.recentProjects.\(serverID).\(workspaceID)"
+        }
     }
 
     @Published var serverURL = ""
@@ -28,6 +31,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var directory: WorkspaceDirectory?
     @Published private(set) var selectedWorkspaceID: String?
     @Published private(set) var selectedProjectPath: String?
+    /// Paths of the last five projects opened, most recent first, per server+workspace.
+    @Published private(set) var recentProjectPaths: [String] = []
     @Published private(set) var snapshot: WorkspacePayload?
     @Published private(set) var isRefreshing = false
     @Published private(set) var isRestartingService = false
@@ -71,6 +76,10 @@ final class AppModel: ObservableObject {
     var selectedProject: WorkProject? {
         guard let selectedProjectPath else { return nil }
         return snapshot?.projects.first { $0.path == selectedProjectPath }
+    }
+
+    var recentProjects: [WorkProject] {
+        recentProjectPaths.compactMap { path in snapshot?.projects.first { $0.path == path } }
     }
 
     var scopedTasks: [WorkTask] { snapshot?.tasks.filter { includes($0.projectPath) } ?? [] }
@@ -275,6 +284,9 @@ final class AppModel: ObservableObject {
         let key = DefaultsKey.project(profile.id, workspaceID)
         if let path { defaults.set(path, forKey: key) }
         else { defaults.removeObject(forKey: key) }
+        guard let path, path != "." else { return }
+        recentProjectPaths = ([path] + recentProjectPaths.filter { $0 != path }).prefix(5).map { $0 }
+        defaults.set(recentProjectPaths, forKey: DefaultsKey.recentProjects(profile.id, workspaceID))
     }
 
     func createCapture(text: String, kind: String, toProject: Bool = false) async -> Bool {
@@ -470,6 +482,7 @@ final class AppModel: ObservableObject {
 
     private func restoreProjectSelection() {
         guard let profile = activeProfile, let workspaceID = selectedWorkspaceID else { return }
+        recentProjectPaths = defaults.stringArray(forKey: DefaultsKey.recentProjects(profile.id, workspaceID)) ?? []
         let remembered = defaults.string(forKey: DefaultsKey.project(profile.id, workspaceID))
         if let remembered, snapshot?.projects.contains(where: { $0.path == remembered }) == true {
             selectedProjectPath = remembered

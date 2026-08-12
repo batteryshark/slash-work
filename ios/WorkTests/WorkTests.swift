@@ -144,6 +144,29 @@ struct WorkTests {
         #expect(delegation?.keys.sorted() == ["delegated"])
     }
 
+    @Test func projectGroupsFollowTheFolderPath() {
+        let paths = ["work-management/project-manager-thing", "life/job-hunt", "maestro",
+                     "life/new-house", "reverse-engineering-tools/rekit-factory", ".", "atlas"]
+        let groups = projectGroups(paths.map(Self.project))
+
+        // Root-level projects come first under one heading, then folders A→Z.
+        #expect(groups.map(\.key) == ["", "life", "reverse-engineering-tools", "work-management"])
+        #expect(groups[0].title == "Straight in this root")
+        #expect(groups[0].projects.map(\.path) == ["atlas", "maestro"])
+        #expect(groups[1].title == "Life")
+        #expect(groups[1].projects.map(\.path) == ["life/job-hunt", "life/new-house"])
+        #expect(groups[2].title == "Reverse Engineering Tools")
+
+        // The workspace root itself is never a group, and input order never matters.
+        #expect(groups.flatMap { $0.projects }.contains { $0.path == "." } == false)
+        #expect(projectGroups(paths.reversed().map(Self.project)) == groups)
+    }
+
+    private static func project(path: String) -> WorkProject {
+        WorkProject(id: path, projectId: nil, name: path, description: "", path: path,
+                    depth: path.split(separator: "/").count, markers: [], aliasPaths: nil, view: nil)
+    }
+
     private static func iso(_ date: Date) -> String {
         ISO8601DateFormatter().string(from: date)
     }

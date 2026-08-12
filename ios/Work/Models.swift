@@ -362,6 +362,33 @@ struct CachedWorkspace: Codable, Sendable {
     let savedAt: Date
 }
 
+struct ProjectGroup: Identifiable, Hashable, Sendable {
+    let key: String
+    let title: String
+    let projects: [WorkProject]
+
+    var id: String { key }
+}
+
+/// The folder path is the taxonomy: a project's first path segment is its group.
+/// Projects that sit directly in the root come first, then folders A→Z, and the
+/// projects inside each group stay sorted by path.
+func projectGroups(_ projects: [WorkProject]) -> [ProjectGroup] {
+    var buckets: [String: [WorkProject]] = [:]
+    for project in projects where project.path != "." {
+        let key = project.path.contains("/") ? String(project.path.split(separator: "/")[0]) : ""
+        buckets[key, default: []].append(project)
+    }
+    return buckets.keys.sorted { left, right in
+        if left.isEmpty != right.isEmpty { return left.isEmpty }
+        return left < right
+    }.map { key in
+        ProjectGroup(key: key,
+                     title: key.isEmpty ? "Straight in this root" : WorkFormatting.title(for: key),
+                     projects: (buckets[key] ?? []).sorted { $0.path < $1.path })
+    }
+}
+
 enum WorkFormatting {
     private static let fractionalParser: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -388,6 +415,7 @@ enum WorkFormatting {
 
     static func title(for value: String) -> String {
         value.replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
             .split(separator: " ")
             .map { $0.prefix(1).uppercased() + $0.dropFirst() }
             .joined(separator: " ")

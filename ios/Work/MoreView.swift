@@ -667,6 +667,7 @@ private struct ProjectsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showingNewProject = false
     @State private var projectToDelete: WorkProject?
+    @State private var expandedGroups: Set<String> = []
 
     var body: some View {
         List {
@@ -675,20 +676,27 @@ private struct ProjectsView: View {
                                        description: Text("Create a project to organize tasks, notes, and decisions."))
                     .listRowBackground(Color.clear)
             } else {
-                ForEach(projects) { project in
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(project.name).font(.headline)
-                        Text(project.path).font(.caption.monospaced()).foregroundStyle(.secondary)
-                        if !project.description.isEmpty {
-                            Text(project.description).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
-                        }
+                if !model.recentProjects.isEmpty {
+                    Section("Recent") {
+                        ForEach(model.recentProjects) { project in row(project) }
                     }
-                    .padding(.vertical, 5)
-                    .swipeActions {
-                        Button(role: .destructive) { projectToDelete = project } label: {
-                            Label("Delete", systemImage: "trash")
+                }
+                ForEach(projectGroups(projects)) { group in
+                    Section {
+                        DisclosureGroup(isExpanded: Binding(
+                            get: { expandedGroups.contains(group.key) },
+                            set: { isOpen in
+                                if isOpen { expandedGroups.insert(group.key) } else { expandedGroups.remove(group.key) }
+                            }
+                        )) {
+                            ForEach(group.projects) { project in row(project) }
+                        } label: {
+                            HStack {
+                                Text(group.title).font(.headline)
+                                Spacer()
+                                Text("\(group.projects.count)").font(.subheadline).foregroundStyle(.secondary)
+                            }
                         }
-                        .disabled(model.isShowingCachedData || model.isMutating)
                     }
                 }
             }
@@ -711,6 +719,29 @@ private struct ProjectsView: View {
             }
         } message: {
             Text("This removes the project's Work records (tasks, notes, decisions). The folder is kept if it still contains your files. This cannot be undone.")
+        }
+    }
+
+    private func row(_ project: WorkProject) -> some View {
+        Button {
+            model.selectProject(path: project.path)
+        } label: {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(project.name).font(.headline)
+                Text(project.path).font(.caption.monospaced()).foregroundStyle(.secondary)
+                if !project.description.isEmpty {
+                    Text(project.description).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 5)
+        }
+        .buttonStyle(.plain)
+        .swipeActions {
+            Button(role: .destructive) { projectToDelete = project } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            .disabled(model.isShowingCachedData || model.isMutating)
         }
     }
 

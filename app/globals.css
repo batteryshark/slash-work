@@ -401,6 +401,28 @@ button:disabled { cursor: not-allowed; opacity: 0.48; }
 .project-menu-grid button:hover, .project-menu-grid button.selected { background: var(--accent-softer); border-color: var(--accent-line); }
 .project-menu-grid button > span:last-child { display: grid; gap: 3px; min-width: 0; }
 .project-menu-grid small { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.project-menu-groups { display: grid; gap: 6px; }
+.project-menu-group { display: grid; gap: 6px; }
+.project-menu-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.project-menu-group-header:hover { background: var(--veil); }
+.project-menu-group-header strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-menu-group-header .count-badge { min-width: 30px; height: 30px; padding-inline: 8px; font-size: 12px; }
+.group-caret { width: 14px; color: var(--muted); }
+.project-menu-recent { display: grid; gap: 6px; margin-bottom: 10px; }
+.project-menu-group-title { margin: 0; padding: 0 8px; color: var(--soft); font-size: 10px; font-weight: 760; letter-spacing: 0.08em; text-transform: uppercase; }
 .project-worktree-note { color: var(--accent-dark); font-size: 11px; font-style: normal; font-weight: 750; }
 .project-code {
   display: grid;
@@ -624,9 +646,9 @@ button.upcoming-item:hover { border-radius: 10px; background: var(--accent-softe
 .capture-move-preview { display: -webkit-box; overflow: hidden; margin: 17px 0; color: var(--muted); line-height: 1.5; white-space: pre-wrap; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .capture-move-panel input { width: 100%; min-height: 48px; padding: 0 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--canvas); color: var(--ink); }
 .capture-destination-list { display: grid; gap: 7px; margin-top: 14px; }
-.capture-destination-list > button { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 62px; padding: 10px 13px; border: 1px solid var(--line); border-radius: 12px; background: transparent; text-align: left; cursor: pointer; }
-.capture-destination-list > button:hover { border-color: var(--accent); background: var(--accent-softer); }
-.capture-destination-list > button > span:first-child { display: grid; gap: 3px; min-width: 0; }
+.capture-destination-list > button, .capture-destination-list .project-menu-group > button:not(.project-menu-group-header) { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 62px; padding: 10px 13px; border: 1px solid var(--line); border-radius: 12px; background: transparent; text-align: left; cursor: pointer; }
+.capture-destination-list > button:hover, .capture-destination-list .project-menu-group > button:not(.project-menu-group-header):hover { border-color: var(--accent); background: var(--accent-softer); }
+.capture-destination-list button > span:first-child { display: grid; gap: 3px; min-width: 0; }
 .capture-destination-list small { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
 
 .capture-dock {

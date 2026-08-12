@@ -61,6 +61,19 @@ test("keeps the ADHD usability gates present in the interface", async () => {
   assert.match(page, /task-open-questions/);
   assert.match(page, /card-questions/);
 
+  // The project pickers stay navigable past a hundred projects: entries group by
+  // their first path segment, groups collapse and remember what was expanded,
+  // and the last projects opened sit pinned above the groups.
+  assert.match(page, /function groupByFirstSegment/);
+  assert.match(page, /project-menu-group-header/);
+  assert.match(page, /aria-expanded=\{expanded\}/);
+  assert.match(page, /work\.projectGroups\./);
+  assert.match(page, /project-menu-recent/);
+  assert.match(page, /work\.recentProjects\./);
+  // Typing in the search box flattens the grouping back to plain matches.
+  assert.match(page, /projectSearch\.trim\(\) \? \(/);
+  assert.match(css, /\.project-menu-group-header \{/);
+
   // Deleting a project requires an inline second confirmation.
   assert.match(page, /project-delete-panel/);
   assert.match(page, /danger-zone-button/);
