@@ -852,8 +852,11 @@ export default function Home() {
         body: JSON.stringify({ confirm: true }),
       });
       await waitForServiceRestart(accepted.serviceInstanceId);
-      await loadWorkspace();
-      setSystemMenuOpen(false);
+      // Reload rather than refetch: this tab is still running the JS bundle it
+      // downloaded from the old build, so refreshing only the data leaves the
+      // stale UI the banner was complaining about.
+      window.location.reload();
+      return;
     } catch (error) {
       setServiceRestartError(error instanceof Error ? error.message : "Work could not restart.");
     } finally {
