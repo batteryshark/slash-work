@@ -1620,9 +1620,7 @@ Keep loading old records.
     assert.equal("estimate" in legacyTask.payload, false);
     assert.equal(legacyTask.payload.delegated, false,
       "a legacy agents list is history, not delegation: it must never hand an old record to a runner");
-    // ponytail: iOS compat — the shipped app decodes a non-optional agents
-    // list on tasks; the payload keeps an empty constant until the iOS pass.
-    assert.deepEqual(legacyTask.payload.agents, [], "task payloads keep an empty agents list for the shipped iOS app");
+    assert.equal("agents" in legacyTask.payload, false);
     assert.equal(legacyTask.payload.blockedReason, "waiting on parser");
     assert.equal(legacyTask.payload.dueAt, "2027-01-01T00:00:00.000Z");
     assert.equal(legacyTask.payload.startedAt, "2026-01-01T12:00:00.000Z");

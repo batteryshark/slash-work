@@ -1,6 +1,18 @@
 import Foundation
 import SwiftUI
 
+// Server keys come and go. Decoding a missing (or wrongly typed) key to a
+// default keeps an older app talking to a newer Work instead of failing whole.
+extension KeyedDecodingContainer {
+    func value<T: Decodable>(_ key: Key, _ fallback: T) -> T {
+        ((try? decodeIfPresent(T.self, forKey: key)) ?? nil) ?? fallback
+    }
+
+    func value<T: Decodable>(_ key: Key) -> T? {
+        (try? decodeIfPresent(T.self, forKey: key)) ?? nil
+    }
+}
+
 struct WorkServiceHealth: Decodable, Sendable {
     let ok: Bool
     let service: ServiceSummary?
@@ -8,6 +20,7 @@ struct WorkServiceHealth: Decodable, Sendable {
     struct ServiceSummary: Decodable, Sendable {
         let instanceId: String?
         let version: String?
+        let staleBuild: Bool?
     }
 }
 
@@ -32,14 +45,17 @@ struct WorkspacePayload: Codable, Sendable {
     let issues: [WorkIssue]
     let notes: [WorkNote]
     let tasks: [WorkTask]
+    /// True when the running service is older than the code on disk.
+    let staleBuild: Bool?
 
     private enum CodingKeys: String, CodingKey {
-        case version, workspace, projects, captures, decisions, issues, notes, tasks
+        case version, workspace, projects, captures, decisions, issues, notes, tasks, staleBuild
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         version = try container.decode(Int.self, forKey: .version)
+        staleBuild = try container.decodeIfPresent(Bool.self, forKey: .staleBuild)
         workspace = try container.decode(WorkspaceInfo.self, forKey: .workspace)
         projects = try container.decode([WorkProject].self, forKey: .projects)
         captures = try container.decode([WorkCapture].self, forKey: .captures)
@@ -61,6 +77,7 @@ struct WorkspacePayload: Codable, Sendable {
         try container.encode(issues, forKey: .issues)
         try container.encode(notes, forKey: .notes)
         try container.encode(tasks, forKey: .tasks)
+        try container.encodeIfPresent(staleBuild, forKey: .staleBuild)
     }
 }
 
@@ -82,6 +99,10 @@ struct WorkProject: Codable, Identifiable, Hashable, Sendable {
     let depth: Int
     let markers: [String]
     let aliasPaths: [String]?
+    /// "board" or "list". Absent on older servers, which only had boards.
+    let view: String?
+
+    var showsPlainList: Bool { view == "list" }
 }
 
 struct WorkCapture: Codable, Identifiable, Hashable, Sendable {
@@ -103,10 +124,13 @@ struct WorkDecision: Codable, Identifiable, Hashable, Sendable {
     let recommendedOption: String?
     let status: String
     let resolution: DecisionResolution?
+    /// Ids of the Work items this question is about, such as "W-0001".
+    let refs: [String]?
     let createdAt: String
     let updatedAt: String
 
     var isOpen: Bool { status == "open" }
+    func references(_ itemID: String) -> Bool { refs?.contains(itemID) == true }
 }
 
 struct DecisionResolution: Codable, Hashable, Sendable {
@@ -209,17 +233,14 @@ struct WorkTask: Codable, Identifiable, Hashable, Sendable {
     let title: String
     let status: String
     let projectPath: String?
-    let type: String
-    let assignee: String?
-    let agents: [String]
-    let priority: String
+    /// A human ticks this to hand the item to automation. Agents cannot set it.
+    let delegated: Bool
     let tags: [String]
     let dependsOn: [String]
     let blockedBy: [String]
     let blockedReason: String?
     let parentId: String?
     let dueAt: String?
-    let estimate: String?
     let source: String?
     let createdAt: String
     let updatedAt: String
@@ -231,14 +252,47 @@ struct WorkTask: Codable, Identifiable, Hashable, Sendable {
     let acceptanceCriteria: [ChecklistItem]
     let log: [TaskLogEntry]
 
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = c.value(.title, id)
+        status = c.value(.status, "backlog")
+        projectPath = c.value(.projectPath)
+        delegated = c.value(.delegated, false)
+        tags = c.value(.tags, [])
+        dependsOn = c.value(.dependsOn, [])
+        blockedBy = c.value(.blockedBy, [])
+        blockedReason = c.value(.blockedReason)
+        parentId = c.value(.parentId)
+        dueAt = c.value(.dueAt)
+        source = c.value(.source)
+        createdAt = c.value(.createdAt, "")
+        updatedAt = c.value(.updatedAt, "")
+        startedAt = c.value(.startedAt)
+        completedAt = c.value(.completedAt)
+        cancelledAt = c.value(.cancelledAt)
+        sections = c.value(.sections, TaskSections())
+        requirements = c.value(.requirements, [])
+        acceptanceCriteria = c.value(.acceptanceCriteria, [])
+        log = c.value(.log, [])
+    }
+
     var isFinished: Bool { status == "done" || status == "cancelled" }
     var checklistCompleted: Int {
         requirements.filter(\.checked).count + acceptanceCriteria.filter(\.checked).count
     }
     var checklistTotal: Int { requirements.count + acceptanceCriteria.count }
+    /// First non-empty line of the description, for one-line previews.
+    var descriptionSummary: String? {
+        sections.description
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty }
+    }
 }
 
 struct TaskSections: Codable, Hashable, Sendable {
+    let description: String
     let goal: String
     let requirements: String
     let acceptanceCriteria: String
@@ -246,6 +300,35 @@ struct TaskSections: Codable, Hashable, Sendable {
     let notes: String
     let progressLog: String
     let completionSummary: String
+
+    init() {
+        self.init(description: "", goal: "", requirements: "", acceptanceCriteria: "",
+                  plan: "", notes: "", progressLog: "", completionSummary: "")
+    }
+
+    init(description: String, goal: String, requirements: String, acceptanceCriteria: String,
+         plan: String, notes: String, progressLog: String, completionSummary: String) {
+        self.description = description
+        self.goal = goal
+        self.requirements = requirements
+        self.acceptanceCriteria = acceptanceCriteria
+        self.plan = plan
+        self.notes = notes
+        self.progressLog = progressLog
+        self.completionSummary = completionSummary
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        description = c.value(.description, "")
+        goal = c.value(.goal, "")
+        requirements = c.value(.requirements, "")
+        acceptanceCriteria = c.value(.acceptanceCriteria, "")
+        plan = c.value(.plan, "")
+        notes = c.value(.notes, "")
+        progressLog = c.value(.progressLog, "")
+        completionSummary = c.value(.completionSummary, "")
+    }
 }
 
 struct TaskLogEntry: Codable, Hashable, Sendable {
@@ -304,16 +387,6 @@ enum WorkFormatting {
 }
 
 extension Color {
-    static func workPriority(_ priority: String) -> Color {
-        switch priority {
-        case "critical": .red
-        case "high": .orange
-        case "medium": .blue
-        case "low": .teal
-        default: .secondary
-        }
-    }
-
     static func workStatus(_ status: String) -> Color {
         switch status {
         case "done", "adopted", "approved": .green

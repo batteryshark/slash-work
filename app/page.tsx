@@ -797,7 +797,10 @@ export default function Home() {
   }
 
   async function waitForServiceRestart(serviceInstanceId: string) {
-    const deadline = Date.now() + 20_000;
+    // A restart re-execs the process and rebinds the port, which can outlast a
+    // short deadline on a busy machine. Giving up early reverted the button as
+    // though nothing had happened while the restart was still in flight.
+    const deadline = Date.now() + 45_000;
     await wait(400);
     while (Date.now() < deadline) {
       try {
@@ -814,7 +817,7 @@ export default function Home() {
       }
       await wait(500);
     }
-    throw new Error("Work did not come back within 20 seconds.");
+    throw new Error("Work is taking longer than usual to come back. It may still be restarting — this page will catch up on its own.");
   }
 
   async function restartLocalService() {

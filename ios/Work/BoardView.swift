@@ -8,6 +8,10 @@ struct BoardView: View {
     var body: some View {
         NavigationStack {
             List {
+                // Every other tab carries this; the board is where a stale or
+                // offline service is least obvious, since old tasks still render.
+                Section { ConnectionBanner().listRowInsets(EdgeInsets()) }
+                    .listRowBackground(Color.clear)
                 Section {
                     if filteredTasks.isEmpty {
                         ContentUnavailableView("No matching work", systemImage: "rectangle.stack.badge.minus",
@@ -35,17 +39,20 @@ struct BoardView: View {
                         }
                     }
                 } header: {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            filterButton("All", status: nil, count: model.scopedTasks.count)
-                            ForEach(statuses, id: \.self) { status in
-                                filterButton(WorkFormatting.title(for: status), status: status,
-                                             count: model.scopedTasks.filter { $0.status == status }.count)
+                    // A "list" project asked for a plain list; drop the status board.
+                    if !isPlainList {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                filterButton("All", status: nil, count: model.scopedTasks.count)
+                                ForEach(statuses, id: \.self) { status in
+                                    filterButton(WorkFormatting.title(for: status), status: status,
+                                                 count: model.scopedTasks.filter { $0.status == status }.count)
+                                }
                             }
+                            .padding(.vertical, 6)
                         }
-                        .padding(.vertical, 6)
+                        .textCase(nil)
                     }
-                    .textCase(nil)
                 }
             }
             .listStyle(.plain)
@@ -67,19 +74,14 @@ struct BoardView: View {
 
     private var statuses: [String] { model.snapshot?.workspace.statuses ?? [] }
 
+    private var isPlainList: Bool { model.selectedProject?.showsPlainList == true }
+
     private var filteredTasks: [WorkTask] {
-        model.scopedTasks.filter { selectedStatus == nil || $0.status == selectedStatus }
+        model.scopedTasks.filter { isPlainList || selectedStatus == nil || $0.status == selectedStatus }
             .sorted { left, right in
                 if left.isFinished != right.isFinished { return !left.isFinished }
-                if priorityRank(left.priority) != priorityRank(right.priority) {
-                    return priorityRank(left.priority) < priorityRank(right.priority)
-                }
                 return left.updatedAt > right.updatedAt
             }
-    }
-
-    private func priorityRank(_ priority: String) -> Int {
-        ["critical", "high", "medium", "low", "none"].firstIndex(of: priority) ?? 5
     }
 
     private func adjacentStatus(for task: WorkTask, offset: Int) -> String? {
@@ -112,8 +114,8 @@ struct NewTaskSheet: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
-    @State private var type = "task"
-    @State private var priority = "none"
+    @State private var description = ""
+    @State private var delegated = false
     @State private var hasDueDate = false
     @State private var dueAt = Calendar.current.date(byAdding: .day, value: 1, to: .now) ?? .now
 
@@ -122,16 +124,18 @@ struct NewTaskSheet: View {
             Form {
                 Section("Task") {
                     TextField("What needs to get done?", text: $title, axis: .vertical)
-                    Picker("Type", selection: $type) {
-                        ForEach(["task", "bug", "feature", "research", "admin", "epic", "idea"], id: \.self) {
-                            Text(WorkFormatting.title(for: $0)).tag($0)
-                        }
-                    }
-                    Picker("Priority", selection: $priority) {
-                        ForEach(["none", "low", "medium", "high", "critical"], id: \.self) {
-                            Text(WorkFormatting.title(for: $0)).tag($0)
-                        }
-                    }
+                }
+
+                Section("Description") {
+                    TextField("Background and context — what is this, and what is the situation?",
+                              text: $description, axis: .vertical)
+                        .lineLimit(3...)
+                }
+
+                Section {
+                    Toggle("Hand to an agent", isOn: $delegated)
+                } footer: {
+                    Text("An agent runner picks up delegated items on its next pass.")
                 }
 
                 Section("Schedule") {
@@ -154,8 +158,8 @@ struct NewTaskSheet: View {
                         Task {
                             let succeeded = await model.createTask(
                                 title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                                type: type,
-                                priority: priority,
+                                description: description.trimmingCharacters(in: .whitespacesAndNewlines),
+                                delegated: delegated,
                                 dueAt: hasDueDate ? dueAt : nil
                             )
                             if succeeded { dismiss() }

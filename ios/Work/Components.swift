@@ -111,7 +111,16 @@ struct ConnectionBanner: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
-        Group {
+        VStack(spacing: 10) {
+            if model.isStaleBuild {
+                Label("Work was updated on disk. This service still runs the older build.",
+                      systemImage: "clock.badge.exclamationmark")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+            }
             switch model.connectionState {
             case let .offline(message):
                 VStack(alignment: .leading, spacing: 4) {
@@ -175,10 +184,18 @@ struct TaskCard: View {
                 .foregroundStyle(.primary)
                 .multilineTextAlignment(.leading)
 
+            if let summary = task.descriptionSummary {
+                Text(summary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .multilineTextAlignment(.leading)
+            }
+
             HStack(spacing: 12) {
-                if task.priority != "none" {
-                    Label(WorkFormatting.title(for: task.priority), systemImage: "flag.fill")
-                        .foregroundStyle(Color.workPriority(task.priority))
+                if task.delegated {
+                    Label("Agent", systemImage: "sparkles")
+                        .foregroundStyle(.purple)
                 }
                 if let due = WorkFormatting.shortDate(task.dueAt) {
                     Label(due, systemImage: "calendar")

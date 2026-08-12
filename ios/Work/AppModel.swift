@@ -80,6 +80,16 @@ final class AppModel: ObservableObject {
     var openDecisions: [WorkDecision] {
         scopedDecisions.filter(\.isOpen)
     }
+
+    /// Unresolved decisions linked to one item. Not scope-filtered: a question
+    /// about this task matters wherever the question itself lives.
+    func openQuestions(for itemID: String) -> [WorkDecision] {
+        (snapshot?.decisions ?? []).filter { $0.isOpen && $0.references(itemID) }
+    }
+
+    /// The service is running code older than what is on disk. Only trustworthy
+    /// against a live snapshot, so a cached one never raises the alarm.
+    var isStaleBuild: Bool { !isShowingCachedData && snapshot?.staleBuild == true }
     var needsHumanIssues: [WorkIssue] {
         scopedIssues
             .filter { $0.state == .needsHuman }
@@ -255,12 +265,19 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func createTask(title: String, type: String, priority: String, dueAt: Date?) async -> Bool {
+    func createTask(title: String, description: String, delegated: Bool, dueAt: Date?) async -> Bool {
         await mutate {
             guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
-            _ = try await client.createTask(title: title, type: type, priority: priority,
+            _ = try await client.createTask(title: title, description: description, delegated: delegated,
                                             projectPath: self.selectedProjectPath, dueAt: dueAt,
                                             workspaceID: workspaceID)
+        }
+    }
+
+    func setDelegated(_ task: WorkTask, _ delegated: Bool) async -> Bool {
+        await mutate {
+            guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
+            _ = try await client.setTaskDelegated(id: task.id, delegated: delegated, workspaceID: workspaceID)
         }
     }
 

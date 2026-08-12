@@ -4,6 +4,7 @@ struct TaskDetailView: View {
     @EnvironmentObject private var model: AppModel
     let taskID: String
     @State private var showingLog = false
+    @State private var selectedQuestion: WorkDecision?
 
     var body: some View {
         Group {
@@ -17,20 +18,23 @@ struct TaskDetailView: View {
                                 StatusPill(value: task.status)
                             }
                             Text(task.title).font(.title2.bold())
-                            HStack(spacing: 14) {
-                                if task.priority != "none" {
-                                    Label(WorkFormatting.title(for: task.priority), systemImage: "flag.fill")
-                                        .foregroundStyle(Color.workPriority(task.priority))
-                                }
-                                if let due = WorkFormatting.shortDate(task.dueAt) {
-                                    Label(due, systemImage: "calendar")
-                                }
-                                Label(WorkFormatting.title(for: task.type), systemImage: "shippingbox")
+                            if let due = WorkFormatting.shortDate(task.dueAt) {
+                                Label(due, systemImage: "calendar")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                         }
                         .padding(.vertical, 6)
+                    }
+
+                    Section {
+                        Toggle("Hand to an agent", isOn: Binding(
+                            get: { task.delegated },
+                            set: { on in Task { await model.setDelegated(task, on) } }
+                        ))
+                        .disabled(model.isMutating || model.isShowingCachedData)
+                    } footer: {
+                        Text("An agent runner picks up delegated items on its next pass.")
                     }
 
                     Section("Move") {
@@ -50,6 +54,9 @@ struct TaskDetailView: View {
                         .disabled(model.isMutating || model.isShowingCachedData)
                     }
 
+                    openQuestions(for: task)
+
+                    detailSection("Description", text: task.sections.description)
                     detailSection("Goal", text: task.sections.goal)
                     checklistSection("Requirements", items: task.requirements, section: "requirements", task: task)
                     checklistSection("Acceptance Criteria", items: task.acceptanceCriteria, section: "acceptance", task: task)
@@ -102,6 +109,9 @@ struct TaskDetailView: View {
                 .sheet(isPresented: $showingLog) {
                     AddProgressSheet(task: task).environmentObject(model)
                 }
+                .sheet(item: $selectedQuestion) { question in
+                    DecisionSheet(decision: question).environmentObject(model)
+                }
             } else {
                 ContentUnavailableView("Task unavailable", systemImage: "questionmark.folder",
                                        description: Text("It may have moved or been removed."))
@@ -110,6 +120,38 @@ struct TaskDetailView: View {
     }
 
     private var task: WorkTask? { model.snapshot?.tasks.first { $0.id == taskID } }
+
+    /// Unresolved decisions that point at this task. Answering one records the
+    /// choice on the task's log; the status stays the person's to change.
+    @ViewBuilder
+    private func openQuestions(for task: WorkTask) -> some View {
+        let questions = model.openQuestions(for: task.id)
+        if !questions.isEmpty {
+            Section {
+                ForEach(questions) { question in
+                    Button { selectedQuestion = question } label: {
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "hand.raised.fill").foregroundStyle(.purple)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(question.title).foregroundStyle(.primary)
+                                if let recommended = question.recommendedOption {
+                                    Text("Recommended: \(recommended)")
+                                        .font(.caption).foregroundStyle(.purple)
+                                }
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                        }
+                    }
+                    .disabled(model.isShowingCachedData)
+                }
+            } header: {
+                Text("Open questions")
+            } footer: {
+                Text("Answering records the choice on this task's log. The status stays yours to change.")
+            }
+        }
+    }
 
     @ViewBuilder
     private func detailSection(_ title: String, text: String) -> some View {

@@ -107,11 +107,16 @@ struct WorkAPIClient: @unchecked Sendable {
         return try await send("api/captures", method: "POST", workspaceID: workspaceID, body: body)
     }
 
-    func createTask(title: String, type: String, priority: String, projectPath: String?,
+    func createTask(title: String, description: String, delegated: Bool, projectPath: String?,
                     dueAt: Date?, workspaceID: String) async throws -> WorkTask {
-        let body = CreateTaskRequest(title: title, projectPath: projectPath, type: type,
-                                     priority: priority, dueAt: dueAt.map(ISO8601DateFormatter().string))
+        let body = CreateTaskRequest(title: title, projectPath: projectPath, description: description,
+                                     delegated: delegated, dueAt: dueAt.map(ISO8601DateFormatter().string))
         return try await send("api/tasks", method: "POST", workspaceID: workspaceID, body: body)
+    }
+
+    func setTaskDelegated(id: String, delegated: Bool, workspaceID: String) async throws -> WorkTask {
+        try await send("api/tasks/\(encoded(id))", method: "PATCH", workspaceID: workspaceID,
+                       body: DelegateTaskRequest(delegated: delegated))
     }
 
     func moveTask(id: String, status: String, note: String?, workspaceID: String) async throws -> WorkTask {
@@ -303,10 +308,12 @@ private struct CaptureRequest: Encodable {
 private struct CreateTaskRequest: Encodable {
     let title: String
     let projectPath: String?
-    let type: String
-    let priority: String
+    let description: String
+    let delegated: Bool
     let dueAt: String?
 }
+
+private struct DelegateTaskRequest: Encodable { let delegated: Bool }
 
 private struct MoveTaskRequest: Encodable { let status: String; let note: String? }
 private struct ChecklistRequest: Encodable { let section: String; let index: Int; let checked: Bool }
