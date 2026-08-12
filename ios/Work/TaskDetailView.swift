@@ -87,7 +87,10 @@ struct TaskDetailView: View {
 
                     if !task.log.isEmpty {
                         Section("Progress") {
-                            ForEach(Array(task.log.enumerated()), id: \.offset) { _, entry in
+                            // Newest first: the last thing that happened is what
+                            // you came to read. The record itself stays
+                            // append-only and chronological; this is display.
+                            ForEach(Array(task.log.enumerated()).reversed(), id: \.offset) { _, entry in
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(entry.message)
                                     if let date = WorkFormatting.date(from: entry.at) {
