@@ -99,7 +99,7 @@ test("lets agents file attributed issues while delegation stays human-only", asy
   }
 });
 
-test("reads a legacy issue agents list as delegated and drops it on the next write", async () => {
+test("treats a legacy issue agents list as history, never as delegation", async () => {
   const root = await temporaryDirectory();
   const api = await startLocalApi({ root, port: 0 });
   const issueId = "issue_legacy99_agents000001";
@@ -126,7 +126,8 @@ updatedAt: "2026-01-01T00:00:00.000Z"
 `);
     const loaded = await requestJson(api.origin, `/api/issues/${issueId}`);
     assert.equal(loaded.response.status, 200);
-    assert.equal(loaded.payload.delegated, true);
+    assert.equal(loaded.payload.delegated, false,
+      "a legacy agents list must never hand an old record to a runner");
     assert.equal("agents" in loaded.payload, false);
 
     const replied = await requestJson(api.origin, `/api/issues/${issueId}/replies`, {
@@ -135,7 +136,7 @@ updatedAt: "2026-01-01T00:00:00.000Z"
     });
     assert.equal(replied.response.status, 200);
     const rewritten = await readFile(join(root, ".work", "issues", `${issueId}.md`), "utf8");
-    assert.match(rewritten, /delegated: true/);
+    assert.match(rewritten, /delegated: false/);
     assert.doesNotMatch(rewritten, /agents:/);
   } finally {
     await closeLocalApi(api.server);

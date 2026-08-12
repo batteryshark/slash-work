@@ -1572,7 +1572,8 @@ Keep loading old records.
     assert.equal("type" in legacyTask.payload, false);
     assert.equal("assignee" in legacyTask.payload, false);
     assert.equal("estimate" in legacyTask.payload, false);
-    assert.equal(legacyTask.payload.delegated, true, "a legacy agents list reads as delegated");
+    assert.equal(legacyTask.payload.delegated, false,
+      "a legacy agents list is history, not delegation: it must never hand an old record to a runner");
     // ponytail: iOS compat — the shipped app decodes a non-optional agents
     // list on tasks; the payload keeps an empty constant until the iOS pass.
     assert.deepEqual(legacyTask.payload.agents, [], "task payloads keep an empty agents list for the shipped iOS app");
@@ -1585,7 +1586,7 @@ Keep loading old records.
     });
     assert.equal(logged.response.status, 200);
     const rewrittenTask = await readFile(join(root, ".work", "tasks", "W-0042.md"), "utf8");
-    assert.match(rewrittenTask, /delegated: true/);
+    assert.match(rewrittenTask, /delegated: false/);
     assert.match(rewrittenTask, /blockedReason: "waiting on parser"/);
     assert.match(rewrittenTask, /startedAt: "2026-01-01T12:00:00\.000Z"/);
     assert.doesNotMatch(rewrittenTask, /task_type|project_path|blocked_reason|created_at|updated_at|started_at/);
