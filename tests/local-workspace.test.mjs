@@ -1762,6 +1762,96 @@ test("keeps project work inside the project when its directory moves", async () 
   }
 });
 
+test("links decisions to work items and logs the answer on the task without touching status", async () => {
+  const { root } = await makeWorkspaceFixture();
+  const server = await startLocalApi({ root, port: 0 });
+
+  try {
+    // API round-trip: a decision carries refs to the work it is about.
+    const task = await apiRequest(server.origin, "/api/tasks", {
+      method: "POST",
+      body: { title: "Ship the parser", status: "in_progress" },
+    });
+    assert.equal(task.response.status, 201);
+    const taskId = task.payload.id;
+
+    const created = await apiRequest(server.origin, "/api/decisions", {
+      method: "POST",
+      body: {
+        title: "Which parser strategy?",
+        detail: "The grammar has left recursion.",
+        options: ["Recursive descent", "PEG"],
+        recommendedOption: "PEG",
+        refs: [taskId],
+      },
+    });
+    assert.equal(created.response.status, 201);
+    assert.deepEqual(created.payload.refs, [taskId]);
+
+    // File round-trip: refs persist in frontmatter and re-read intact.
+    const decisionFiles = await readdir(join(root, ".work", "decisions"));
+    assert.equal(decisionFiles.length, 1);
+    const markdown = await readFile(join(root, ".work", "decisions", decisionFiles[0]), "utf8");
+    assert.match(markdown, new RegExp(`refs: \\["${taskId}"\\]`));
+    const workspace = await apiRequest(server.origin, "/api/workspace");
+    const listed = workspace.payload.decisions.find((decision) => decision.id === created.payload.id);
+    assert.deepEqual(listed.refs, [taskId]);
+
+    // Answering appends one log entry naming question and answer, and the
+    // refs survive the resolution write.
+    const resolved = await apiRequest(
+      server.origin,
+      `/api/decisions/${encodeURIComponent(created.payload.id)}/actions`,
+      { method: "POST", body: { action: "approve", choice: { option: "PEG" } } },
+    );
+    assert.equal(resolved.response.status, 200);
+    assert.deepEqual(resolved.payload.refs, [taskId]);
+
+    const after = await apiRequest(server.origin, `/api/tasks/${encodeURIComponent(taskId)}`);
+    const answerEntries = after.payload.log.filter((entry) =>
+      entry.message.includes("Which parser strategy?") && entry.message.includes("PEG"));
+    assert.equal(answerEntries.length, 1);
+    // The human decides whether an answer unblocks the work.
+    assert.equal(after.payload.status, "in_progress");
+
+    // A ref to a missing task never blocks the answer.
+    const dangling = await apiRequest(server.origin, "/api/decisions", {
+      method: "POST",
+      body: { title: "Orphaned question", refs: ["W-9999"] },
+    });
+    const danglingResolved = await apiRequest(
+      server.origin,
+      `/api/decisions/${encodeURIComponent(dangling.payload.id)}/actions`,
+      { method: "POST", body: { action: "approve", note: "Answered anyway." } },
+    );
+    assert.equal(danglingResolved.response.status, 200);
+
+    // Invalid refs are rejected with the shared shape rules.
+    const invalid = await apiRequest(server.origin, "/api/decisions", {
+      method: "POST",
+      body: { title: "Bad refs", refs: "W-0001" },
+    });
+    assert.equal(invalid.response.status, 400);
+  } finally {
+    await closeLocalApi(server.server);
+  }
+
+  // CLI round-trip: `work decision --ref` is repeatable and persists.
+  const cliRoot = await temporaryDirectory("work-decision-ref-");
+  await execFile(process.execPath, [launcherPath.pathname, "init", cliRoot], { cwd: repositoryRoot });
+  const createdTask = await execFile(process.execPath, [launcherPath.pathname, "task", "Card under question"], { cwd: cliRoot });
+  const cliTaskId = createdTask.stdout.match(/Created (W-\d{4})/)[1];
+  await execFile(
+    process.execPath,
+    [launcherPath.pathname, "decision", "Keep the flag?", "--option", "Yes", "--option", "No", "--ref", cliTaskId, "--ref", "W-0042"],
+    { cwd: cliRoot },
+  );
+  const cliDecisionFiles = await readdir(join(cliRoot, ".work", "decisions"));
+  assert.equal(cliDecisionFiles.length, 1);
+  const cliMarkdown = await readFile(join(cliRoot, ".work", "decisions", cliDecisionFiles[0]), "utf8");
+  assert.match(cliMarkdown, new RegExp(`refs: \\["${cliTaskId}","W-0042"\\]`));
+});
+
 test("records explicit decision actions instead of treating an open card as approval", async () => {
   const { root } = await makeWorkspaceFixture();
   const first = await startLocalApi({ root, port: 0 });

@@ -42,6 +42,25 @@ test("keeps the ADHD usability gates present in the interface", async () => {
   assert.match(page, /project-view-toggle/);
   assert.doesNotMatch(page, /\bpriority\b|\bassignee\b|\bestimate\b/i);
 
+  // Rarely-touched fields (due date, parent, tags, depends on) live inside the
+  // shared "More details" disclosure, rendered by both the create panel and
+  // the detail panel. Eye level keeps none of them.
+  const moreFields = page.slice(page.indexOf("function TaskMoreFields"), page.indexOf("function CreateTaskPanel"));
+  assert.match(moreFields, /task-more-fields/);
+  for (const field of ["Due date", "Parent task ID", "Tags"]) assert.ok(moreFields.includes(field), `${field} sits behind the disclosure`);
+  assert.equal(page.match(/<TaskMoreFields/g).length, 2);
+  const detailDisclosure = page.slice(page.lastIndexOf("<TaskMoreFields"), page.indexOf("</TaskMoreFields>"));
+  assert.match(detailDisclosure, /Depends on task IDs/);
+  const eyeLevel = page.slice(page.indexOf("function TaskFields"), page.indexOf("function TaskMoreFields"));
+  assert.doesNotMatch(eyeLevel, /Due date|Parent task ID|Tags|Depends on/);
+
+  // Open questions surface on the task card only while an unresolved linked
+  // decision exists; a card with none renders no open-questions markup.
+  assert.match(page, /selectedTaskQuestions\.length > 0 \? \(/);
+  assert.match(page, /Open questions/);
+  assert.match(page, /task-open-questions/);
+  assert.match(page, /card-questions/);
+
   // Deleting a project requires an inline second confirmation.
   assert.match(page, /project-delete-panel/);
   assert.match(page, /danger-zone-button/);

@@ -86,9 +86,9 @@ async def capture_create(workspace_id: str, text: str, kind: str | None = None, 
 
 
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
-async def decision_create(workspace_id: str, title: str, project_path: str | None = None, detail: str | None = None, options: list[str] | None = None, recommended_option: str | None = None) -> dict[str, Any]:
-    """Create an explicit human decision request."""
-    return await call("POST", "/api/decisions", workspace_id, body={"title": title, "projectPath": project_path, "detail": detail or "", "options": options or [], "recommendedOption": recommended_option})
+async def decision_create(workspace_id: str, title: str, project_path: str | None = None, detail: str | None = None, options: list[str] | None = None, recommended_option: str | None = None, refs: list[str] | None = None) -> dict[str, Any]:
+    """Create an explicit human decision request. refs links the question to the Work items it is about (for example a task id such as W-0001)."""
+    return await call("POST", "/api/decisions", workspace_id, body={"title": title, "projectPath": project_path, "detail": detail or "", "options": options or [], "recommendedOption": recommended_option, "refs": refs or []})
 
 
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})

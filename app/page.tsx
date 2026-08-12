@@ -130,6 +130,7 @@ type Decision = {
   title: string;
   detail: string;
   projectPath: string | null;
+  refs: string[];
   options: string[];
   recommendedOption: string | null;
   status:
@@ -1034,6 +1035,10 @@ export default function Home() {
   const selectedTask = selectedTaskId
     ? (data?.tasks ?? []).find((task) => task.id === selectedTaskId) ?? null
     : null;
+  // Unresolved decisions linked to the open card. Resolved ones drop out.
+  const selectedTaskQuestions = selectedTask
+    ? (data?.decisions ?? []).filter((decision) => decisionIsActive(decision) && decision.refs.includes(selectedTask.id))
+    : [];
 
   const activeDecisions = useMemo(() => {
     return (data?.decisions ?? [])
@@ -1432,6 +1437,9 @@ export default function Home() {
         ...current,
         decisions: current.decisions.map((item) => item.id === updated.id ? updated : item),
       } : current);
+      // An answered question appends to each linked task's progress log on the
+      // server; a quiet reload picks those entries up.
+      if (decision.refs.length > 0) void loadWorkspace(true);
       const labels: Record<Exclude<DecisionAction, "reopen">, string> = {
         approve: draft.selectedOption ? `Selected “${draft.selectedOption}”` : "Decision recorded",
         reject: "Rejected",
@@ -1775,6 +1783,7 @@ export default function Home() {
             tasks={scopedTasks}
             statuses={data.workspace.statuses ?? ["backlog", "ready", "in_progress", "blocked", "review", "done"]}
             projects={data.projects}
+            decisions={data.decisions}
             search={taskSearch}
             onSearch={setTaskSearch}
             showTerminal={showTerminalTasks}
@@ -1960,20 +1969,6 @@ export default function Home() {
               ))}
               {visibleDecisions.map((decision) => {
                 const open = expandedDecision === decision.id;
-                const draft = draftFor(decision.id);
-                const hasExplicitOptions = decision.options.length > 0;
-                const choosingOther = draft.selectedOption === "Other";
-                const hasDecisionResponse = hasExplicitOptions
-                  ? Boolean(draft.selectedOption) && (!choosingOther || Boolean(draft.response.trim()))
-                  : Boolean(draft.response.trim());
-                const displayedOptions = hasExplicitOptions && !decision.options.includes("Other")
-                  ? [...decision.options, "Other"]
-                  : decision.options;
-                const canConfirm = Boolean(
-                  draft.action
-                  && (draft.action !== "assign" || draft.projectPath)
-                  && (draft.action !== "approve" || hasDecisionResponse),
-                );
                 return (
                   <article className={`attention-item ${open ? "open" : ""}`} key={decision.id}>
                     <button type="button" className="attention-summary" onClick={() => setExpandedDecision(open ? null : decision.id)} aria-expanded={open}>
@@ -1986,81 +1981,16 @@ export default function Home() {
                     </button>
 
                     {open && (
-                      <div className="decision-panel">
-                        {decision.detail && <p className="decision-detail">{decision.detail}</p>}
-                        <fieldset>
-                          <legend>{hasExplicitOptions ? "Choose one option" : "What is your decision?"}</legend>
-                          {hasExplicitOptions ? displayedOptions.map((option) => (
-                            <label className={`decision-choice ${draft.selectedOption === option ? "selected" : ""}`} key={option}>
-                              <input
-                                type="radio"
-                                name={`decision-option-${decision.id}`}
-                                value={option}
-                                checked={draft.selectedOption === option}
-                                onChange={() => updateDraft(decision.id, { action: "approve", selectedOption: option })}
-                              />
-                              <span>
-                                <strong>{option}</strong>
-                                {option === decision.recommendedOption && <small className="decision-recommended">Recommendation</small>}
-                                {option === "Other" && <small>Write a different answer below.</small>}
-                              </span>
-                            </label>
-                          )) : (
-                            <label className="decision-response">
-                              <span>Your answer</span>
-                              <textarea
-                                value={draft.response}
-                                onChange={(event) => updateDraft(decision.id, { action: "approve", response: event.target.value })}
-                                placeholder="Write the decision or direction that should be recorded…"
-                                autoFocus
-                              />
-                            </label>
-                          )}
-                          {hasExplicitOptions && (
-                            <label className={`decision-response ${choosingOther ? "" : "optional"}`}>
-                              <span>{choosingOther ? "Your answer" : <>Reason or context <small>(optional)</small></>}</span>
-                              <textarea value={draft.response} onChange={(event) => updateDraft(decision.id, { response: event.target.value })} placeholder={choosingOther ? "Write the decision or direction that should be recorded…" : "Why this option?"} />
-                            </label>
-                          )}
-                        </fieldset>
-                        <details className="decision-management">
-                          <summary>Manage instead of deciding</summary>
-                          <fieldset>
-                            <legend>Administrative actions</legend>
-                          {!decision.projectPath && <DecisionChoice decisionId={decision.id} action="assign" label="Assign to a project" detail="Choose one project from this root." draft={draft} onChange={updateDraft} />}
-                          {draft.action === "assign" && (
-                            <label className="inline-field">
-                              <span>Project</span>
-                              <select value={draft.projectPath} onChange={(event) => updateDraft(decision.id, { projectPath: event.target.value })}>
-                                <option value="">Choose a project…</option>
-                                {data.projects.filter((project) => project.path !== ".").map((project) => (
-                                  <option value={project.path} key={project.id}>{project.name} — {project.path}</option>
-                                ))}
-                              </select>
-                            </label>
-                          )}
-                          {!decision.projectPath && <DecisionChoice decisionId={decision.id} action="keep_unassigned" label="Keep unassigned" detail="Make no ownership claim yet." draft={draft} onChange={updateDraft} />}
-                          <DecisionChoice decisionId={decision.id} action="defer" label="Decide later" detail="Return it to Needs you at a real time." draft={draft} onChange={updateDraft} />
-                          {draft.action === "defer" && (
-                            <label className="inline-field">
-                              <span>Bring it back</span>
-                              <select value={draft.deferFor} onChange={(event) => updateDraft(decision.id, { deferFor: event.target.value as DecisionDraft["deferFor"] })}>
-                                <option value="today">Later today</option>
-                                <option value="tomorrow">Tomorrow</option>
-                                <option value="week">Next week</option>
-                              </select>
-                            </label>
-                          )}
-                          <DecisionChoice decisionId={decision.id} action="cancel" label="Cancel this item" detail="Retain a cancelled record; do not erase history." draft={draft} onChange={updateDraft} />
-                          </fieldset>
-                        </details>
-                        <div className="decision-actions">
-                          <button type="button" className="secondary-action" onClick={() => setExpandedDecision(null)}>Close without changes</button>
-                          <button type="button" className="primary-action" disabled={!canConfirm || savingDecision === decision.id} onClick={() => void confirmDecision(decision)}>
-                            {savingDecision === decision.id ? "Recording…" : "Confirm decision"}
-                          </button>
-                        </div>
-                      </div>
+                      <DecisionPanel
+                        decision={decision}
+                        draft={draftFor(decision.id)}
+                        projects={data.projects}
+                        saving={savingDecision === decision.id}
+                        autoFocusResponse
+                        onDraft={updateDraft}
+                        onConfirm={() => void confirmDecision(decision)}
+                        onClose={() => setExpandedDecision(null)}
+                      />
                     )}
                   </article>
                 );
@@ -2170,6 +2100,25 @@ export default function Home() {
           statuses={data.workspace.statuses}
           saving={savingTask}
           error={taskError}
+          openQuestions={selectedTaskQuestions.length > 0 ? (
+            <section className="task-subsection task-open-questions" aria-label="Open questions">
+              <h3>Open questions</h3>
+              <p>Answering records the choice on this card’s log. The status stays yours to change.</p>
+              {selectedTaskQuestions.map((decision) => (
+                <article className="task-open-question" key={decision.id}>
+                  <h4>{decision.title}</h4>
+                  <DecisionPanel
+                    decision={decision}
+                    draft={draftFor(decision.id)}
+                    projects={data.projects}
+                    saving={savingDecision === decision.id}
+                    onDraft={updateDraft}
+                    onConfirm={() => void confirmDecision(decision)}
+                  />
+                </article>
+              ))}
+            </section>
+          ) : null}
           onClose={() => { setSelectedTaskId(null); setTaskError(null); }}
           onMove={(status, note) => void moveWorkTask(selectedTask.id, status, note).catch(() => {})}
           onPatch={(patch) => void patchWorkTask(selectedTask.id, patch).catch(() => {})}
@@ -2364,6 +2313,110 @@ function ConfirmAction({
       <button type="button" className={confirmButtonClassName} disabled={busy} onClick={onConfirm}>
         {busy && busyLabel ? busyLabel : confirmLabel}
       </button>
+    </div>
+  );
+}
+
+// The one decision resolution surface. Needs you on Home and the Open
+// questions block on a task card both render this; there is no second copy.
+function DecisionPanel({ decision, draft, projects, saving, autoFocusResponse, onDraft, onConfirm, onClose }: {
+  decision: Decision;
+  draft: DecisionDraft;
+  projects: Project[];
+  saving: boolean;
+  autoFocusResponse?: boolean;
+  onDraft: (decisionId: string, patch: Partial<DecisionDraft>) => void;
+  onConfirm: () => void;
+  onClose?: () => void;
+}) {
+  const hasExplicitOptions = decision.options.length > 0;
+  const choosingOther = draft.selectedOption === "Other";
+  const hasDecisionResponse = hasExplicitOptions
+    ? Boolean(draft.selectedOption) && (!choosingOther || Boolean(draft.response.trim()))
+    : Boolean(draft.response.trim());
+  const displayedOptions = hasExplicitOptions && !decision.options.includes("Other")
+    ? [...decision.options, "Other"]
+    : decision.options;
+  const canConfirm = Boolean(
+    draft.action
+    && (draft.action !== "assign" || draft.projectPath)
+    && (draft.action !== "approve" || hasDecisionResponse),
+  );
+  return (
+    <div className="decision-panel">
+      {decision.detail && <p className="decision-detail">{decision.detail}</p>}
+      <fieldset>
+        <legend>{hasExplicitOptions ? "Choose one option" : "What is your decision?"}</legend>
+        {hasExplicitOptions ? displayedOptions.map((option) => (
+          <label className={`decision-choice ${draft.selectedOption === option ? "selected" : ""}`} key={option}>
+            <input
+              type="radio"
+              name={`decision-option-${decision.id}`}
+              value={option}
+              checked={draft.selectedOption === option}
+              onChange={() => onDraft(decision.id, { action: "approve", selectedOption: option })}
+            />
+            <span>
+              <strong>{option}</strong>
+              {option === decision.recommendedOption && <small className="decision-recommended">Recommendation</small>}
+              {option === "Other" && <small>Write a different answer below.</small>}
+            </span>
+          </label>
+        )) : (
+          <label className="decision-response">
+            <span>Your answer</span>
+            <textarea
+              value={draft.response}
+              onChange={(event) => onDraft(decision.id, { action: "approve", response: event.target.value })}
+              placeholder="Write the decision or direction that should be recorded…"
+              autoFocus={autoFocusResponse}
+            />
+          </label>
+        )}
+        {hasExplicitOptions && (
+          <label className={`decision-response ${choosingOther ? "" : "optional"}`}>
+            <span>{choosingOther ? "Your answer" : <>Reason or context <small>(optional)</small></>}</span>
+            <textarea value={draft.response} onChange={(event) => onDraft(decision.id, { response: event.target.value })} placeholder={choosingOther ? "Write the decision or direction that should be recorded…" : "Why this option?"} />
+          </label>
+        )}
+      </fieldset>
+      <details className="decision-management">
+        <summary>Manage instead of deciding</summary>
+        <fieldset>
+          <legend>Administrative actions</legend>
+        {!decision.projectPath && <DecisionChoice decisionId={decision.id} action="assign" label="Assign to a project" detail="Choose one project from this root." draft={draft} onChange={onDraft} />}
+        {draft.action === "assign" && (
+          <label className="inline-field">
+            <span>Project</span>
+            <select value={draft.projectPath} onChange={(event) => onDraft(decision.id, { projectPath: event.target.value })}>
+              <option value="">Choose a project…</option>
+              {projects.filter((project) => project.path !== ".").map((project) => (
+                <option value={project.path} key={project.id}>{project.name} — {project.path}</option>
+              ))}
+            </select>
+          </label>
+        )}
+        {!decision.projectPath && <DecisionChoice decisionId={decision.id} action="keep_unassigned" label="Keep unassigned" detail="Make no ownership claim yet." draft={draft} onChange={onDraft} />}
+        <DecisionChoice decisionId={decision.id} action="defer" label="Decide later" detail="Return it to Needs you at a real time." draft={draft} onChange={onDraft} />
+        {draft.action === "defer" && (
+          <label className="inline-field">
+            <span>Bring it back</span>
+            <select value={draft.deferFor} onChange={(event) => onDraft(decision.id, { deferFor: event.target.value as DecisionDraft["deferFor"] })}>
+              <option value="today">Later today</option>
+              <option value="tomorrow">Tomorrow</option>
+              <option value="week">Next week</option>
+            </select>
+          </label>
+        )}
+        <DecisionChoice decisionId={decision.id} action="cancel" label="Cancel this item" detail="Retain a cancelled record; do not erase history." draft={draft} onChange={onDraft} />
+        </fieldset>
+      </details>
+      <div className="decision-actions">
+        {onClose && <button type="button" className="secondary-action" onClick={onClose}>Close without changes</button>}
+        <button type="button" className="primary-action" disabled={!canConfirm || saving} onClick={onConfirm}>
+          {saving ? "Recording…" : "Confirm decision"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -3534,6 +3587,7 @@ function KanbanBoard({
   tasks,
   statuses,
   projects,
+  decisions,
   search,
   onSearch,
   showTerminal,
@@ -3550,6 +3604,7 @@ function KanbanBoard({
   tasks: WorkTask[];
   statuses: string[];
   projects: Project[];
+  decisions: Decision[];
   search: string;
   onSearch: (value: string) => void;
   showTerminal: boolean;
@@ -3617,6 +3672,7 @@ function KanbanBoard({
                       const progress = checklistProgress(task);
                       const projectName = scopeLabelFor(projects, task.projectPath, "Unassigned");
                       const descriptionLine = task.sections.description.split("\n").find((line) => line.trim()) ?? "";
+                      const questionCount = decisions.filter((decision) => decisionIsActive(decision) && decision.refs.includes(task.id)).length;
                       const hoverSummary = [
                         `${task.id} · ${statusLabel(task.status)}`,
                         task.title,
@@ -3645,6 +3701,7 @@ function KanbanBoard({
                           <span className="card-topline"><strong>{task.id}</strong>{task.delegated && <span className="card-delegated">agent</span>}</span>
                           <span className="card-title">{task.title}</span>
                           {descriptionLine && <span className="card-description">{descriptionLine}</span>}
+                          {questionCount > 0 && <span className="card-questions">{questionCount} open {questionCount === 1 ? "question" : "questions"}</span>}
                           <span className="card-project">{projectName}</span>
                           {task.dueAt && (
                             <time className={`card-due ${scheduleTone({ scheduledAt: task.dueAt, allDay: true })}`} dateTime={task.dueAt}>
@@ -3707,8 +3764,8 @@ function commaList(value: string) {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
 
-// The field grid shared by the create and detail panels. `children` renders
-// the one panel-specific field (Status when creating).
+// The eye-level fields shared by the create and detail panels. `children`
+// renders the one panel-specific field (Status when creating).
 function TaskFields({ projects, values, onChange, children }: {
   projects: Project[];
   values: TaskFieldValues;
@@ -3720,12 +3777,29 @@ function TaskFields({ projects, values, onChange, children }: {
       <div className="field-grid">
         <label><span>Project</span><select value={values.projectPath} onChange={(event) => onChange({ projectPath: event.target.value })}><option value="">Unassigned</option>{projects.filter((project) => project.path !== ".").map((project) => <option key={project.id} value={project.path}>{project.name} — {project.path}</option>)}</select></label>
         {children}
+      </div>
+      <label className="field-delegate"><input type="checkbox" checked={values.delegated} onChange={(event) => onChange({ delegated: event.target.checked })} /><span><strong>Hand to an agent</strong><small>An agent runner picks up delegated items on its next pass.</small></span></label>
+    </>
+  );
+}
+
+// Rarely-touched fields sit behind the one "More details" disclosure, shared
+// by both panels. `children` renders extra panel-specific fields inside it.
+function TaskMoreFields({ values, onChange, children }: {
+  values: TaskFieldValues;
+  onChange: (patch: Partial<TaskFieldValues>) => void;
+  children?: ReactNode;
+}) {
+  return (
+    <details className="task-more-fields">
+      <summary>More details</summary>
+      <div className="field-grid">
         <label><span>Due date</span><input type="date" value={values.dueAt} onChange={(event) => onChange({ dueAt: event.target.value })} /></label>
         <label><span>Parent task ID</span><input value={values.parentId} onChange={(event) => onChange({ parentId: event.target.value })} placeholder="W-0001" /></label>
       </div>
-      <label className="field-delegate"><input type="checkbox" checked={values.delegated} onChange={(event) => onChange({ delegated: event.target.checked })} /><span><strong>Hand to an agent</strong><small>An agent runner picks up delegated items on its next pass.</small></span></label>
       <label className="field-wide"><span>Tags</span><input value={values.tags} onChange={(event) => onChange({ tags: event.target.value })} placeholder="Comma-separated" /></label>
-    </>
+      {children}
+    </details>
   );
 }
 
@@ -3785,6 +3859,7 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
         <label className="field-wide"><span>Requirements · one per line</span><textarea value={requirements} onChange={(event) => setRequirements(event.target.value)} placeholder={"Must preserve Markdown\nMust remain root-scoped"} /></label>
         <label className="field-wide"><span>Acceptance criteria · one per line</span><textarea value={acceptance} onChange={(event) => setAcceptance(event.target.value)} placeholder={"Board reflects status\nRestart restores the card"} /></label>
         <label className="field-wide"><span>Plan</span><textarea value={plan} onChange={(event) => setPlan(event.target.value)} placeholder="How to get there — known steps or research shape" /></label>
+        <TaskMoreFields values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))} />
         {error && <div className="task-error" role="alert">{error}</div>}
         <div className="task-panel-actions"><button type="button" className="secondary-action" onClick={onClose}>Cancel</button><button type="submit" className="primary-action" disabled={!title.trim() || saving}>{saving ? "Creating…" : "Create work item"}</button></div>
       </form>
@@ -3792,13 +3867,14 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
   );
 }
 
-function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClose, onMove, onPatch, onToggle, onLog }: {
+function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, openQuestions, onClose, onMove, onPatch, onToggle, onLog }: {
   task: WorkTask;
   tasks: WorkTask[];
   projects: Project[];
   statuses: string[];
   saving: boolean;
   error: string | null;
+  openQuestions?: ReactNode;
   onClose: () => void;
   onMove: (status: string, note?: string) => void;
   onPatch: (patch: Record<string, unknown>) => void;
@@ -3848,20 +3924,20 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClo
       <div className="task-state-strip"><label><span>Status</span><select value={task.status} onChange={(event) => onMove(event.target.value)} disabled={saving}>{[...statuses, "cancelled", "archived"].map((status) => <option key={status} value={status} disabled={status === "review" && progress.complete < progress.total}>{status === "review" && progress.complete < progress.total ? "Review — complete checklist first" : statusLabel(status)}</option>)}</select></label><span>{progress.complete}/{progress.total} checks complete</span><span>Updated {shortTime(task.updatedAt)}</span></div>
       {task.status === "review" && progress.complete < progress.total && <div className="task-error" role="status">This legacy review card has unchecked requirements or acceptance criteria. Verify its checklist before treating it as review-ready.</div>}
       {error && <div className="task-error" role="alert">{error}</div>}
+      {openQuestions}
       <form className="task-form" onSubmit={saveDetails}>
         <label className="field-wide"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
         <TaskFields projects={projects} values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))} />
-        <label className="field-wide"><span>Depends on task IDs</span><input value={dependsOn} onChange={(event) => setDependsOn(event.target.value)} placeholder="W-0001, W-0002" /></label>
         <label className="field-wide"><span>Description</span><textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Background and context — what is this, and what is the situation?" /></label>
         <label className="field-wide"><span>Goal</span><textarea value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="The discrete outcome — what does done accomplish?" /></label>
         <label className="field-wide"><span>Plan</span><textarea value={plan} onChange={(event) => setPlan(event.target.value)} placeholder="How to get there — known steps or research shape" /></label>
-        <details className="task-more-fields">
-          <summary>More details</summary>
+        <TaskMoreFields values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))}>
+          <label className="field-wide"><span>Depends on task IDs</span><input value={dependsOn} onChange={(event) => setDependsOn(event.target.value)} placeholder="W-0001, W-0002" /></label>
           <label className="field-wide"><span>Blocked by task IDs</span><input value={blockedBy} onChange={(event) => setBlockedBy(event.target.value)} placeholder="W-0001" /></label>
           <label className="field-wide"><span>Blocker explanation</span><textarea value={blockedReason} onChange={(event) => setBlockedReason(event.target.value)} /></label>
           <label className="field-wide"><span>Notes</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
           <label className="field-wide"><span>Completion summary</span><textarea value={completionSummary} onChange={(event) => setCompletionSummary(event.target.value)} placeholder="What shipped, changed, or was learned?" /></label>
-        </details>
+        </TaskMoreFields>
         <button type="submit" className="primary-action" disabled={saving}>{saving ? "Saving…" : "Save card details"}</button>
       </form>
 

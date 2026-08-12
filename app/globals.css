@@ -934,6 +934,7 @@ kbd { display: inline-grid; place-items: center; min-width: 23px; height: 23px; 
 .card-progress > span { height: 5px; overflow: hidden; border-radius: 999px; background: var(--surface-muted); }
 .card-progress i { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
 .card-blocked { padding: 7px 8px; border-radius: 8px; background: var(--warning-soft); color: var(--warning); font-size: 11px; line-height: 1.35; }
+.card-questions { justify-self: start; padding: 4px 7px; border-radius: 7px; background: var(--accent-soft); color: var(--accent-dark); font-size: 10px; font-weight: 760; }
 .card-updated { margin-top: 2px; }
 .card-delegated { padding: 3px 6px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-dark); }
 .task-list { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
@@ -999,6 +1000,9 @@ kbd { display: inline-grid; place-items: center; min-width: 23px; height: 23px; 
 .task-panel-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 8px; }
 .task-panel-actions .primary-action, .task-panel-actions .secondary-action { width: auto; }
 .task-subsection { margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--line); }
+.task-open-questions .task-open-question { margin-top: 14px; }
+.task-open-questions h4 { margin: 0 0 8px; font-size: 15px; }
+.task-open-questions .decision-panel { margin: 0; padding: 16px; }
 .task-subsection h3 { margin: 0 0 13px; font-size: 18px; }
 .task-subsection > p { color: var(--muted); }
 .task-checklist, .task-subsection > ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
