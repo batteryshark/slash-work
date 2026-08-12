@@ -41,6 +41,7 @@ import {
 import { listFiles, readFilePreview } from "../lib/file-browser.mjs";
 import { chooseWorkspaceDirectory } from "../lib/native-folder-picker.mjs";
 import { registerWorkspace, unregisterWorkspace } from "../lib/workspace-registry.mjs";
+import { buildFingerprint } from "../lib/build-fingerprint.mjs";
 import {
   getAgentIndex,
   getAgentOpenApi,
@@ -459,6 +460,10 @@ const SERVICE_ROUTES = [
   }),
 ];
 
+function isStaleBuild(service) {
+  return Boolean(service.bootFingerprint) && buildFingerprint() !== service.bootFingerprint;
+}
+
 const WORKSPACE_ROUTES = [
   route("GET", "/api/health", (c) => [200, {
     ok: true,
@@ -467,13 +472,16 @@ const WORKSPACE_ROUTES = [
       restartable: typeof c.service.onRestart === "function",
       version: c.service.version,
       updatePending: c.service.updatePending,
+      staleBuild: isStaleBuild(c.service),
     },
     ...(c.service.mcp ? { mcp: { enabled: true, ready: c.service.mcp.ready, path: "/mcp" } } : {}),
     workspace: publicWorkspace(c.workspace),
   }]),
   route("GET", "/api/workspace", async (c) => {
-    const snapshot = await workspaceSnapshot(c.workspace);
+    const snapshot = { ...await workspaceSnapshot(c.workspace), staleBuild: isStaleBuild(c.service) };
     const serialized = `${JSON.stringify(snapshot)}\n`;
+    // The fingerprint rides in the ETag so a code change alone invalidates the
+    // cached snapshot; otherwise the poll 304s and never learns it is stale.
     const etag = `"workspace-v1-${createHash("sha256").update(serialized).digest("base64url")}"`;
     if (c.request.headers["if-none-match"] === etag) {
       c.response.writeHead(304, responseHeaders(c.request, { ETag: etag }));
@@ -679,6 +687,7 @@ export async function startLocalApi({
     onUpdate,
     restartPending: false,
     updatePending: false,
+    bootFingerprint: buildFingerprint(),
     updateStatus: null,
     pickWorkspaceDirectory,
     registryPath,

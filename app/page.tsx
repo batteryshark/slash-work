@@ -212,6 +212,9 @@ type WorkspacePayload = {
   issues: Issue[];
   notes: ProjectNote[];
   tasks: WorkTask[];
+  // True when Work's files on disk changed after this process started, so the
+  // running service is serving code it no longer matches.
+  staleBuild?: boolean;
 };
 
 type WorkspaceSummary = {
@@ -1762,6 +1765,16 @@ export default function Home() {
           </div>
         )}
       </header>
+
+      {data.staleBuild && (
+        <div className="stale-build" role="status">
+          <span><strong>Work was updated on disk.</strong> This service is still running the older build.</span>
+          <button type="button" className="stale-build-action" disabled={restartingService}
+                  onClick={() => void restartLocalService()}>
+            {restartingService ? "Restarting…" : "Restart to load it"}
+          </button>
+        </div>
+      )}
 
       <main id="main-content" className="main-content">
         {view === "board" ? (

@@ -266,6 +266,24 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   try {
     const health = await apiRequest(launched.origin, "/api/health");
     assert.equal(health.response.status, 200);
+    // A long-lived service keeps its code in memory; it must say so when the
+    // files it was started from have moved on, or it serves a stale build
+    // silently for as long as it stays up.
+    assert.equal(health.payload.service.staleBuild, false);
+    const before = await apiRequest(launched.origin, "/api/workspace");
+    assert.equal(before.payload.staleBuild, false);
+
+    const { utimes } = await import("node:fs/promises");
+    const touched = new URL("../package.json", import.meta.url);
+    const future = new Date(Date.now() + 60_000);
+    await utimes(touched, future, future);
+    await new Promise((resolve) => setTimeout(resolve, 4100));  // fingerprint throttle
+
+    const after = await apiRequest(launched.origin, "/api/workspace");
+    assert.equal(after.payload.staleBuild, true);
+    assert.notEqual(after.response.headers.get("etag"),
+                    before.response.headers.get("etag"),
+                    "the fingerprint must invalidate the cached snapshot, or the poll 304s forever");
   } finally {
     await stopChild(launched.child);
   }
