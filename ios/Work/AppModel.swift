@@ -30,6 +30,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var selectedProjectPath: String?
     @Published private(set) var snapshot: WorkspacePayload?
     @Published private(set) var isRefreshing = false
+    @Published private(set) var isRestartingService = false
     @Published private(set) var isMutating = false
     @Published private(set) var isShowingCachedData = false
     @Published private(set) var cacheSavedAt: Date?
@@ -183,6 +184,28 @@ final class AppModel: ObservableObject {
             defaults.removeObject(forKey: DefaultsKey.activeProfile)
             serverURL = ""
             disconnect()
+        }
+    }
+
+    /// Restart the service, then wait for it to come back before refreshing.
+    /// A banner that only reports a stale build leaves the phone with nothing
+    /// to do about it; the desktop has had this button all along.
+    func restartService() async {
+        guard let client, !isRestartingService else { return }
+        isRestartingService = true
+        lastError = nil
+        defer { isRestartingService = false }
+        do {
+            try await client.restartService()
+            // The process re-execs and rebinds; poll until it answers again.
+            let deadline = Date().addingTimeInterval(45)
+            while Date() < deadline {
+                try? await Task.sleep(for: .milliseconds(700))
+                if (try? await client.health()) != nil { break }
+            }
+            await refresh()
+        } catch {
+            lastError = error.localizedDescription
         }
     }
 

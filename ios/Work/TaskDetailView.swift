@@ -197,13 +197,17 @@ private struct EditableTextSection: View {
     let text: String
     let save: (String) async -> Bool
 
-    @State private var draft: String?
+    // Plain state, never an optional unwrapped into a Binding: `Binding($draft)`
+    // force-unwraps in its getter, so clearing the draft after a save crashed
+    // the app while SwiftUI still held the field's binding.
+    @State private var isEditing = false
+    @State private var draft = ""
     @FocusState private var focused: Bool
 
     var body: some View {
         Section {
-            if let draft = Binding($draft) {
-                TextField(title, text: draft, axis: .vertical)
+            if isEditing {
+                TextField(title, text: $draft, axis: .vertical)
                     .lineLimit(3...12)
                     .focused($focused)
                     .accessibilityHint("Markdown and multiple lines are supported")
@@ -213,10 +217,16 @@ private struct EditableTextSection: View {
                     Spacer()
                     Button(model.isMutating ? "Saving…" : "Save") {
                         focused = false
-                        Task { if await save(draft.wrappedValue) { self.draft = nil } }
+                        let pending = draft
+                        Task {
+                            if await save(pending) {
+                                isEditing = false
+                                draft = ""
+                            }
+                        }
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(model.isMutating || draft.wrappedValue == text)
+                    .disabled(model.isMutating || draft == text)
                 }
             } else if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text("Empty").foregroundStyle(.secondary)
@@ -227,9 +237,10 @@ private struct EditableTextSection: View {
             HStack {
                 Text(title)
                 Spacer()
-                if draft == nil, !model.isShowingCachedData {
+                if !isEditing, !model.isShowingCachedData {
                     Button("Edit") {
                         draft = text
+                        isEditing = true
                         focused = true
                     }
                     .textCase(nil)
@@ -241,7 +252,8 @@ private struct EditableTextSection: View {
 
     private func cancel() {
         focused = false
-        draft = nil
+        isEditing = false
+        draft = ""
     }
 }
 

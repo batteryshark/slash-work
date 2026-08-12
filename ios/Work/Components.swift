@@ -113,13 +113,21 @@ struct ConnectionBanner: View {
     var body: some View {
         VStack(spacing: 10) {
             if model.isStaleBuild {
-                Label("Work was updated on disk. This service still runs the older build.",
-                      systemImage: "clock.badge.exclamationmark")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Work was updated on disk. This service still runs the older build.",
+                          systemImage: "clock.badge.exclamationmark")
+                        .font(.caption)
+                    Button(model.isRestartingService ? "Restarting…" : "Restart the service") {
+                        Task { await model.restartService() }
+                    }
+                    .font(.caption.bold())
+                    .buttonStyle(.bordered)
+                    .disabled(model.isRestartingService)
+                }
+                .foregroundStyle(.orange)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
             }
             switch model.connectionState {
             case let .offline(message):

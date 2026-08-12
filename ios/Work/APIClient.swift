@@ -213,6 +213,16 @@ struct WorkAPIClient: @unchecked Sendable {
         return try decode(Response.self, from: data)
     }
 
+    /// Ask the service to restart itself. The header and the body flag are both
+    /// required by the route: a restart is deliberate, never an accident.
+    func restartService() async throws {
+        let (data, response) = try await data(
+            path: "/api/service/restart", method: "POST",
+            headers: ["Content-Type": "application/json", "X-Work-Restart": "confirm"],
+            body: try encoder.encode(["confirm": true]))
+        try validate(response: response, data: data)
+    }
+
     private func delete(_ path: String, workspaceID: String, query: [URLQueryItem] = []) async throws {
         let (data, response) = try await data(path: path, method: "DELETE", workspaceID: workspaceID, query: query)
         try validate(response: response, data: data)
