@@ -45,38 +45,90 @@ test("lets agents file attributed issues while delegation stays human-only", asy
 
     const filed = await requestJson(api.origin, "/api/agent/issues", {
       method: "POST",
-      body: { title: "Flaky retry loop", body: "Discovered while profiling the sweeper.", agents: ["self-delegated"] },
+      body: { title: "Flaky retry loop", body: "Discovered while profiling the sweeper.", delegated: true },
       headers: { "x-work-agent": "orchestra/brisk_otter" },
     });
     assert.equal(filed.response.status, 201);
     assert.equal(filed.payload.state, "queued");
     assert.equal(filed.payload.claimedBy, null);
-    assert.deepEqual(filed.payload.agents, [], "agent-filed issues must start with an empty agents list");
+    assert.equal(filed.payload.delegated, false, "agent-filed issues must start not delegated");
     assert.deepEqual(filed.payload.stateHistory[0].actor, { kind: "agent", name: "orchestra/brisk_otter" });
+
+    // An agent identity cannot flip the delegation flag.
+    const agentDelegates = await requestJson(api.origin, `/api/issues/${filed.payload.id}`, {
+      method: "PATCH",
+      body: { delegated: true },
+      headers: { "x-work-agent": "orchestra/brisk_otter" },
+    });
+    assert.equal(agentDelegates.response.status, 403);
+    assert.equal(agentDelegates.payload.error.code, "agent_delegation_forbidden");
 
     const delegated = await requestJson(api.origin, `/api/issues/${filed.payload.id}`, {
       method: "PATCH",
-      body: { agents: ["orchestra"], refs: ["W-0001"] },
+      body: { delegated: true, refs: ["W-0001"] },
     });
     assert.equal(delegated.response.status, 200);
-    assert.deepEqual(delegated.payload.agents, ["orchestra"]);
+    assert.equal(delegated.payload.delegated, true);
     assert.deepEqual(delegated.payload.refs, ["W-0001"]);
 
     const stored = await readFile(join(root, ".work", "issues", `${filed.payload.id}.md`), "utf8");
-    assert.match(stored, /agents: \["orchestra"\]/);
+    assert.match(stored, /delegated: true/);
     assert.match(stored, /refs: \["W-0001"\]/);
 
     const stale = await requestJson(api.origin, `/api/issues?updatedSince=${encodeURIComponent(delegated.payload.updatedAt)}`);
     assert.deepEqual(stale.payload.issues, []);
     const fresh = await requestJson(api.origin, "/api/issues?updatedSince=2000-01-01T00:00:00Z");
     assert.equal(fresh.payload.issues[0].id, filed.payload.id);
-    assert.deepEqual(fresh.payload.issues[0].agents, ["orchestra"]);
+    assert.equal(fresh.payload.issues[0].delegated, true);
     const agentStale = await requestJson(api.origin, `/api/agent/issues?updatedSince=${encodeURIComponent(delegated.payload.updatedAt)}`, {
       headers: { "x-work-agent": "orchestra/brisk_otter" },
     });
     assert.deepEqual(agentStale.payload.issues, []);
     const invalidCursor = await requestJson(api.origin, "/api/issues?updatedSince=not-a-date");
     assert.equal(invalidCursor.response.status, 400);
+  } finally {
+    await closeLocalApi(api.server);
+  }
+});
+
+test("reads a legacy issue agents list as delegated and drops it on the next write", async () => {
+  const root = await temporaryDirectory();
+  const api = await startLocalApi({ root, port: 0 });
+  const issueId = "issue_legacy99_agents000001";
+  try {
+    await writeFile(join(root, ".work", "issues", `${issueId}.md`), `---
+id: ${JSON.stringify(issueId)}
+type: "issue"
+title: "Legacy delegated issue"
+body: "Written before the delegated boolean existed."
+state: "queued"
+scopePath: "."
+projectPath: null
+agents: ["maestro"]
+refs: []
+claimedBy: null
+resolutionSummary: null
+messages: []
+stateHistory: [{"from":null,"to":"queued","actor":{"kind":"human","name":null},"at":"2026-01-01T00:00:00.000Z","reason":"Issue filed.","resolutionSummary":null}]
+createdAt: "2026-01-01T00:00:00.000Z"
+updatedAt: "2026-01-01T00:00:00.000Z"
+---
+
+# Legacy delegated issue
+`);
+    const loaded = await requestJson(api.origin, `/api/issues/${issueId}`);
+    assert.equal(loaded.response.status, 200);
+    assert.equal(loaded.payload.delegated, true);
+    assert.equal("agents" in loaded.payload, false);
+
+    const replied = await requestJson(api.origin, `/api/issues/${issueId}/replies`, {
+      method: "POST",
+      body: { body: "Still relevant." },
+    });
+    assert.equal(replied.response.status, 200);
+    const rewritten = await readFile(join(root, ".work", "issues", `${issueId}.md`), "utf8");
+    assert.match(rewritten, /delegated: true/);
+    assert.doesNotMatch(rewritten, /agents:/);
   } finally {
     await closeLocalApi(api.server);
   }

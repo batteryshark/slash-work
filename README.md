@@ -202,7 +202,7 @@ Do not commit `.work/` if the workspace contains private operational notes.
   project. Notes are reference material, never instructions; use a task card
   when you want execution. Deleting a note requires a second confirmation.
 - Open **Issues** to record a free-form problem and keep its conversation
-  beside the project. A title, category, priority, and assignee are never
+  beside the project. A title and categorization are never
   required. Issue messages support Markdown and code blocks. Filing an issue
   authorizes investigation and replies, not repository changes; create a task
   when you authorize execution.
@@ -219,12 +219,12 @@ Do not commit `.work/` if the workspace contains private operational notes.
   files are not exposed as source previews.
 - Open **Board** to see Backlog, Ready, In flight, Blocked, Review, and
   Completed. Drag cards between columns or use the accessible status control.
-  Use **Focus by epic** to show one epic, its nested child work, and tasks
-  directly linked to that epic without changing the current project scope.
+  A project can switch to a plain **List** view from its profile card; small
+  projects start in list view and can adopt the board when they grow.
 - Open a project and add its **Project purpose**: a durable description of what
   it is, who it serves, and why it exists. Work returns this context to agents
   before they scope operational records.
-- Open a card for project, type, priority, human owner, agent teams, tags,
+- Open a card for project, delegation ("Hand to an agent"), tags,
   dependencies, blockers, requirements, acceptance criteria, plan, notes,
   completion summary, timestamps, and its append-only progress log.
 - Open **Activity** to understand what was added, changed, blocked, completed,
@@ -243,7 +243,7 @@ Agents and terminal users use the same records:
 ```bash
 work agent
 work projects
-work task "Implement the board" --project software/rekit --priority high
+work task "Implement the board" --project software/rekit --delegate
 work task "Workspace-wide maintenance" --unassigned
 work move W-0001 in_progress --note "UI team started"
 work log W-0001 "Requirements and dependency gate pass"

@@ -10,13 +10,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { filterTasksByEpic } from "../lib/task-focus.mjs";
 
 type Project = {
   id: string;
   projectId: string | null;
   name: string;
   description: string;
+  view: "board" | "list";
   path: string;
   depth: number;
   markers: string[];
@@ -152,17 +152,13 @@ type WorkTask = {
   title: string;
   status: string;
   projectPath: string | null;
-  type: "task" | "bug" | "feature" | "research" | "admin" | "epic" | "idea";
-  assignee: string | null;
-  agents: string[];
-  priority: "critical" | "high" | "medium" | "low" | "none";
+  delegated: boolean;
   tags: string[];
   dependsOn: string[];
   blockedBy: string[];
   blockedReason: string | null;
   parentId: string | null;
   dueAt: string | null;
-  estimate: string | null;
   source: string | null;
   createdAt: string;
   updatedAt: string;
@@ -619,7 +615,6 @@ export default function Home() {
   const [taskError, setTaskError] = useState<string | null>(null);
   const [savingTask, setSavingTask] = useState(false);
   const [taskSearch, setTaskSearch] = useState("");
-  const [taskEpicFilter, setTaskEpicFilter] = useState("");
   const [showTerminalTasks, setShowTerminalTasks] = useState(false);
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
@@ -694,7 +689,7 @@ export default function Home() {
     await loadWorkspace();
   }
 
-  async function updateProjectProfile(projectPath: string, patch: { name?: string; description?: string }) {
+  async function updateProjectProfile(projectPath: string, patch: { name?: string; description?: string; view?: "board" | "list" }) {
     const project = await requestJson<Project>("/api/projects/profile", {
       method: "PATCH",
       body: JSON.stringify({ projectPath, ...patch }),
@@ -1276,7 +1271,6 @@ export default function Home() {
       title,
       projectPath: capture.projectPath,
       status: "backlog",
-      type: capture.kind === "question" ? "research" : "idea",
       source: capture.id,
       notes: capture.text.includes("\n")
         ? `Promoted from capture ${capture.id}.\n\n${capture.text}`
@@ -1306,7 +1300,6 @@ export default function Home() {
           title: taskCommand[1].trim(),
           projectPath: selectedProject?.path ?? null,
           status: "backlog",
-          type: "task",
         });
         setCommand("");
         window.requestAnimationFrame(() => inputRef.current?.focus());
@@ -1751,6 +1744,19 @@ export default function Home() {
 
       <main id="main-content" className="main-content">
         {view === "board" ? (
+          selectedProject?.view === "list" ? (
+            <TaskListView
+              scopeLabel={scopeLabel}
+              tasks={scopedTasks}
+              statuses={data.workspace.statuses ?? ["backlog", "ready", "in_progress", "blocked", "review", "done"]}
+              showTerminal={showTerminalTasks}
+              onToggleTerminal={() => setShowTerminalTasks((shown) => !shown)}
+              onMove={(taskId, status) => void moveWorkTask(taskId, status).catch(() => {})}
+              onOpenTask={setSelectedTaskId}
+              onCreate={() => setCreatingTask(true)}
+              error={taskError}
+            />
+          ) : (
           <KanbanBoard
             scopeLabel={scopeLabel}
             tasks={scopedTasks}
@@ -1758,8 +1764,6 @@ export default function Home() {
             projects={data.projects}
             search={taskSearch}
             onSearch={setTaskSearch}
-            epicFilter={taskEpicFilter}
-            onEpicFilter={setTaskEpicFilter}
             showTerminal={showTerminalTasks}
             onToggleTerminal={() => setShowTerminalTasks((shown) => !shown)}
             draggingTaskId={draggingTaskId}
@@ -1770,6 +1774,7 @@ export default function Home() {
             onCreate={() => setCreatingTask(true)}
             error={taskError}
           />
+          )
         ) : view === "issues" ? (
           <IssuesView
             scopeLabel={scopeLabel}
@@ -2378,8 +2383,20 @@ function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpd
   tasks: WorkTask[];
   onOpenBoard: () => void;
   onOpenTask: (taskId: string) => void;
-  onUpdateProfile: (projectPath: string, patch: { name?: string; description?: string }) => Promise<Project>;
+  onUpdateProfile: (projectPath: string, patch: { name?: string; description?: string; view?: "board" | "list" }) => Promise<Project>;
 }) {
+  const [savingView, setSavingView] = useState(false);
+  async function switchView(view: "board" | "list") {
+    if (view === project.view || savingView) return;
+    setSavingView(true);
+    try {
+      await onUpdateProfile(project.path, { view });
+    } catch {
+      // The profile card keeps its current mode; the next toggle retries.
+    } finally {
+      setSavingView(false);
+    }
+  }
   const [editingName, setEditingName] = useState(false);
   const [name, setName] = useState(project.name);
   const [savingName, setSavingName] = useState(false);
@@ -2459,7 +2476,13 @@ function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpd
           <span className="pulse-path">{project.path}</span>
           {nameError && <p className="field-error" role="alert">{nameError}</p>}
         </div>
-        <button type="button" className="primary-action" onClick={onOpenBoard}>Open board<span aria-hidden="true">→</span></button>
+        <div className="pulse-header-actions">
+          <div className="project-view-toggle" role="group" aria-label="Task view for this project">
+            <button type="button" className={project.view === "board" ? "selected" : ""} aria-pressed={project.view === "board"} disabled={savingView} onClick={() => void switchView("board")}>Board</button>
+            <button type="button" className={project.view === "list" ? "selected" : ""} aria-pressed={project.view === "list"} disabled={savingView} onClick={() => void switchView("list")}>List</button>
+          </div>
+          <button type="button" className="primary-action" onClick={onOpenBoard}>{project.view === "list" ? "Open list" : "Open board"}<span aria-hidden="true">→</span></button>
+        </div>
       </header>
 
       <section className="project-purpose" aria-label="Project purpose">
@@ -2500,7 +2523,7 @@ function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpd
                 return (
                   <button type="button" key={task.id} onClick={() => onOpenTask(task.id)}>
                     <span className={`pulse-state pulse-state-${task.status}`}>{statusLabel(task.status)}</span>
-                    <span className="pulse-task-copy"><small>{task.id} · {task.priority}</small><strong>{task.title}</strong></span>
+                    <span className="pulse-task-copy"><small>{task.id}{task.delegated ? " · handed to an agent" : ""}</small><strong>{task.title}</strong></span>
                     <span className="pulse-task-meta">{progress.total > 0 ? `${progress.complete}/${progress.total}` : shortTime(task.updatedAt)}<span aria-hidden="true">→</span></span>
                   </button>
                 );
@@ -3422,6 +3445,63 @@ function UpcomingSchedule({ items, projects, onOpenTask }: {
   );
 }
 
+function TaskListView({ scopeLabel, tasks, statuses, showTerminal, onToggleTerminal, onMove, onOpenTask, onCreate, error }: {
+  scopeLabel: string;
+  tasks: WorkTask[];
+  statuses: string[];
+  showTerminal: boolean;
+  onToggleTerminal: () => void;
+  onMove: (id: string, status: string) => void;
+  onOpenTask: (id: string) => void;
+  onCreate: () => void;
+  error: string | null;
+}) {
+  const order = [...statuses, "cancelled", "archived"];
+  const visible = tasks
+    .filter((task) => showTerminal || !["cancelled", "archived"].includes(task.status))
+    .sort((left, right) => order.indexOf(left.status) - order.indexOf(right.status) || (left.dueAt ?? "9999").localeCompare(right.dueAt ?? "9999") || (right.updatedAt ?? "").localeCompare(left.updatedAt ?? ""));
+  return (
+    <section className="board-view task-list-view" aria-labelledby="board-heading">
+      <div className="board-toolbar">
+        <div>
+          <p className="eyebrow">A plain list · full lifecycle</p>
+          <h1 id="board-heading">{scopeLabel} tasks</h1>
+          <p>{visible.length} work items. Select one for full details.</p>
+        </div>
+        <div className="board-actions">
+          <button type="button" className="secondary-action" onClick={onToggleTerminal}>{showTerminal ? "Hide cancelled & archived" : "Show cancelled & archived"}</button>
+          <button type="button" className="primary-action" onClick={onCreate}>New work item</button>
+        </div>
+      </div>
+      {error && <div className="task-error" role="alert">{error}</div>}
+      {visible.length === 0 ? (
+        <div className="board-empty">
+          <strong>No work items in this scope yet.</strong>
+          <span>Create one here, promote an Inbox thought, or type `/work task: …`.</span>
+          <button type="button" className="primary-action" onClick={onCreate}>Create the first item</button>
+        </div>
+      ) : (
+        <ol className="task-list" aria-label="Tasks in this project">
+          {visible.map((task) => (
+            <li key={task.id}>
+              <button type="button" className="task-list-title" onClick={() => onOpenTask(task.id)} aria-label={`Open ${task.id}: ${task.title}`}>
+                <strong>{task.title}</strong>
+                <small>{task.id}{task.delegated ? " · handed to an agent" : ""}</small>
+              </button>
+              <label className="task-list-status">
+                <span className="sr-only">Status for {task.id}</span>
+                <select value={task.status} onChange={(event) => onMove(task.id, event.target.value)}>
+                  {order.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}
+                </select>
+              </label>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
 function KanbanBoard({
   scopeLabel,
   tasks,
@@ -3429,8 +3509,6 @@ function KanbanBoard({
   projects,
   search,
   onSearch,
-  epicFilter,
-  onEpicFilter,
   showTerminal,
   onToggleTerminal,
   draggingTaskId,
@@ -3447,8 +3525,6 @@ function KanbanBoard({
   projects: Project[];
   search: string;
   onSearch: (value: string) => void;
-  epicFilter: string;
-  onEpicFilter: (value: string) => void;
   showTerminal: boolean;
   onToggleTerminal: () => void;
   draggingTaskId: string | null;
@@ -3460,12 +3536,8 @@ function KanbanBoard({
   error: string | null;
 }) {
   const boardStatuses = showTerminal ? [...statuses, "cancelled", "archived"] : statuses;
-  const epics = tasks.filter((task) => task.type === "epic").sort((left, right) => left.title.localeCompare(right.title));
-  const effectiveEpicId = epics.some((epic) => epic.id === epicFilter) ? epicFilter : "";
-  const selectedEpic = epics.find((epic) => epic.id === effectiveEpicId) ?? null;
-  const epicFocusedTasks = filterTasksByEpic(tasks, effectiveEpicId);
   const query = search.trim().toLowerCase();
-  const filtered = epicFocusedTasks.filter((task) => !query || [task.id, task.title, task.projectPath ?? "", task.assignee ?? "", task.type, task.priority, ...task.tags, ...task.agents].join(" ").toLowerCase().includes(query));
+  const filtered = tasks.filter((task) => !query || [task.id, task.title, task.projectPath ?? "", ...task.tags].join(" ").toLowerCase().includes(query));
   const activeCount = filtered.filter((task) => ["in_progress", "blocked", "review"].includes(task.status)).length;
   const doneCount = filtered.filter((task) => task.status === "done").length;
 
@@ -3475,7 +3547,7 @@ function KanbanBoard({
         <div>
           <p className="eyebrow">Present state · full lifecycle</p>
           <h1 id="board-heading">{scopeLabel} board</h1>
-          <p>{filtered.length}{selectedEpic || query ? ` of ${tasks.length}` : ""} work items · {activeCount} in flight · {doneCount} completed <span className="board-detail-hint">Select a card for full details.</span></p>
+          <p>{filtered.length}{query ? ` of ${tasks.length}` : ""} work items · {activeCount} in flight · {doneCount} completed <span className="board-detail-hint">Select a card for full details.</span></p>
         </div>
         <div className="board-actions">
           <button type="button" className="secondary-action" onClick={onToggleTerminal}>{showTerminal ? "Hide cancelled & archived" : "Show cancelled & archived"}</button>
@@ -3485,17 +3557,9 @@ function KanbanBoard({
       <div className="board-filters" aria-label="Board filters">
         <label className="board-search">
           <span className="sr-only">Search work items</span>
-          <input type="search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search title, ID, project, owner, agent, or tag…" />
-        </label>
-        <label className="board-epic-filter">
-          <span>Focus by epic</span>
-          <select value={effectiveEpicId} onChange={(event) => onEpicFilter(event.target.value)} disabled={epics.length === 0}>
-            <option value="">{epics.length === 0 ? "No epics in this scope" : "All work in this scope"}</option>
-            {epics.map((epic) => <option value={epic.id} key={epic.id}>{epic.id} · {epic.title}</option>)}
-          </select>
+          <input type="search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search title, ID, project, or tag…" />
         </label>
       </div>
-      {selectedEpic && <p className="board-focus-summary"><strong>{selectedEpic.id} · {selectedEpic.title}</strong><span>{epicFocusedTasks.length} connected item{epicFocusedTasks.length === 1 ? "" : "s"} · nested children and direct epic links</span><button type="button" onClick={() => onEpicFilter("")}>Clear focus</button></p>}
       {error && <div className="task-error" role="alert">{error}</div>}
       {tasks.length === 0 ? (
         <div className="board-empty">
@@ -3525,12 +3589,11 @@ function KanbanBoard({
                     {columnTasks.map((task) => {
                       const progress = checklistProgress(task);
                       const projectName = scopeLabelFor(projects, task.projectPath, "Unassigned");
-                      const owners = [task.assignee, ...task.agents].filter(Boolean).join(" · ");
                       const hoverSummary = [
-                        `${task.id} · ${statusLabel(task.status)} · ${task.priority}`,
+                        `${task.id} · ${statusLabel(task.status)}`,
                         task.title,
                         `Project: ${projectName}`,
-                        owners ? `Owner/agents: ${owners}` : null,
+                        task.delegated ? "Handed to an agent" : null,
                         task.dependsOn.length > 0 || task.blockedBy.length > 0
                           ? `${task.dependsOn.length} dependencies · ${task.blockedBy.length} blockers`
                           : null,
@@ -3541,7 +3604,7 @@ function KanbanBoard({
                       return (
                         <button
                           type="button"
-                          className={`kanban-card priority-${task.priority}`}
+                          className="kanban-card"
                           key={task.id}
                           title={hoverSummary}
                           aria-label={`Open ${task.id}: ${task.title}`}
@@ -3550,7 +3613,7 @@ function KanbanBoard({
                           onDragEnd={onDragEnd}
                           onClick={() => onOpenTask(task.id)}
                         >
-                          <span className="card-topline"><strong>{task.id}</strong><span>{task.type}</span><span>{task.priority}</span></span>
+                          <span className="card-topline"><strong>{task.id}</strong>{task.delegated && <span className="card-delegated">agent</span>}</span>
                           <span className="card-title">{task.title}</span>
                           <span className="card-project">{projectName}</span>
                           {task.dueAt && (
@@ -3558,7 +3621,6 @@ function KanbanBoard({
                               <span aria-hidden="true">◷</span>{scheduleLabel({ scheduledAt: task.dueAt, allDay: true }, "Due")}
                             </time>
                           )}
-                          {owners && <span className="card-owners">{owners}</span>}
                           {task.tags.length > 0 && <span className="card-tags">{task.tags.slice(0, 4).map((tag) => <i key={tag}>{tag}</i>)}</span>}
                           {(task.dependsOn.length > 0 || task.blockedBy.length > 0) && <span className="card-links">{task.dependsOn.length} dependencies · {task.blockedBy.length} blockers</span>}
                           {progress.total > 0 && <span className="card-progress"><span><i style={{ width: `${(progress.complete / progress.total) * 100}%` }} /></span>{progress.complete}/{progress.total}</span>}
@@ -3605,10 +3667,7 @@ function ActivityView({ scopeLabel, tasks, projects, onOpenTask }: { scopeLabel:
 
 type TaskFieldValues = {
   projectPath: string;
-  type: string;
-  priority: string;
-  assignee: string;
-  agents: string;
+  delegated: boolean;
   tags: string;
   parentId: string;
   dueAt: string;
@@ -3619,7 +3678,7 @@ function commaList(value: string) {
 }
 
 // The field grid shared by the create and detail panels. `children` renders
-// the one panel-specific field (Status when creating, Estimate when editing).
+// the one panel-specific field (Status when creating).
 function TaskFields({ projects, values, onChange, children }: {
   projects: Project[];
   values: TaskFieldValues;
@@ -3630,14 +3689,11 @@ function TaskFields({ projects, values, onChange, children }: {
     <>
       <div className="field-grid">
         <label><span>Project</span><select value={values.projectPath} onChange={(event) => onChange({ projectPath: event.target.value })}><option value="">Unassigned</option>{projects.filter((project) => project.path !== ".").map((project) => <option key={project.id} value={project.path}>{project.name} — {project.path}</option>)}</select></label>
-        <label><span>Type</span><select value={values.type} onChange={(event) => onChange({ type: event.target.value })}>{["task", "bug", "feature", "research", "admin", "epic", "idea"].map((item) => <option key={item}>{item}</option>)}</select></label>
-        <label><span>Priority</span><select value={values.priority} onChange={(event) => onChange({ priority: event.target.value })}>{["none", "low", "medium", "high", "critical"].map((item) => <option key={item}>{item}</option>)}</select></label>
         {children}
-        <label><span>Human owner</span><input value={values.assignee} onChange={(event) => onChange({ assignee: event.target.value })} placeholder="Optional" /></label>
-        <label><span>Agents or teams</span><input value={values.agents} onChange={(event) => onChange({ agents: event.target.value })} placeholder="codex, rev-team" /></label>
-        <label><span>Parent task ID</span><input value={values.parentId} onChange={(event) => onChange({ parentId: event.target.value })} placeholder="W-0001" /></label>
         <label><span>Due date</span><input type="date" value={values.dueAt} onChange={(event) => onChange({ dueAt: event.target.value })} /></label>
+        <label><span>Parent task ID</span><input value={values.parentId} onChange={(event) => onChange({ parentId: event.target.value })} placeholder="W-0001" /></label>
       </div>
+      <label className="field-delegate"><input type="checkbox" checked={values.delegated} onChange={(event) => onChange({ delegated: event.target.checked })} /><span>Hand to an agent</span></label>
       <label className="field-wide"><span>Tags</span><input value={values.tags} onChange={(event) => onChange({ tags: event.target.value })} placeholder="Comma-separated" /></label>
     </>
   );
@@ -3656,10 +3712,7 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
   const [status, setStatus] = useState(statuses[0] ?? "backlog");
   const [fields, setFields] = useState<TaskFieldValues>({
     projectPath: defaultProjectPath ?? "",
-    type: "task",
-    priority: "none",
-    assignee: "",
-    agents: "",
+    delegated: false,
     tags: "",
     parentId: "",
     dueAt: "",
@@ -3676,10 +3729,7 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
       title: title.trim(),
       projectPath: fields.projectPath || null,
       status,
-      type: fields.type,
-      priority: fields.priority,
-      assignee: fields.assignee.trim() || null,
-      agents: commaList(fields.agents),
+      delegated: fields.delegated,
       tags: commaList(fields.tags),
       parentId: fields.parentId.trim() || null,
       dueAt: fields.dueAt || null,
@@ -3724,10 +3774,7 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClo
 }) {
   const taskFieldValues = (): TaskFieldValues => ({
     projectPath: task.projectPath ?? "",
-    type: task.type,
-    priority: task.priority,
-    assignee: task.assignee ?? "",
-    agents: task.agents.join(", "),
+    delegated: task.delegated,
     tags: task.tags.join(", "),
     parentId: task.parentId ?? "",
     dueAt: task.dueAt?.slice(0, 10) ?? "",
@@ -3737,7 +3784,6 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClo
   const [dependsOn, setDependsOn] = useState(task.dependsOn.join(", "));
   const [blockedBy, setBlockedBy] = useState(task.blockedBy.join(", "));
   const [blockedReason, setBlockedReason] = useState(task.blockedReason ?? "");
-  const [estimate, setEstimate] = useState(task.estimate ?? "");
   const [goal, setGoal] = useState(task.sections.goal);
   const [plan, setPlan] = useState(task.sections.plan);
   const [notes, setNotes] = useState(task.sections.notes);
@@ -3750,13 +3796,13 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClo
     setTitle(task.title);
     setFields(taskFieldValues());
     setDependsOn(task.dependsOn.join(", ")); setBlockedBy(task.blockedBy.join(", ")); setBlockedReason(task.blockedReason ?? "");
-    setEstimate(task.estimate ?? ""); setGoal(task.sections.goal); setPlan(task.sections.plan); setNotes(task.sections.notes);
+    setGoal(task.sections.goal); setPlan(task.sections.plan); setNotes(task.sections.notes);
     setCompletionSummary(task.sections.completionSummary);
   }, [task.id, task.updatedAt]);
 
   function saveDetails(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onPatch({ title, projectPath: fields.projectPath || null, type: fields.type, priority: fields.priority, assignee: fields.assignee.trim() || null, agents: commaList(fields.agents), tags: commaList(fields.tags), dependsOn: commaList(dependsOn), blockedBy: commaList(blockedBy), blockedReason: blockedReason.trim() || null, estimate: estimate.trim() || null, parentId: fields.parentId.trim() || null, dueAt: fields.dueAt || null, goal, plan, notes, completionSummary });
+    onPatch({ title, projectPath: fields.projectPath || null, delegated: fields.delegated, tags: commaList(fields.tags), dependsOn: commaList(dependsOn), blockedBy: commaList(blockedBy), blockedReason: blockedReason.trim() || null, parentId: fields.parentId.trim() || null, dueAt: fields.dueAt || null, goal, plan, notes, completionSummary });
   }
 
   const childTasks = tasks.filter((item) => item.parentId === task.id);
@@ -3764,22 +3810,23 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, onClo
 
   return (
     <aside className="task-panel" aria-labelledby="task-detail-heading">
-      <div className="task-panel-header"><div><p className="eyebrow">{task.id} · {task.type} · {task.priority}</p><h2 id="task-detail-heading">{task.title}</h2></div><div className="task-panel-header-actions"><button type="button" onClick={onClose} aria-label="Close work item">×</button></div></div>
+      <div className="task-panel-header"><div><p className="eyebrow">{task.id}{task.delegated ? " · handed to an agent" : ""}</p><h2 id="task-detail-heading">{task.title}</h2></div><div className="task-panel-header-actions"><button type="button" onClick={onClose} aria-label="Close work item">×</button></div></div>
       <div className="task-state-strip"><label><span>Status</span><select value={task.status} onChange={(event) => onMove(event.target.value)} disabled={saving}>{[...statuses, "cancelled", "archived"].map((status) => <option key={status} value={status} disabled={status === "review" && progress.complete < progress.total}>{status === "review" && progress.complete < progress.total ? "Review — complete checklist first" : statusLabel(status)}</option>)}</select></label><span>{progress.complete}/{progress.total} checks complete</span><span>Updated {shortTime(task.updatedAt)}</span></div>
       {task.status === "review" && progress.complete < progress.total && <div className="task-error" role="status">This legacy review card has unchecked requirements or acceptance criteria. Verify its checklist before treating it as review-ready.</div>}
       {error && <div className="task-error" role="alert">{error}</div>}
       <form className="task-form" onSubmit={saveDetails}>
         <label className="field-wide"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-        <TaskFields projects={projects} values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))}>
-          <label><span>Estimate</span><input value={estimate} onChange={(event) => setEstimate(event.target.value)} placeholder="2h, 3 points, unknown" /></label>
-        </TaskFields>
+        <TaskFields projects={projects} values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))} />
         <label className="field-wide"><span>Depends on task IDs</span><input value={dependsOn} onChange={(event) => setDependsOn(event.target.value)} placeholder="W-0001, W-0002" /></label>
-        <label className="field-wide"><span>Blocked by task IDs</span><input value={blockedBy} onChange={(event) => setBlockedBy(event.target.value)} placeholder="W-0001" /></label>
-        <label className="field-wide"><span>Blocker explanation</span><textarea value={blockedReason} onChange={(event) => setBlockedReason(event.target.value)} /></label>
         <label className="field-wide"><span>Goal</span><textarea value={goal} onChange={(event) => setGoal(event.target.value)} /></label>
         <label className="field-wide"><span>Plan</span><textarea value={plan} onChange={(event) => setPlan(event.target.value)} /></label>
-        <label className="field-wide"><span>Notes</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
-        <label className="field-wide"><span>Completion summary</span><textarea value={completionSummary} onChange={(event) => setCompletionSummary(event.target.value)} placeholder="What shipped, changed, or was learned?" /></label>
+        <details className="task-more-fields">
+          <summary>More details</summary>
+          <label className="field-wide"><span>Blocked by task IDs</span><input value={blockedBy} onChange={(event) => setBlockedBy(event.target.value)} placeholder="W-0001" /></label>
+          <label className="field-wide"><span>Blocker explanation</span><textarea value={blockedReason} onChange={(event) => setBlockedReason(event.target.value)} /></label>
+          <label className="field-wide"><span>Notes</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
+          <label className="field-wide"><span>Completion summary</span><textarea value={completionSummary} onChange={(event) => setCompletionSummary(event.target.value)} placeholder="What shipped, changed, or was learned?" /></label>
+        </details>
         <button type="submit" className="primary-action" disabled={saving}>{saving ? "Saving…" : "Save card details"}</button>
       </form>
 

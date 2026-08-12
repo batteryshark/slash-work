@@ -193,12 +193,11 @@ the main board by default but can always be shown; cancellation never deletes
 history. The configured active statuses live in `.work/workspace.json` and
 define the board columns left to right.
 
-The board can focus on one epic without changing stored records. `parent_id`
-is the canonical way to place a task, feature, research item, or nested body of
-work under an epic. For compatibility with existing boards, the focus also
-includes work whose `depends_on` or `blocked_by` list directly names the epic.
-Search is applied after the epic focus, and clearing the focus restores the
-complete current project or folder scope.
+A project chooses how its tasks render: `view` in `.work/project.json` is
+`"board"` (the six-column Kanban) or `"list"` (a plain ordered list with a
+status control). Newly created projects start as `"list"`; markers written
+before this key existed read as `"board"`. The toggle lives on the project
+profile card and persists through the same profile-update route.
 
 Moving a card into `review` is centrally rejected while any requirement or
 acceptance criterion remains unchecked. This applies equally to the UI, CLI,
@@ -206,7 +205,8 @@ and every agent harness using the HTTP API, so adapters do not need their own
 hooks. A checklist item must only be checked after its result has been
 verified.
 
-Each card is a Markdown task with project and multi-agent fields:
+Each card is a Markdown task with a project and a human-only delegation
+flag:
 
 ```markdown
 ---
@@ -214,17 +214,13 @@ id: "W-0001"
 title: "Build the operational board"
 status: "in_progress"
 project_path: "software/rekit"
-task_type: "feature"
-assignee: "human-owner"
-agents: ["codex-team", "review-team"]
-priority: "high"
+delegated: false
 tags: ["kanban", "release"]
 depends_on: ["W-0000"]
 blocked_by: []
 blocked_reason: null
 parent_id: null
 due_at: null
-estimate: "3 points"
 source: null
 created_at: "2026-07-10T20:00:00.000Z"
 updated_at: "2026-07-10T21:00:00.000Z"
@@ -311,10 +307,9 @@ integration:
 ```bash
 work add "check whether the release needs a migration"
 work decision "Where should the lab live?" --option "Keep unassigned" --option "Assign later"
-work task "Implement the board" --project software/rekit --priority high
+work task "Implement the board" --project software/rekit --delegate
 work task "Workspace-wide maintenance" --unassigned
 work move W-0001 in_progress --note "Agent team started"
-work assign W-0001 codex-team
 work log W-0001 "Dependency and restart tests pass"
 work list
 work show W-0001

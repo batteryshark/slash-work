@@ -894,14 +894,8 @@ kbd { display: inline-grid; place-items: center; min-width: 23px; height: 23px; 
 .board-detail-hint::before { content: "·"; margin-right: 5px; }
 .board-actions { display: flex; align-items: center; gap: 10px; }
 .board-actions .primary-action, .board-actions .secondary-action { width: auto; white-space: nowrap; }
-.board-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 340px); align-items: end; gap: 12px; margin-bottom: 12px; }
+.board-filters { display: grid; grid-template-columns: minmax(0, 1fr); align-items: end; gap: 12px; margin-bottom: 12px; }
 .board-search input { width: 100%; min-height: 50px; padding: 0 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); font-size: 15px; }
-.board-epic-filter { display: grid; gap: 5px; color: var(--muted); font-size: 10px; font-weight: 760; letter-spacing: .05em; text-transform: uppercase; }
-.board-epic-filter select { width: 100%; min-height: 50px; padding: 0 36px 0 13px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); font-size: 13px; font-weight: 680; text-transform: none; }
-.board-focus-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 3px 12px; margin: 0 0 16px; padding: 11px 13px; border: 1px solid var(--accent-line); border-radius: 12px; background: var(--accent-softer); }
-.board-focus-summary strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.board-focus-summary span { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.board-focus-summary button { grid-column: 2; grid-row: 1 / 3; min-height: 36px; padding: 0 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 720; }
 .task-error { margin: 10px 0 16px; padding: 13px 15px; border: 1px solid var(--danger-line); border-radius: 12px; background: var(--danger-soft); color: var(--danger); font-size: 14px; font-weight: 680; }
 .board-empty { display: grid; justify-items: start; gap: 10px; padding: 42px; border: 1px dashed #c9c2b8; border-radius: 20px; background: var(--veil); }
 .board-empty strong { font-size: 21px; }
@@ -924,16 +918,12 @@ kbd { display: inline-grid; place-items: center; min-width: 23px; height: 23px; 
 .kanban-card:hover { border-color: var(--accent); box-shadow: 0 10px 24px rgba(45, 39, 29, 0.1); }
 .kanban-card:active { cursor: grabbing; }
 .kanban-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: #b8b2a9; }
-.kanban-card.priority-critical::before { background: #b83d3d; }
-.kanban-card.priority-high::before { background: #d47732; }
-.kanban-card.priority-medium::before { background: #6e5cf3; }
-.kanban-card.priority-low::before { background: #5a8b76; }
 .card-topline { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--soft); font-size: 10px; font-weight: 760; letter-spacing: .06em; text-transform: uppercase; }
 .card-topline strong { color: var(--ink); font-family: var(--mono); }
 .card-topline span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-topline span:last-child { margin-left: auto; }
 .card-title { display: -webkit-box; overflow: hidden; color: var(--ink); font-size: 15px; font-weight: 760; line-height: 1.3; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
-.card-project, .card-owners, .card-links, .card-updated { overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.card-project, .card-links, .card-updated { overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .card-due { display: inline-flex; align-items: center; gap: 5px; justify-self: start; padding: 5px 7px; border-radius: 7px; background: var(--surface-muted); color: var(--muted); font-size: 10px; font-weight: 760; font-style: normal; }
 .card-due.today { background: var(--accent-soft); color: var(--accent-dark); }
 .card-due.overdue { background: var(--danger-soft); color: var(--danger); }
@@ -944,18 +934,35 @@ kbd { display: inline-grid; place-items: center; min-width: 23px; height: 23px; 
 .card-progress i { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
 .card-blocked { padding: 7px 8px; border-radius: 8px; background: var(--warning-soft); color: var(--warning); font-size: 11px; line-height: 1.35; }
 .card-updated { margin-top: 2px; }
+.card-delegated { padding: 3px 6px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-dark); }
+.task-list { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
+.task-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 6px 6px 6px 0; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
+.task-list-title { display: grid; gap: 3px; min-height: 44px; padding: 8px 14px; border: 0; border-radius: 12px; background: none; color: var(--ink); text-align: left; cursor: pointer; }
+.task-list-title:hover strong { color: var(--accent-dark); }
+.task-list-title strong { overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.task-list-title small { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+.task-list-status select { min-height: 44px; padding: 0 32px 0 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-muted); color: var(--ink); font-size: 13px; font-weight: 680; }
+.pulse-header-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; }
+.pulse-header-actions .primary-action { width: auto; }
+.project-view-toggle { display: inline-flex; padding: 3px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-muted); }
+.project-view-toggle button { min-height: 38px; padding: 0 14px; border: 0; border-radius: 9px; background: none; color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 740; }
+.project-view-toggle button.selected { background: var(--surface); color: var(--ink); box-shadow: 0 2px 6px rgba(45, 39, 29, 0.08); }
+.field-delegate { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 4px; color: var(--ink); font-size: 14px; font-weight: 680; cursor: pointer; }
+.field-delegate input { width: 18px; height: 18px; accent-color: var(--accent); }
+.task-more-fields { display: grid; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--veil); }
+.task-more-fields summary { min-height: 44px; display: flex; align-items: center; color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 760; letter-spacing: .05em; text-transform: uppercase; }
 
 @container (max-width: 210px) {
   .kanban-card { gap: 6px; min-height: 106px; padding: 10px; }
   .card-topline span:nth-child(2), .card-updated { display: none; }
   .card-title { font-size: 14px; -webkit-line-clamp: 3; }
-  .card-project, .card-owners, .card-links { font-size: 11px; }
+  .card-project, .card-links { font-size: 11px; }
   .card-tags i:nth-child(n+3) { display: none; }
   .card-blocked { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 }
 
 @container (max-width: 175px) {
-  .card-owners, .card-tags { display: none; }
+  .card-tags { display: none; }
 }
 
 .activity-list { position: relative; display: grid; gap: 0; margin: 10px 0 0; padding: 0; list-style: none; }
@@ -1108,8 +1115,6 @@ html[data-theme="dark"] .danger-zone-button { background: var(--danger); color: 
   .file-tree { max-height: 320px; }
   .file-preview { min-height: 520px; }
   .file-preview-meta { flex-wrap: wrap; }
-  .board-focus-summary { grid-template-columns: minmax(0, 1fr); }
-  .board-focus-summary button { grid-column: 1; grid-row: auto; justify-self: start; }
   .kanban-scroll { width: calc(100% + 14px); }
   .activity-list::before { left: 7px; }
   .activity-list li { grid-template-columns: 1fr; gap: 5px; padding-left: 25px; }

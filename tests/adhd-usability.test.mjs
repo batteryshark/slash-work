@@ -30,6 +30,14 @@ test("keeps the ADHD usability gates present in the interface", async () => {
   // Needs you stays a bounded decision surface on Home.
   assert.match(page, /id="needs-you"/);
 
+  // The task form stays calm: one delegation checkbox instead of priority,
+  // type, assignee, and estimate theater; rarely-touched fields sit behind
+  // one disclosure; a project can render as a plain list.
+  assert.match(page, /Hand to an agent/);
+  assert.match(page, /task-more-fields/);
+  assert.match(page, /project-view-toggle/);
+  assert.doesNotMatch(page, /\bpriority\b|\bassignee\b|\bestimate\b/i);
+
   // Deleting a project requires an inline second confirmation.
   assert.match(page, /project-delete-panel/);
   assert.match(page, /danger-zone-button/);

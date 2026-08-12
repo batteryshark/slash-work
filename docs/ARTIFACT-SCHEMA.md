@@ -134,7 +134,10 @@ The UI labels `in_progress` as **Agent working** and `needs_human` as
 **Needs you**. Filing an issue authorizes investigation and replies only, not
 repository changes or other executable work.
 
-`claimedBy` is null or an agent actor. An agent may claim a queued issue, reply,
+`delegated` is a boolean, human-only exactly as on tasks: it is the only way
+an issue enters an orchestrator's queue, agents cannot set it, and a legacy
+non-empty `agents` list reads as `delegated: true` and is dropped on the next
+write. `claimedBy` is null or an agent actor. An agent may claim a queued issue, reply,
 move it to `needs_human` with a concrete question or blocker, and move it to
 `resolved` only with a non-empty `resolutionSummary`. Only a human may move an
 issue to `closed`. A human may always move a resolved or closed issue back to
@@ -163,6 +166,7 @@ body: "The save indicator disappears too early.\n\n```text\nExpected: Saved\nAct
 state: "resolved"
 scopePath: "software/rekit"
 projectPath: "software/rekit"
+delegated: true
 claimedBy: {"kind":"agent","name":"codex-team"}
 resolutionSummary: "The indicator now remains visible after the durable write."
 messages: [{"id":"message_mabc1235_ab12cd34ef56","body":"I reproduced the race and traced it to the optimistic state reset.","author":{"kind":"agent","name":"codex-team"},"createdAt":"2026-07-14T14:35:00.000Z"}]
@@ -249,18 +253,21 @@ keeping unassigned also move the file to the corresponding physical store.
 
 ## Task
 
-A task is a full Kanban work item. Unlike the other artifacts, it has no
-top-level `type` discriminator: `task_type` is the work classification and the
-`W-...` ID plus directory identify the record as a task.
+A task is a full work item. Unlike the other artifacts, it has no top-level
+`type` discriminator: the `W-...` ID plus directory identify the record as a
+task.
 
 The default active statuses are `backlog`, `ready`, `in_progress`, `blocked`,
 `review`, and `done`; `cancelled` and `archived` are reserved terminal states.
 An automation must read `.work/workspace.json` and use its configured
 `statuses` rather than assuming only the defaults.
 
-`task_type` is one of `task`, `bug`, `feature`, `research`, `admin`, `epic`, or
-`idea`. `priority` is one of `critical`, `high`, `medium`, `low`, or `none`.
-Task relationships contain valid task IDs. A task cannot become `done` while a
+`delegated` is a boolean and is the CONTRACT §2 delegation signal: a human
+sets it to hand the item to automation, and Work rejects it from any agent
+identity. Legacy records carrying the removed `priority`, `task_type`/`type`,
+`assignee`, `estimate`, or `agents` keys still load — a non-empty `agents`
+list reads as `delegated: true` — and the removed keys are dropped on the
+next write. Task relationships contain valid task IDs. A task cannot become `done` while a
 `depends_on` ID is missing or not itself `done`. A task cannot enter `review`
 while any requirement or acceptance criterion is unchecked; this invariant is
 enforced by the shared workspace API rather than by harness-specific hooks.
@@ -271,17 +278,13 @@ id: "W-0001"
 title: "Build the operational board"
 status: "in_progress"
 project_path: "software/rekit"
-task_type: "feature"
-assignee: "human-owner"
-agents: ["codex-team","review-team"]
-priority: "high"
+delegated: false
 tags: ["kanban","release"]
 depends_on: []
 blocked_by: []
 blocked_reason: null
 parent_id: null
 due_at: null
-estimate: "3 points"
 source: null
 created_at: "2026-07-13T14:30:00.000Z"
 updated_at: "2026-07-13T14:35:00.000Z"

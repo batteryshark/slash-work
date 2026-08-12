@@ -23,7 +23,6 @@ import {
   moveTask,
   projectForScope,
   readWorkspace,
-  updateTask,
 } from "../lib/local-workspace.mjs";
 import {
   listRegisteredWorkspaces,
@@ -74,7 +73,6 @@ Usage:
   work list                            List work items in the current root
   work show <id>                       Print a complete work item
   work move <id> <status> [--note n]  Move a card and append to its log
-  work assign <id> [name]             Assign or unassign a card
   work log <id> "what happened"        Append a progress entry
 
 Options:
@@ -87,10 +85,7 @@ Options:
   --detail <text>     Decision context
   --option <text>     Decision option; may be repeated
   --recommend <text>  Recommend one exact recorded decision option
-  --type <type>       task, bug, feature, research, admin, epic, or idea
-  --priority <level>  critical, high, medium, low, or none
-  --assignee <name>   Human owner
-  --agent <name>      Agent or team; may be repeated
+  --delegate          Hand the new task to an agent (human-only signal)
   --tag <tag>         Tag; may be repeated
   --depends-on <id>   Dependency; may be repeated
   --blocked-by <id>   Blocker task; may be repeated
@@ -119,7 +114,7 @@ Examples:
   work add "check whether the release needs a migration" --scope tools
   work add "validate the parser" --scope tools/parser --project tools/parser
   work decision "Where should the lab live?" --option "Keep unassigned" --option "Assign later"
-  work task "Implement the board" --project tools/runner --type feature --priority high
+  work task "Implement the board" --project tools/runner --delegate
   work move W-0001 in_progress --note "Agent team started implementation"
   work log W-0001 "API and restart tests pass"
 `;
@@ -134,10 +129,7 @@ const CLI_FLAGS = {
   detail: { type: "string" },
   option: repeatable(),
   recommend: { type: "string" },
-  type: { type: "string" },
-  priority: { type: "string" },
-  assignee: { type: "string" },
-  agent: repeatable(),
+  delegate: { type: "boolean" },
   tag: repeatable(),
   "depends-on": repeatable(),
   "blocked-by": repeatable(),
@@ -456,10 +448,7 @@ async function runTask(options, positionals) {
   const task = await createTask(workspace, {
     title: positionals.join(" "),
     projectPath,
-    type: options.type,
-    priority: options.priority,
-    assignee: options.assignee,
-    agents: options.agent,
+    delegated: options.delegate === true,
     tags: options.tag,
     dependsOn: options.dependsOn,
     blockedBy: options.blockedBy,
@@ -471,7 +460,7 @@ async function runTask(options, positionals) {
     notes: options.notes,
   }, projects);
   console.log(`Created ${task.id}: ${task.title}`);
-  console.log(`${task.status} · ${task.projectPath ?? "Unassigned"} · ${task.priority}`);
+  console.log(`${task.status} · ${task.projectPath ?? "Unassigned"}${task.delegated ? " · handed to an agent" : ""}`);
 }
 
 async function runList(options, positionals) {
@@ -482,7 +471,7 @@ async function runList(options, positionals) {
     return;
   }
   for (const task of tasks) {
-    console.log(`${task.id}\t${task.status}\t${task.priority}\t${task.projectPath ?? "-"}\t${task.title}`);
+    console.log(`${task.id}\t${task.status}\t${task.projectPath ?? "-"}\t${task.title}`);
   }
 }
 
@@ -495,13 +484,6 @@ async function runMove(options, positionals) {
   if (positionals.length !== 2) throw new WorkspaceError("move requires a task id and status.");
   const task = await moveTask(await currentWorkspace(options), positionals[0], { status: positionals[1], note: options.note });
   console.log(`${task.id} → ${task.status}`);
-}
-
-async function runAssign(options, positionals) {
-  if (positionals.length < 1 || positionals.length > 2) throw new WorkspaceError("assign requires a task id and optional assignee.");
-  const workspace = await currentWorkspace(options);
-  const task = await updateTask(workspace, positionals[0], { assignee: positionals[1] ?? null }, await discoverProjects(workspace.root));
-  console.log(`${task.id} ${task.assignee ? `assigned to ${task.assignee}` : "unassigned"}`);
 }
 
 async function runLog(options, positionals) {
@@ -746,7 +728,6 @@ const COMMANDS = {
   list: runList,
   show: runShow,
   move: runMove,
-  assign: runAssign,
   log: runLog,
 };
 

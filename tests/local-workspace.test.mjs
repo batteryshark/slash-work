@@ -220,8 +220,7 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
       launcherPath.pathname,
       "task",
       "Build the operational board",
-      "--priority",
-      "high",
+      "--delegate",
       "--requirement",
       "Show work in flight",
       "--acceptance",
@@ -230,10 +229,11 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
     { cwd: descendant },
   );
   assert.match(createdTask.stdout, /Created W-0001/);
+  assert.match(createdTask.stdout, /handed to an agent/);
   await execFile(process.execPath, [launcherPath.pathname, "move", "W-0001", "in_progress"], { cwd: descendant });
   await execFile(process.execPath, [launcherPath.pathname, "log", "W-0001", "Board implementation started"], { cwd: descendant });
   const listedTasks = await execFile(process.execPath, [launcherPath.pathname, "list"], { cwd: descendant });
-  assert.match(listedTasks.stdout, /W-0001\s+in_progress\s+high/);
+  assert.match(listedTasks.stdout, /W-0001\s+in_progress/);
   const shownTask = await execFile(process.execPath, [launcherPath.pathname, "show", "W-0001"], { cwd: descendant });
   assert.match(shownTask.stdout, /Board implementation started/);
 
@@ -1540,16 +1540,19 @@ See project trees from several servers in one place.
     const snapshot = await apiRequest(api.origin, "/api/workspace");
     assert.equal(snapshot.payload.notes.some((note) => note.id === "note_legacy1234"), true);
 
-    // A task written before the camelCase frontmatter change still loads, and
-    // the next write rewrites it without any snake_case keys.
+    // A task written before the camelCase frontmatter change — and before
+    // priority, type, assignee, estimate, and agents were removed — still
+    // loads, and the next write rewrites it without any of those keys.
     await writeFile(join(root, ".work", "tasks", "W-0042.md"), `---
 id: "W-0042"
 title: "Legacy snake task"
 status: "in_progress"
 project_path: null
 task_type: "bug"
-assignee: null
+assignee: "orchestra/brisk_otter"
+agents: ["maestro"]
 priority: "high"
+estimate: "3 points"
 depends_on: []
 blocked_by: []
 blocked_reason: "waiting on parser"
@@ -1565,8 +1568,11 @@ Keep loading old records.
 `);
     const legacyTask = await apiRequest(api.origin, "/api/tasks/W-0042");
     assert.equal(legacyTask.response.status, 200);
-    assert.equal(legacyTask.payload.type, "bug");
-    assert.equal(legacyTask.payload.priority, "high");
+    assert.equal("priority" in legacyTask.payload, false);
+    assert.equal("type" in legacyTask.payload, false);
+    assert.equal("assignee" in legacyTask.payload, false);
+    assert.equal("estimate" in legacyTask.payload, false);
+    assert.equal(legacyTask.payload.delegated, true, "a legacy agents list reads as delegated");
     assert.equal(legacyTask.payload.blockedReason, "waiting on parser");
     assert.equal(legacyTask.payload.dueAt, "2027-01-01T00:00:00.000Z");
     assert.equal(legacyTask.payload.startedAt, "2026-01-01T12:00:00.000Z");
@@ -1576,10 +1582,11 @@ Keep loading old records.
     });
     assert.equal(logged.response.status, 200);
     const rewrittenTask = await readFile(join(root, ".work", "tasks", "W-0042.md"), "utf8");
-    assert.match(rewrittenTask, /type: "bug"/);
+    assert.match(rewrittenTask, /delegated: true/);
     assert.match(rewrittenTask, /blockedReason: "waiting on parser"/);
     assert.match(rewrittenTask, /startedAt: "2026-01-01T12:00:00\.000Z"/);
     assert.doesNotMatch(rewrittenTask, /task_type|project_path|blocked_reason|created_at|updated_at|started_at/);
+    assert.doesNotMatch(rewrittenTask, /priority|assignee|estimate|agents|type:/);
   } finally {
     await closeLocalApi(api.server);
   }
@@ -1865,10 +1872,7 @@ test("persists a full Kanban lifecycle with fields, checklists, dependencies, an
       body: {
         title: "Build the task store",
         projectPath: "software/rekit",
-        type: "feature",
-        priority: "high",
-        assignee: "human",
-        agents: ["codex-team"],
+        delegated: true,
         tags: ["kanban", "storage"],
         goal: "Persist complete project state in Markdown.",
         requirements: ["One file per task", "Append-only progress log"],
@@ -1911,7 +1915,7 @@ test("persists a full Kanban lifecycle with fields, checklists, dependencies, an
 
     const prematureReview = await apiRequest(first.origin, `/api/tasks/${foundation.payload.id}`, {
       method: "PATCH",
-      body: { status: "review", priority: "critical", notes: "Ready for the dependency gate test." },
+      body: { status: "review", notes: "Ready for the dependency gate test." },
     });
     assert.equal(prematureReview.response.status, 409);
     assert.match(prematureReview.payload.error.message, /unchecked checklist/i);
@@ -1926,11 +1930,11 @@ test("persists a full Kanban lifecycle with fields, checklists, dependencies, an
 
     const updated = await apiRequest(first.origin, `/api/tasks/${foundation.payload.id}`, {
       method: "PATCH",
-      body: { status: "review", priority: "critical", notes: "Ready for the dependency gate test." },
+      body: { status: "review", notes: "Ready for the dependency gate test." },
     });
     assert.equal(updated.response.status, 200);
     assert.equal(updated.payload.status, "review");
-    assert.equal(updated.payload.priority, "critical");
+    assert.equal(updated.payload.delegated, true);
 
     const completedFoundation = await apiRequest(first.origin, `/api/tasks/${foundation.payload.id}/move`, {
       method: "POST",
@@ -1953,7 +1957,7 @@ test("persists a full Kanban lifecycle with fields, checklists, dependencies, an
     assert.match(logged.payload.sections.progressLog, /Verified drag movement/);
 
     const taskFile = await readFile(join(root, "software", "rekit", ".work", "tasks", "W-0001.md"), "utf8");
-    assert.match(taskFile, /priority: "critical"/);
+    assert.match(taskFile, /delegated: true/);
     assert.match(taskFile, /## Requirements/);
     assert.match(taskFile, /- \[x\] One file per task/);
     assert.match(taskFile, /## Acceptance Criteria/);
@@ -1985,7 +1989,7 @@ test("keeps terminal task moves human-only and surfaces one needs-you queue", as
         title: "Ship the sweeper contract",
         projectPath: "software/rekit",
         status: "ready",
-        agents: ["orchestra"],
+        delegated: true,
         refs: ["issue_auth_timeout"],
       },
     });
@@ -2080,6 +2084,16 @@ test("keeps terminal task moves human-only and surfaces one needs-you queue", as
     assert.equal(agentPatchTitle.response.status, 403);
     assert.equal(agentPatchTitle.payload.error.code, "agent_task_edit_forbidden");
 
+    // Delegation is human-only: an agent identity cannot create a task that
+    // is already handed to an agent.
+    const agentDelegates = await apiRequest(api.origin, "/api/tasks", {
+      method: "POST",
+      body: { title: "Self-delegated work", delegated: true },
+      headers: { "x-work-agent": "orchestra/brisk_otter" },
+    });
+    assert.equal(agentDelegates.response.status, 403);
+    assert.equal(agentDelegates.payload.error.code, "agent_delegation_forbidden");
+
     const humanCompletes = await apiRequest(api.origin, `/api/tasks/${created.payload.id}/move`, {
       method: "POST",
       body: { status: "done" },
@@ -2087,6 +2101,59 @@ test("keeps terminal task moves human-only and surfaces one needs-you queue", as
     assert.equal(humanCompletes.response.status, 200);
   } finally {
     await closeLocalApi(api.server);
+  }
+});
+
+test("persists a per-project view mode with sensible defaults", async () => {
+  const { root } = await makeWorkspaceFixture();
+  // A marker written before the view key existed reads as the board.
+  await mkdir(join(root, "legacy-project", ".work"), { recursive: true });
+  await writeFile(
+    join(root, "legacy-project", ".work", "project.json"),
+    `${JSON.stringify({ version: 1, id: "legacy-view-project", name: "Legacy", description: "", createdAt: "2026-01-01T00:00:00.000Z" }, null, 2)}\n`,
+  );
+  const api = await startLocalApi({ root, port: 0 });
+  try {
+    const projects = await apiRequest(api.origin, "/api/projects");
+    const legacy = projects.payload.projects.find((project) => project.path === "legacy-project");
+    assert.equal(legacy.view, "board");
+
+    // A newly created project starts small, so it starts as a list.
+    const created = await apiRequest(api.origin, "/api/projects", {
+      method: "POST",
+      body: { name: "Fresh Project" },
+    });
+    assert.equal(created.response.status, 201);
+    assert.equal(created.payload.view, "list");
+    const marker = JSON.parse(await readFile(join(root, "fresh-project", ".work", "project.json"), "utf8"));
+    assert.equal(marker.view, "list");
+
+    // The profile route flips and persists the mode.
+    const flipped = await apiRequest(api.origin, "/api/projects/profile", {
+      method: "PATCH",
+      body: { projectPath: "fresh-project", view: "board" },
+    });
+    assert.equal(flipped.response.status, 200);
+    assert.equal(flipped.payload.view, "board");
+    assert.equal(JSON.parse(await readFile(join(root, "fresh-project", ".work", "project.json"), "utf8")).view, "board");
+
+    const invalid = await apiRequest(api.origin, "/api/projects/profile", {
+      method: "PATCH",
+      body: { projectPath: "fresh-project", view: "timeline" },
+    });
+    assert.equal(invalid.response.status, 400);
+  } finally {
+    await closeLocalApi(api.server);
+  }
+
+  // The mode survives a service restart.
+  const restarted = await startLocalApi({ root, port: 0 });
+  try {
+    const projects = await apiRequest(restarted.origin, "/api/projects");
+    assert.equal(projects.payload.projects.find((project) => project.path === "fresh-project").view, "board");
+    assert.equal(projects.payload.projects.find((project) => project.path === "legacy-project").view, "board");
+  } finally {
+    await closeLocalApi(restarted.server);
   }
 });
 

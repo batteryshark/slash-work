@@ -149,9 +149,10 @@ with the next action.
   Completed without mixing another filesystem root into the board.
 - Cancelled and archived work remains inspectable and never has to masquerade
   as deletion.
-- Every card exposes its project, type, priority, human owner, agent teams,
-  tags, dependencies, blockers, requirements, acceptance criteria, plan,
-  notes, completion summary, lifecycle timestamps, and progress log.
+- Every card exposes its project, delegation flag, tags, dependencies,
+  blockers, requirements, acceptance criteria, plan, notes, completion
+  summary, lifecycle timestamps, and progress log. Rarely-touched fields are
+  grouped behind one disclosure so the panel opens calm.
 - Status changes are available through both drag movement and an accessible
   select control.
 - Completing a task with unfinished dependencies is rejected with the blocking
