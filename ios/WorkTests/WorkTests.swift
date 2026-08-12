@@ -151,7 +151,7 @@ struct WorkTests {
 
         // Root-level projects come first under one heading, then folders A→Z.
         #expect(groups.map(\.key) == ["", "life", "reverse-engineering-tools", "work-management"])
-        #expect(groups[0].title == "Straight in this root")
+        #expect(groups[0].title == "Root")
         #expect(groups[0].projects.map(\.path) == ["atlas", "maestro"])
         #expect(groups[1].title == "Life")
         #expect(groups[1].projects.map(\.path) == ["life/job-hunt", "life/new-house"])

@@ -288,13 +288,13 @@ function displaySegment(segment: string) {
 
 // Grouping for the project pickers: the folder path is the taxonomy, so a
 // project's first path segment is its group. Paths without a folder sit in a
-// "Straight in this root" group that is listed first.
+// "Root" group that is listed first.
 function groupByFirstSegment<Item>(items: Item[], pathOf: (item: Item) => string) {
   const groups = new Map<string, { key: string; label: string; items: Item[] }>();
   for (const item of items) {
     const parts = pathParts(pathOf(item));
     const key = parts.length > 1 ? parts[0] : "";
-    const group = groups.get(key) ?? { key, label: key ? displaySegment(key) : "Straight in this root", items: [] };
+    const group = groups.get(key) ?? { key, label: key ? displaySegment(key) : "Root", items: [] };
     group.items.push(item);
     groups.set(key, group);
   }

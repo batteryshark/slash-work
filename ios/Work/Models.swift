@@ -384,7 +384,7 @@ func projectGroups(_ projects: [WorkProject]) -> [ProjectGroup] {
         return left < right
     }.map { key in
         ProjectGroup(key: key,
-                     title: key.isEmpty ? "Straight in this root" : WorkFormatting.title(for: key),
+                     title: key.isEmpty ? "Root" : WorkFormatting.title(for: key),
                      projects: (buckets[key] ?? []).sorted { $0.path < $1.path })
     }
 }
