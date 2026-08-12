@@ -114,9 +114,8 @@ struct WorkAPIClient: @unchecked Sendable {
         return try await send("api/tasks", method: "POST", workspaceID: workspaceID, body: body)
     }
 
-    func setTaskDelegated(id: String, delegated: Bool, workspaceID: String) async throws -> WorkTask {
-        try await send("api/tasks/\(encoded(id))", method: "PATCH", workspaceID: workspaceID,
-                       body: DelegateTaskRequest(delegated: delegated))
+    func updateTask(id: String, patch: TaskPatchRequest, workspaceID: String) async throws -> WorkTask {
+        try await send("api/tasks/\(encoded(id))", method: "PATCH", workspaceID: workspaceID, body: patch)
     }
 
     func moveTask(id: String, status: String, note: String?, workspaceID: String) async throws -> WorkTask {
@@ -313,7 +312,19 @@ private struct CreateTaskRequest: Encodable {
     let dueAt: String?
 }
 
-private struct DelegateTaskRequest: Encodable { let delegated: Bool }
+/// The human-only task PATCH. A nil field stays out of the body, so a caller
+/// changes exactly the fields it names and leaves the rest of the card alone.
+struct TaskPatchRequest: Encodable {
+    var delegated: Bool?
+    var description: String?
+    var goal: String?
+
+    init(delegated: Bool? = nil, description: String? = nil, goal: String? = nil) {
+        self.delegated = delegated
+        self.description = description
+        self.goal = goal
+    }
+}
 
 private struct MoveTaskRequest: Encodable { let status: String; let note: String? }
 private struct ChecklistRequest: Encodable { let section: String; let index: Int; let checked: Bool }

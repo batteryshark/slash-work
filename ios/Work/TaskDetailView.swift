@@ -56,8 +56,12 @@ struct TaskDetailView: View {
 
                     openQuestions(for: task)
 
-                    detailSection("Description", text: task.sections.description)
-                    detailSection("Goal", text: task.sections.goal)
+                    EditableTextSection(title: "Description", text: task.sections.description) {
+                        await model.editTask(task, description: $0)
+                    }
+                    EditableTextSection(title: "Goal", text: task.sections.goal) {
+                        await model.editTask(task, goal: $0)
+                    }
                     checklistSection("Requirements", items: task.requirements, section: "requirements", task: task)
                     checklistSection("Acceptance Criteria", items: task.acceptanceCriteria, section: "acceptance", task: task)
                     detailSection("Plan", text: task.sections.plan)
@@ -181,6 +185,63 @@ struct TaskDetailView: View {
                 }
             }
         }
+    }
+}
+
+/// The two thinking fields, edited in place. Same shape as the issue reply
+/// composer: an inline field, an explicit Save, nothing modal. Editing is off
+/// while an offline snapshot is on screen, because that snapshot is read-only.
+private struct EditableTextSection: View {
+    @EnvironmentObject private var model: AppModel
+    let title: String
+    let text: String
+    let save: (String) async -> Bool
+
+    @State private var draft: String?
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Section {
+            if let draft = Binding($draft) {
+                TextField(title, text: draft, axis: .vertical)
+                    .lineLimit(3...12)
+                    .focused($focused)
+                    .accessibilityHint("Markdown and multiple lines are supported")
+                HStack {
+                    Button("Cancel") { cancel() }
+                        .buttonStyle(.bordered)
+                    Spacer()
+                    Button(model.isMutating ? "Saving…" : "Save") {
+                        focused = false
+                        Task { if await save(draft.wrappedValue) { self.draft = nil } }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.isMutating || draft.wrappedValue == text)
+                }
+            } else if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("Empty").foregroundStyle(.secondary)
+            } else {
+                Text(text).textSelection(.enabled)
+            }
+        } header: {
+            HStack {
+                Text(title)
+                Spacer()
+                if draft == nil, !model.isShowingCachedData {
+                    Button("Edit") {
+                        draft = text
+                        focused = true
+                    }
+                    .textCase(nil)
+                    .disabled(model.isMutating)
+                }
+            }
+        }
+    }
+
+    private func cancel() {
+        focused = false
+        draft = nil
     }
 }
 

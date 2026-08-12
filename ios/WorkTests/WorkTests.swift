@@ -112,4 +112,50 @@ struct WorkTests {
         let snapshot = try JSONDecoder().decode(WorkspacePayload.self, from: data)
         #expect(snapshot.issues.isEmpty)
     }
+
+    /// The web treats a deferral whose date has passed as active again. iOS used
+    /// to check the status only, so an expired deferral never came back.
+    @Test func expiredDeferralCountsAsActiveLikeTheWeb() throws {
+        let past = Self.iso(Date.now.addingTimeInterval(-3600))
+        let future = Self.iso(Date.now.addingTimeInterval(3600))
+
+        #expect(try Self.decision(status: "open").isOpen)
+        #expect(try Self.decision(status: "deferred", until: past).isOpen)
+        #expect(try Self.decision(status: "deferred", until: future).isOpen == false)
+        #expect(try Self.decision(status: "deferred").isOpen == false)
+        #expect(try Self.decision(status: "resolved", until: past).isOpen == false)
+    }
+
+    @Test func taskEditPatchesOnlyTheFieldItNames() throws {
+        let edit = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(TaskPatchRequest(description: "Rewritten on the couch"))
+        ) as? [String: Any]
+        #expect(edit?.keys.sorted() == ["description"])
+        #expect(edit?["description"] as? String == "Rewritten on the couch")
+
+        let goal = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(TaskPatchRequest(goal: "Ship it"))
+        ) as? [String: Any]
+        #expect(goal?.keys.sorted() == ["goal"])
+
+        let delegation = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(TaskPatchRequest(delegated: true))
+        ) as? [String: Any]
+        #expect(delegation?.keys.sorted() == ["delegated"])
+    }
+
+    private static func iso(_ date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
+    }
+
+    private static func decision(status: String, until: String? = nil) throws -> WorkDecision {
+        let resolution = until.map {
+            #"{"action":"defer","choice":{"option":null,"until":"\#($0)","projectPath":null},"note":null,"at":"2026-01-01T00:00:00.000Z"}"#
+        } ?? "null"
+        let data = #"""
+        {"id":"d","title":"Q","detail":"","projectPath":null,"options":[],"recommendedOption":null,
+         "status":"\#(status)","resolution":\#(resolution),"refs":[],"createdAt":"","updatedAt":""}
+        """#.data(using: .utf8)!
+        return try JSONDecoder().decode(WorkDecision.self, from: data)
+    }
 }

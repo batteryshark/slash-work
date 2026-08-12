@@ -275,9 +275,19 @@ final class AppModel: ObservableObject {
     }
 
     func setDelegated(_ task: WorkTask, _ delegated: Bool) async -> Bool {
+        await patch(task, TaskPatchRequest(delegated: delegated))
+    }
+
+    /// Description and goal are the only words the phone edits. The rest of the
+    /// card stays desktop-only, where a keyboard makes structured editing easy.
+    func editTask(_ task: WorkTask, description: String? = nil, goal: String? = nil) async -> Bool {
+        await patch(task, TaskPatchRequest(description: description, goal: goal))
+    }
+
+    private func patch(_ task: WorkTask, _ request: TaskPatchRequest) async -> Bool {
         await mutate {
             guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
-            _ = try await client.setTaskDelegated(id: task.id, delegated: delegated, workspaceID: workspaceID)
+            _ = try await client.updateTask(id: task.id, patch: request, workspaceID: workspaceID)
         }
     }
 

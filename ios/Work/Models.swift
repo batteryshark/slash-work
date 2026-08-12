@@ -129,7 +129,15 @@ struct WorkDecision: Codable, Identifiable, Hashable, Sendable {
     let createdAt: String
     let updatedAt: String
 
-    var isOpen: Bool { status == "open" }
+    /// Matches the web's `decisionIsActive`: a deferral whose date has passed is
+    /// active again. A deferral with no date, or a date still ahead, stays quiet.
+    var isOpen: Bool {
+        if status == "open" { return true }
+        guard status == "deferred", let until = WorkFormatting.date(from: resolution?.choice?.until) else {
+            return false
+        }
+        return until <= .now
+    }
     func references(_ itemID: String) -> Bool { refs?.contains(itemID) == true }
 }
 
