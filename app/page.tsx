@@ -3861,9 +3861,12 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
 
   return (
     <aside className="task-panel create-task-panel" aria-labelledby="create-task-heading">
-      <div className="task-panel-header"><div><p className="eyebrow">New work item</p><h2 id="create-task-heading">Create a complete card</h2></div><button type="button" onClick={onClose} aria-label="Close new work item">×</button></div>
+      {/* The heading asks the question the title answers, so the panel spends
+          its space on the prompt instead of on a label, a placeholder, and a
+          title that all say the same thing. */}
+      <div className="task-panel-header"><div><p className="eyebrow">New work item</p><h2 id="create-task-heading">What outcome or task needs tracking?</h2></div><button type="button" onClick={onClose} aria-label="Close new work item">×</button></div>
       <form onSubmit={submit} className="task-form">
-        <label className="field-wide"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="What outcome or task needs tracking?" autoFocus /></label>
+        <label className="field-wide"><span className="sr-only">Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Name it in a few words" autoFocus /></label>
         <TaskFields projects={projects} values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))}>
           <label><span>Status</span><select value={status} onChange={(event) => setStatus(event.target.value)}>{statuses.map((item) => <option key={item} value={item}>{statusLabel(item)}</option>)}</select></label>
         </TaskFields>
