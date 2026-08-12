@@ -1199,3 +1199,8 @@ html[data-theme="dark"] .danger-zone-button { background: var(--danger); color: 
 .stale-build-action { min-height: 44px; padding: 0 16px; border: 0; border-radius: 11px; background: var(--ink); color: var(--surface); font-weight: 700; cursor: pointer; }
 .stale-build-action:disabled { opacity: 0.55; cursor: default; }
 html[data-theme="dark"] .stale-build-action { background: var(--accent); color: #15131f; }
+
+.project-menu-roots { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 4px 4px; }
+.project-menu-roots button { min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); color: var(--muted); font-size: 13px; font-weight: 690; cursor: pointer; }
+.project-menu-roots button.selected { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+html[data-theme="dark"] .project-menu-roots button.selected { background: var(--accent); color: #15131f; border-color: var(--accent); }

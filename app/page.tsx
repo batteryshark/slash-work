@@ -1703,6 +1703,24 @@ export default function Home() {
               <div><p className="eyebrow">Only this root</p><strong>{data.workspace.name}</strong><small>{workspaceLocationLabel}</small></div>
               <button type="button" onClick={() => setProjectMenuOpen(false)} aria-label="Close project picker">×</button>
             </div>
+            {/* Roots sit inside the picker rather than behind a second control:
+                crossing between them was a two-step hunt through two menus. */}
+            {workspaceDirectory && workspaceDirectory.workspaces.length > 1 && (
+              <div className="project-menu-roots" role="group" aria-label="Workspace root">
+                {workspaceDirectory.workspaces.map((workspace) => (
+                  <button
+                    key={workspace.id}
+                    type="button"
+                    className={workspace.id === data.workspace.id ? "selected" : ""}
+                    aria-pressed={workspace.id === data.workspace.id}
+                    title={workspace.root}
+                    onClick={() => { if (workspace.id !== data.workspace.id) void switchWorkspace(workspace.id); }}
+                  >
+                    {workspace.name}
+                  </button>
+                ))}
+              </div>
+            )}
             <p className="project-menu-note">Logical projects are listed once. Linked Git worktrees are grouped with their repository.</p>
             <input
               className="project-search"

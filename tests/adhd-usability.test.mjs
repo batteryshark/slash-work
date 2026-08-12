@@ -73,6 +73,10 @@ test("keeps the ADHD usability gates present in the interface", async () => {
   // Typing in the search box flattens the grouping back to plain matches.
   assert.match(page, /projectSearch\.trim\(\) \? \(/);
   assert.match(css, /\.project-menu-group-header \{/);
+  // Roots live inside the project picker: crossing between them used to mean
+  // hunting through a second, separate menu.
+  assert.match(page, /project-menu-roots/);
+  assert.match(css, /\.project-menu-roots button\.selected \{/);
 
   // Deleting a project requires an inline second confirmation.
   assert.match(page, /project-delete-panel/);
