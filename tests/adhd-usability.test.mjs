@@ -124,10 +124,9 @@ test("keeps the ADHD usability gates present in the interface", async () => {
   const listView = page.slice(page.indexOf("function TaskListView"), page.indexOf("function KanbanBoard"));
   const board = page.slice(page.indexOf("function KanbanBoard"), page.indexOf("function ActivityView"));
   assert.match(listView, /<QuickAddRow status="backlog"/, "the list view files quick adds into backlog");
-  // One entry point on the board, not one per column: work is created in
-  // backlog, never straight into review or completed.
-  assert.match(board, /<QuickAddRow status="backlog"/, "the board files quick adds into backlog");
-  assert.doesNotMatch(board, /<QuickAddRow status=\{status\}/, "no per-column add box");
+  // Quick-add belongs to the list view. The board has "New work item"; a
+  // second way to do the same thing on the same screen is just clutter.
+  assert.doesNotMatch(board, /QuickAddRow/, "the board creates through the full form");
   const quickAdd = page.slice(page.indexOf("function QuickAddRow"), page.indexOf("function TaskListView"));
   assert.match(quickAdd, /event\.key === "Enter"/);
   assert.match(quickAdd, /event\.key === "Tab" && !event\.shiftKey/);

@@ -3921,7 +3921,7 @@ type QuickAddCreate = (title: string, status: string, parentId: string | null) =
  * link, indenting under a task that is itself a subtask reuses that subtask's
  * parent instead of nesting a second level.
  */
-function QuickAddRow({ status, statusName, onQuickAdd, compact = false }: { status: string; statusName: string; onQuickAdd: QuickAddCreate; compact?: boolean }) {
+function QuickAddRow({ status, statusName, onQuickAdd }: { status: string; statusName: string; onQuickAdd: QuickAddCreate }) {
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -3980,17 +3980,13 @@ function QuickAddRow({ status, statusName, onQuickAdd, compact = false }: { stat
 
   return (
     <form
-      className={`quick-add ${parentId ? "indented" : ""}${compact ? " compact" : ""}`}
+      className={`quick-add ${parentId ? "indented" : ""}`}
       onSubmit={(event) => { event.preventDefault(); void submit(); }}
     >
-      {/* No indent on the board: a column renders subtasks flat, so indenting
-          there would make a relationship the view cannot show. */}
-      {!compact && (
-        <div className="quick-add-indent-controls">
-          <button type="button" aria-label="Outdent: file the next task on its own" disabled={!indent} onClick={() => setIndent(false)}><span aria-hidden="true">⇤</span></button>
-          <button type="button" aria-label="Indent: file the next task under the one above" disabled={!anchor} onClick={() => setIndent(true)}><span aria-hidden="true">⇥</span></button>
-        </div>
-      )}
+      <div className="quick-add-indent-controls">
+        <button type="button" aria-label="Outdent: file the next task on its own" disabled={!indent} onClick={() => setIndent(false)}><span aria-hidden="true">⇤</span></button>
+        <button type="button" aria-label="Indent: file the next task under the one above" disabled={!anchor} onClick={() => setIndent(true)}><span aria-hidden="true">⇥</span></button>
+      </div>
       {/* A textarea, not a text input: a text input silently strips the
           newlines out of a pasted list, and the whole point is one task per
           pasted line. Enter still saves; the field grows to what was pasted. */}
@@ -4001,7 +3997,7 @@ function QuickAddRow({ status, statusName, onQuickAdd, compact = false }: { stat
         rows={Math.min(6, value.split("\n").length)}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={onKeyDown}
-        placeholder={compact ? "Add a task" : `Add to ${statusName} — Enter saves, Tab indents`}
+        placeholder={`Add to ${statusName} — Enter saves, Tab indents`}
         aria-label={`Add a task to ${statusName}. Enter saves it. Tab files it under the task above. Paste several lines to create several tasks.`}
         autoComplete="off"
       />
@@ -4148,18 +4144,13 @@ function KanbanBoard({
           <span className="sr-only">Search work items</span>
           <input type="search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search title, ID, project, or tag…" />
         </label>
-        {/* One entry point, not one per column: new work starts in backlog.
-            An add box on every status implied you could create something
-            already in review or already done. Drag it if it belongs elsewhere. */}
-        <QuickAddRow status="backlog" statusName={statusLabel("backlog")} onQuickAdd={onQuickAdd} compact />
       </div>
       {error && <div className="task-error" role="alert">{error}</div>}
       {tasks.length === 0 ? (
         <div className="board-empty">
           <strong>No work items in this scope yet.</strong>
-          <span>Type the first one below, promote an Inbox thought, or open the full form.</span>
+          <span>Create one here, promote an Inbox thought, or type a list in a project's list view.</span>
           <button type="button" className="primary-action" onClick={onCreate}>Create the first card</button>
-          <QuickAddRow status="backlog" statusName={statusLabel("backlog")} onQuickAdd={onQuickAdd} />
         </div>
       ) : (
         <div className="kanban-scroll" aria-label="Kanban board">
