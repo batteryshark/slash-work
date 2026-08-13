@@ -1250,3 +1250,10 @@ html[data-theme="dark"] { --tag-s: 40%; --tag-bg-l: 25%; --tag-ink-l: 80%; --tag
 .project-tag-input input { width: 100%; max-width: 320px; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--field); color: inherit; }
 .project-tag-suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .tag-chip-new { min-height: 34px; padding: 3px 10px; border: 1px dashed var(--line); border-radius: 999px; background: transparent; color: var(--muted); font-size: 11px; font-weight: 720; cursor: pointer; }
+
+/* Board columns are narrow: one quiet line, no indent controls, no hint text.
+   The full affordance lives in the list view where there is room for it. */
+.quick-add.compact { grid-template-columns: minmax(0, 1fr); gap: 4px; margin-top: 8px; }
+.quick-add.compact .quick-add-input { min-height: 38px; padding: 8px 10px; font-size: 13px; background: transparent; }
+.quick-add.compact .quick-add-input:not(:focus):placeholder-shown { border-color: color-mix(in srgb, var(--line) 60%, transparent); }
+.quick-add.compact .quick-add-state { grid-column: 1; }

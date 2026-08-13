@@ -3921,7 +3921,7 @@ type QuickAddCreate = (title: string, status: string, parentId: string | null) =
  * link, indenting under a task that is itself a subtask reuses that subtask's
  * parent instead of nesting a second level.
  */
-function QuickAddRow({ status, statusName, onQuickAdd }: { status: string; statusName: string; onQuickAdd: QuickAddCreate }) {
+function QuickAddRow({ status, statusName, onQuickAdd, compact = false }: { status: string; statusName: string; onQuickAdd: QuickAddCreate; compact?: boolean }) {
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -3980,13 +3980,17 @@ function QuickAddRow({ status, statusName, onQuickAdd }: { status: string; statu
 
   return (
     <form
-      className={`quick-add ${parentId ? "indented" : ""}`}
+      className={`quick-add ${parentId ? "indented" : ""}${compact ? " compact" : ""}`}
       onSubmit={(event) => { event.preventDefault(); void submit(); }}
     >
-      <div className="quick-add-indent-controls">
-        <button type="button" aria-label="Outdent: file the next task on its own" disabled={!indent} onClick={() => setIndent(false)}><span aria-hidden="true">⇤</span></button>
-        <button type="button" aria-label="Indent: file the next task under the one above" disabled={!anchor} onClick={() => setIndent(true)}><span aria-hidden="true">⇥</span></button>
-      </div>
+      {/* No indent on the board: a column renders subtasks flat, so indenting
+          there would make a relationship the view cannot show. */}
+      {!compact && (
+        <div className="quick-add-indent-controls">
+          <button type="button" aria-label="Outdent: file the next task on its own" disabled={!indent} onClick={() => setIndent(false)}><span aria-hidden="true">⇤</span></button>
+          <button type="button" aria-label="Indent: file the next task under the one above" disabled={!anchor} onClick={() => setIndent(true)}><span aria-hidden="true">⇥</span></button>
+        </div>
+      )}
       {/* A textarea, not a text input: a text input silently strips the
           newlines out of a pasted list, and the whole point is one task per
           pasted line. Enter still saves; the field grows to what was pasted. */}
@@ -3997,7 +4001,7 @@ function QuickAddRow({ status, statusName, onQuickAdd }: { status: string; statu
         rows={Math.min(6, value.split("\n").length)}
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={onKeyDown}
-        placeholder={`Add to ${statusName} — Enter saves, Tab indents`}
+        placeholder={compact ? "Add a task" : `Add to ${statusName} — Enter saves, Tab indents`}
         aria-label={`Add a task to ${statusName}. Enter saves it. Tab files it under the task above. Paste several lines to create several tasks.`}
         autoComplete="off"
       />
@@ -4221,7 +4225,7 @@ function KanbanBoard({
                       );
                     })}
                   </div>
-                  <QuickAddRow status={status} statusName={statusLabel(status)} onQuickAdd={onQuickAdd} />
+                  <QuickAddRow status={status} statusName={statusLabel(status)} onQuickAdd={onQuickAdd} compact />
                 </section>
               );
             })}
