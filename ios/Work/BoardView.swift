@@ -60,6 +60,7 @@ struct BoardView: View {
                 }
             }
             .listStyle(.plain)
+            .scrollDismissesKeyboard(.interactively)
             .navigationBarTitleDisplayMode(.inline)
             .workNavigation()
             .toolbar {
@@ -254,6 +255,11 @@ struct QuickAddRow: View {
                         .accessibilityLabel("Indent: file the next task under the one above")
                         .disabled(anchor == nil)
                     Spacer()
+                    // Without this the field is a trap: the only way out was to
+                    // create a task, or to tap another row and get navigated
+                    // into it. Dismissing keeps whatever was typed.
+                    Button { focused = false } label: { Image(systemName: "keyboard.chevron.compact.down") }
+                        .accessibilityLabel("Dismiss the keyboard")
                     Button("Add") { submit() }.disabled(value.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
