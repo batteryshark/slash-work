@@ -76,6 +76,12 @@ test("keeps the ADHD usability gates present in the interface", async () => {
   // Roots live inside the project picker: crossing between them used to mean
   // hunting through a second, separate menu.
   assert.match(page, /project-menu-roots/);
+
+  // Two windows can sit on two projects: where you are looking is per-window,
+  // what you looked at last is shared so a new window opens where you left off.
+  assert.match(page, /function rememberedValue/);
+  assert.match(page, /sessionStorage\.getItem\(key\)/);
+  assert.match(page, /sessionStorage\.setItem\(key, value\);\n  localStorage\.setItem\(key, value\)/);
   assert.match(css, /\.project-menu-roots button\.selected \{/);
 
   // Project tags cut across the folder groups. The chip row sits above the

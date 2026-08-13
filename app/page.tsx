@@ -557,8 +557,28 @@ function decisionIsActive(decision: Decision) {
   return typeof until === "string" && new Date(until).getTime() <= Date.now();
 }
 
+// Where you are looking is per-window; what you looked at last is shared.
+// localStorage is one value for every tab on this origin, so two windows on
+// two projects used to overwrite each other. sessionStorage gives each window
+// its own place, seeded from the shared value so a fresh window still opens
+// where you left off, and writes back so the next new window follows.
+function rememberedValue(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  const own = sessionStorage.getItem(key);
+  if (own !== null) return own;
+  const shared = localStorage.getItem(key);
+  if (shared !== null) sessionStorage.setItem(key, shared);
+  return shared;
+}
+
+function rememberValue(key: string, value: string) {
+  if (typeof window === "undefined") return;
+  sessionStorage.setItem(key, value);
+  localStorage.setItem(key, value);
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const workspaceId = typeof window === "undefined" ? null : localStorage.getItem("work.workspace");
+  const workspaceId = typeof window === "undefined" ? null : rememberedValue("work.workspace");
   const response = await fetch(path, {
     ...init,
     headers: {
@@ -685,11 +705,11 @@ export default function Home() {
       const directory = await requestJson<WorkspaceDirectory>("/api/workspaces", {
         headers: { accept: "application/json" },
       });
-      const rememberedId = localStorage.getItem("work.workspace");
+      const rememberedId = rememberedValue("work.workspace");
       const selectedId = directory.workspaces.some((workspace) => workspace.id === rememberedId)
         ? rememberedId
         : directory.activeWorkspaceId;
-      if (selectedId) localStorage.setItem("work.workspace", selectedId);
+      if (selectedId) rememberValue("work.workspace", selectedId);
       const workspace = await requestJson<WorkspacePayload>("/api/workspace", {
         headers: { accept: "application/json" },
       });
@@ -726,7 +746,7 @@ export default function Home() {
       setWorkspaceMenuOpen(false);
       return;
     }
-    localStorage.setItem("work.workspace", workspaceId);
+    rememberValue("work.workspace", workspaceId);
     setWorkspaceMenuOpen(false);
     setProjectMenuOpen(false);
     setSelectedNoteId(null);
@@ -801,7 +821,7 @@ export default function Home() {
         body: JSON.stringify({ confirm: true }),
       });
       if (receipt.cancelled || !receipt.workspace) return;
-      localStorage.setItem("work.workspace", receipt.workspace.id);
+      rememberValue("work.workspace", receipt.workspace.id);
       setWorkspaceMenuOpen(false);
       setProjectMenuOpen(false);
       setSelectedNoteId(null);
@@ -946,7 +966,7 @@ export default function Home() {
   useEffect(() => {
     if (!data) return;
     const key = `work.scope.${data.workspace.root}`;
-    const remembered = localStorage.getItem(key);
+    const remembered = rememberedValue(key);
     const requested = data.workspace.startScopePath && data.workspace.startScopePath !== "."
       ? data.workspace.startScopePath
       : remembered ?? ".";
@@ -956,7 +976,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!data) return;
-    localStorage.setItem(`work.scope.${data.workspace.root}`, scopePath);
+    rememberValue(`work.scope.${data.workspace.root}`, scopePath);
   }, [data, scopePath]);
 
   // Picker memory, same per-root shape as work.scope.*: which project groups the
