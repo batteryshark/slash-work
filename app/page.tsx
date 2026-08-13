@@ -577,8 +577,16 @@ function rememberValue(key: string, value: string) {
   localStorage.setItem(key, value);
 }
 
+// The workspace every request in THIS window belongs to. Storage is shared by
+// every tab on the origin, so reading it per request let another window's write
+// redirect this one's mutations mid-flight.
+let activeWorkspaceId: string | null = null;
+function setActiveWorkspaceId(id: string) { activeWorkspaceId = id; }
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const workspaceId = typeof window === "undefined" ? null : rememberedValue("work.workspace");
+  const workspaceId = typeof window === "undefined"
+    ? null
+    : activeWorkspaceId ?? rememberedValue("work.workspace");
   const response = await fetch(path, {
     ...init,
     headers: {
@@ -689,6 +697,10 @@ export default function Home() {
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const loadRequestRef = useRef(0);
+  // The workspace this window is on, decided once and then reused. The poll
+  // used to re-derive it every 12 seconds and fall back to the server's boot
+  // root whenever storage missed, silently dragging the window to another root.
+  const workspaceIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!captureReceipt) return;
@@ -705,13 +717,19 @@ export default function Home() {
       const directory = await requestJson<WorkspaceDirectory>("/api/workspaces", {
         headers: { accept: "application/json" },
       });
-      const rememberedId = rememberedValue("work.workspace");
-      const selectedId = directory.workspaces.some((workspace) => workspace.id === rememberedId)
-        ? rememberedId
+      const knownId = workspaceIdRef.current ?? rememberedValue("work.workspace");
+      const selectedId = directory.workspaces.some((workspace) => workspace.id === knownId)
+        ? knownId
         : directory.activeWorkspaceId;
-      if (selectedId) rememberValue("work.workspace", selectedId);
+      if (selectedId) {
+        workspaceIdRef.current = selectedId;
+        setActiveWorkspaceId(selectedId);
+        rememberValue("work.workspace", selectedId);
+      }
       const workspace = await requestJson<WorkspacePayload>("/api/workspace", {
-        headers: { accept: "application/json" },
+        // Named explicitly rather than read from storage again: another window
+        // writing the shared value mid-poll must not redirect this one.
+        headers: { accept: "application/json", ...(selectedId ? { "x-work-workspace": selectedId } : {}) },
       });
       if (requestNumber !== loadRequestRef.current) return;
       setWorkspaceDirectory(directory);
@@ -746,6 +764,8 @@ export default function Home() {
       setWorkspaceMenuOpen(false);
       return;
     }
+    workspaceIdRef.current = workspaceId;
+    setActiveWorkspaceId(workspaceId);
     rememberValue("work.workspace", workspaceId);
     setWorkspaceMenuOpen(false);
     setProjectMenuOpen(false);

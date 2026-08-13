@@ -80,6 +80,10 @@ test("keeps the ADHD usability gates present in the interface", async () => {
   // Two windows can sit on two projects: where you are looking is per-window,
   // what you looked at last is shared so a new window opens where you left off.
   assert.match(page, /function rememberedValue/);
+  // A window keeps the workspace it is on: the poll must not re-derive it and
+  // fall back to the server's boot root, which silently moved the window.
+  assert.match(page, /workspaceIdRef\.current \?\? rememberedValue/);
+  assert.match(page, /activeWorkspaceId \?\? rememberedValue/);
   assert.match(page, /sessionStorage\.getItem\(key\)/);
   assert.match(page, /sessionStorage\.setItem\(key, value\);\n  localStorage\.setItem\(key, value\)/);
   assert.match(css, /\.project-menu-roots button\.selected \{/);
