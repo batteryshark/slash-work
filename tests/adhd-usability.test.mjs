@@ -106,6 +106,35 @@ test("keeps the ADHD usability gates present in the interface", async () => {
   assert.match(page, /project-delete-panel/);
   assert.match(page, /danger-zone-button/);
 
+  // Rapid task entry: one quick-add row at the foot of the list view and one
+  // under every board column, Enter creating the task without leaving the
+  // keyboard, and Tab filing the next task under the row above.
+  assert.match(page, /function QuickAddRow/);
+  assert.match(page, /className="quick-add-input"/);
+  const listView = page.slice(page.indexOf("function TaskListView"), page.indexOf("function KanbanBoard"));
+  const board = page.slice(page.indexOf("function KanbanBoard"), page.indexOf("function ActivityView"));
+  assert.match(listView, /<QuickAddRow status="backlog"/, "the list view files quick adds into backlog");
+  assert.match(board, /<QuickAddRow status=\{status\}/, "each board column files into its own status");
+  const quickAdd = page.slice(page.indexOf("function QuickAddRow"), page.indexOf("function TaskListView"));
+  assert.match(quickAdd, /event\.key === "Enter"/);
+  assert.match(quickAdd, /event\.key === "Tab" && !event\.shiftKey/);
+  assert.match(quickAdd, /event\.key === "Tab" && event\.shiftKey/);
+  assert.match(quickAdd, /splitTaskTitles\(value\)/, "a pasted list becomes one task per line");
+  // The pending indent is visible and announced before the task exists.
+  assert.match(quickAdd, /Subtask of \$\{parentId\}/);
+  assert.match(quickAdd, /aria-live="polite"/);
+  assert.match(css, /\.quick-add\.indented \.quick-add-input \{/);
+  // Touch has no Tab key, so the same two moves get buttons.
+  assert.match(quickAdd, /aria-label="Indent: file the next task under the one above"/);
+  assert.match(quickAdd, /aria-label="Outdent: file the next task on its own"/);
+  assert.match(css, /\.quick-add-indent-controls button \{[^}]*min-height: 44px/);
+  // Subtasks render nested under their parent in the list view.
+  assert.match(listView, /task-list-children/);
+  assert.match(css, /\.task-list-children \{/);
+  // The dock's task shortcut is named where the dock explains itself.
+  assert.match(page, /task-prefix-hint/);
+  assert.match(page, /Start a line <kbd>task:<\/kbd>/);
+
   // No modal interruptions and no required form fields.
   assert.doesNotMatch(page, /<dialog|window\.alert|window\.confirm|\brequired=/i);
 

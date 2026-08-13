@@ -960,12 +960,30 @@ kbd { display: inline-grid; place-items: center; min-width: 23px; height: 23px; 
 .card-updated { margin-top: 2px; }
 .card-delegated { padding: 3px 6px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-dark); }
 .task-list { display: grid; gap: 9px; margin: 0; padding: 0; list-style: none; }
-.task-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 6px 6px 6px 0; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
+.task-list li { border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
+.task-list-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 6px 6px 6px 0; }
+/* Subtasks nest one level only: parentId is a single link. */
+.task-list-children { gap: 6px; padding: 0 8px 8px 22px; }
+.task-list-children li { background: var(--surface-muted); }
 .task-list-title { display: grid; gap: 3px; min-height: 44px; padding: 8px 14px; border: 0; border-radius: 12px; background: none; color: var(--ink); text-align: left; cursor: pointer; }
 .task-list-title:hover strong { color: var(--accent-dark); }
 .task-list-title strong { overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
 .task-list-title small { color: var(--muted); font-family: var(--mono); font-size: 11px; }
 .task-list-status select { min-height: 44px; padding: 0 32px 0 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-muted); color: var(--ink); font-size: 13px; font-weight: 680; }
+
+/* Rapid task entry. One line in, one task out; Tab files the next one under
+   the row above. Lives at the foot of the list view and of every board
+   column, so the habit is the same in both. */
+.quick-add { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 6px; margin-top: 10px; }
+.quick-add-input { min-height: 44px; padding: 11px 12px; resize: none; font-family: inherit; line-height: 1.4; border: 1px dashed var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); font-size: 14px; }
+.quick-add-input:focus-visible { border-style: solid; border-color: var(--accent); }
+.quick-add.indented .quick-add-input { margin-inline-start: 22px; border-inline-start: 3px solid var(--accent); }
+.quick-add-indent-controls { display: inline-flex; gap: 2px; }
+.quick-add-indent-controls button { min-width: 34px; min-height: 44px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-muted); color: var(--muted); cursor: pointer; font-size: 13px; }
+.quick-add-indent-controls button:disabled { opacity: 0.4; cursor: default; }
+.quick-add-state { grid-column: 2; color: var(--muted); font-size: 12px; }
+.quick-add-state:empty { display: none; }
+.task-prefix-hint { display: inline-flex; align-items: center; gap: 5px; }
 .pulse-header-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; }
 .pulse-header-actions .primary-action { width: auto; }
 .project-view-toggle { display: inline-flex; padding: 3px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-muted); }
@@ -1188,7 +1206,7 @@ html[data-theme="dark"] .danger-zone-button { background: var(--danger); color: 
   .capture-meta { align-items: flex-start; flex-direction: column; padding-left: 4px; }
   .capture-meta > span:first-child { white-space: normal; }
   .capture-meta > div { width: 100%; justify-content: space-between; }
-  .shortcut-hint, .multiline-hint, .capture-meta > div > span:last-child { display: none; }
+  .shortcut-hint, .multiline-hint, .task-prefix-hint, .capture-meta > div > span:last-child { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

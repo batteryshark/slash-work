@@ -1,6 +1,7 @@
 "use client";
 
 import { normalizeTags, tagHueAngle, workspaceTags } from "../lib/tags.mjs";
+import { splitTaskTitles } from "../lib/task-lines.mjs";
 import {
   CSSProperties,
   FormEvent,
@@ -625,6 +626,7 @@ export default function Home() {
   const [captureToMove, setCaptureToMove] = useState<Capture | null>(null);
   const [captureMoveSearch, setCaptureMoveSearch] = useState("");
   const [captureError, setCaptureError] = useState<string | null>(null);
+  const [captureNotice, setCaptureNotice] = useState<string | null>(null);
   const [captureReceipt, setCaptureReceipt] = useState<CaptureReceipt | null>(null);
   // Session-only, never persisted: captures go to the root Inbox unless the
   // user explicitly flips the dock destination to the current project.
@@ -1368,6 +1370,17 @@ export default function Home() {
     }, { saving: setSavingTask, error: setTaskError, fallback: "The work item could not be created." });
   }
 
+  // Quick add stays out of the shared saving/error state on purpose: the row
+  // reports its own outcome inline and never opens the created task.
+  async function quickAddTask(title: string, status: string, parentId: string | null) {
+    const task = await requestJson<WorkTask>("/api/tasks", {
+      method: "POST",
+      body: JSON.stringify({ title, projectPath: selectedProject?.path ?? null, status, parentId }),
+    });
+    replaceIn("tasks", task);
+    return task;
+  }
+
   function moveWorkTask(taskId: string, status: string, note?: string) {
     return run(async () => {
       const task = await requestJson<WorkTask>(`/api/tasks/${encodeURIComponent(taskId)}/move`, {
@@ -1438,19 +1451,29 @@ export default function Home() {
       return;
     }
 
-    const isMultiline = text.includes("\n");
-    const taskCommand = isMultiline ? null : text.match(/^(?:task|todo)\s*:?\s+(.+)$/i);
+    // `task:` on the first line switches the dock to task entry. Every further
+    // line becomes its own task, so a pasted list arrives as a list.
+    const lines = splitTaskTitles(text);
+    const taskCommand = lines[0]?.match(/^(?:task|todo)\s*:?\s+(.+)$/i);
     if (taskCommand) {
+      const titles = [taskCommand[1].trim(), ...lines.slice(1).map((line) => line.replace(/^(?:task|todo)\s*:?\s+/i, ""))].filter(Boolean);
+      setSavingCapture(true);
+      setCaptureError(null);
+      setCaptureNotice(null);
+      let created = 0;
       try {
-        await createWorkTask({
-          title: taskCommand[1].trim(),
-          projectPath: selectedProject?.path ?? null,
-          status: "backlog",
-        });
+        for (const title of titles) {
+          await createWorkTask({ title, projectPath: selectedProject?.path ?? null, status: "backlog" }, false);
+          created += 1;
+        }
         setCommand("");
-        window.requestAnimationFrame(() => inputRef.current?.focus());
+        setCaptureNotice(created > 1 ? `Added ${created} tasks to ${selectedProject?.name ?? "the workspace"}.` : null);
       } catch {
-        setCaptureError("Task not created — check the board message and try again.");
+        setCaptureError(`${created > 0 ? `Added ${created} of ${titles.length}. ` : ""}Task not created — check the board message and try again.`);
+        setCommand(titles.slice(created).map((title) => `task: ${title}`).join("\n"));
+      } finally {
+        setSavingCapture(false);
+        window.requestAnimationFrame(() => inputRef.current?.focus());
       }
       return;
     }
@@ -1458,6 +1481,7 @@ export default function Home() {
     // breadcrumbs; "show board" saved as a thought beats a discarded thought.
     setSavingCapture(true);
     setCaptureError(null);
+    setCaptureNotice(null);
     try {
       const toProject = captureToProject && selectedProject ? selectedProject.path : null;
       const response = await requestJson<Capture | { capture: Capture }>("/api/captures", {
@@ -1959,6 +1983,7 @@ export default function Home() {
               onMove={(taskId, status) => void moveWorkTask(taskId, status).catch(() => {})}
               onOpenTask={setSelectedTaskId}
               onCreate={() => setCreatingTask(true)}
+              onQuickAdd={quickAddTask}
               error={taskError}
             />
           ) : (
@@ -1978,6 +2003,7 @@ export default function Home() {
             onMove={(taskId, status) => void moveWorkTask(taskId, status).catch(() => {})}
             onOpenTask={setSelectedTaskId}
             onCreate={() => setCreatingTask(true)}
+            onQuickAdd={quickAddTask}
             error={taskError}
           />
           )
@@ -2418,11 +2444,12 @@ export default function Home() {
         </form>
         <div className="capture-meta">
           <span className={captureError ? "capture-error" : ""} aria-live="polite">
-            {captureError ?? `Exact destination: ${captureDestination}. Project names in the thought never reroute it.`}
+            {captureError ?? captureNotice ?? `Exact destination: ${captureDestination}. Project names in the thought never reroute it.`}
           </span>
           <div>
             <button type="button" onClick={() => openHomeSection("inbox")}>{scopedCaptures.length} in {selectedProject ? `${selectedProject.name} inbox` : scopePath === "." ? "root inbox" : `${scopeLabel} inbox`}</button>
             <span className="shortcut-hint"><kbd>/</kbd> focus</span>
+            <span className="task-prefix-hint">Start a line <kbd>task:</kbd> to make a task instead — one per pasted line</span>
             <span className="multiline-hint"><kbd>Shift</kbd> + <kbd>Enter</kbd> new line</span>
             <span>{lastSyncedAt ? `Synced ${shortTime(lastSyncedAt.toISOString())}` : "Connecting…"}</span>
           </div>
@@ -3845,7 +3872,103 @@ function UpcomingSchedule({ items, projects, onOpenTask }: {
   );
 }
 
-function TaskListView({ scopeLabel, tasks, statuses, showTerminal, onToggleTerminal, onMove, onOpenTask, onCreate, error }: {
+type QuickAddCreate = (title: string, status: string, parentId: string | null) => Promise<WorkTask>;
+
+/**
+ * Rapid task entry: type, Enter, type, Enter, never leaving the keyboard.
+ * Pasting several lines creates one task per line. Tab files the next task
+ * under the row above from this typing session; because `parentId` is a single
+ * link, indenting under a task that is itself a subtask reuses that subtask's
+ * parent instead of nesting a second level.
+ */
+function QuickAddRow({ status, statusName, onQuickAdd }: { status: string; statusName: string; onQuickAdd: QuickAddCreate }) {
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [indent, setIndent] = useState(false);
+  const [anchor, setAnchor] = useState<{ id: string; parentId: string | null } | null>(null);
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
+  const parentId = indent && anchor ? anchor.parentId ?? anchor.id : null;
+
+  async function submit() {
+    const titles = splitTaskTitles(value);
+    if (titles.length === 0 || busy) return;
+    // Clear first so the next line can be typed while this one saves; a
+    // failure puts the unsaved lines back only if nothing was typed since.
+    setValue("");
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    let previous = anchor;
+    let created = 0;
+    try {
+      for (const title of titles) {
+        const parent = indent && previous ? previous.parentId ?? previous.id : null;
+        const task = await onQuickAdd(title, status, parent);
+        previous = { id: task.id, parentId: task.parentId ?? null };
+        created += 1;
+      }
+      setNotice(created > 1 ? `Added ${created} tasks.` : null);
+    } catch (cause) {
+      const remaining = titles.slice(created);
+      setValue((current) => current || remaining.join("\n"));
+      setError(`${created > 0 ? `Added ${created} of ${titles.length}. ` : ""}Not saved — ${cause instanceof Error ? cause.message : "try again."}`);
+    } finally {
+      if (previous) setAnchor(previous);
+      setBusy(false);
+      fieldRef.current?.focus();
+    }
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      void submit();
+      return;
+    }
+    if (event.key === "Tab" && !event.shiftKey && value.trim() && anchor) {
+      event.preventDefault();
+      setIndent(true);
+      return;
+    }
+    if (event.key === "Tab" && event.shiftKey && indent) {
+      event.preventDefault();
+      setIndent(false);
+    }
+  }
+
+  return (
+    <form
+      className={`quick-add ${parentId ? "indented" : ""}`}
+      onSubmit={(event) => { event.preventDefault(); void submit(); }}
+    >
+      <div className="quick-add-indent-controls">
+        <button type="button" aria-label="Outdent: file the next task on its own" disabled={!indent} onClick={() => setIndent(false)}><span aria-hidden="true">⇤</span></button>
+        <button type="button" aria-label="Indent: file the next task under the one above" disabled={!anchor} onClick={() => setIndent(true)}><span aria-hidden="true">⇥</span></button>
+      </div>
+      {/* A textarea, not a text input: a text input silently strips the
+          newlines out of a pasted list, and the whole point is one task per
+          pasted line. Enter still saves; the field grows to what was pasted. */}
+      <textarea
+        ref={fieldRef}
+        className="quick-add-input"
+        value={value}
+        rows={Math.min(6, value.split("\n").length)}
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={onKeyDown}
+        placeholder={`Add to ${statusName} — Enter saves, Tab indents`}
+        aria-label={`Add a task to ${statusName}. Enter saves it. Tab files it under the task above. Paste several lines to create several tasks.`}
+        autoComplete="off"
+      />
+      <span className="quick-add-state" role="status" aria-live="polite">
+        {error ?? notice ?? (busy ? "Saving…" : parentId ? `Subtask of ${parentId}` : "")}
+      </span>
+    </form>
+  );
+}
+
+function TaskListView({ scopeLabel, tasks, statuses, showTerminal, onToggleTerminal, onMove, onOpenTask, onCreate, onQuickAdd, error }: {
   scopeLabel: string;
   tasks: WorkTask[];
   statuses: string[];
@@ -3854,12 +3977,42 @@ function TaskListView({ scopeLabel, tasks, statuses, showTerminal, onToggleTermi
   onMove: (id: string, status: string) => void;
   onOpenTask: (id: string) => void;
   onCreate: () => void;
+  onQuickAdd: QuickAddCreate;
   error: string | null;
 }) {
   const order = [...statuses, "cancelled", "archived"];
   const visible = tasks
     .filter((task) => showTerminal || !["cancelled", "archived"].includes(task.status))
-    .sort((left, right) => order.indexOf(left.status) - order.indexOf(right.status) || (left.dueAt ?? "9999").localeCompare(right.dueAt ?? "9999") || (right.updatedAt ?? "").localeCompare(left.updatedAt ?? ""));
+    // Oldest first inside a status: a list typed top to bottom reads back in
+    // the order it was typed, and a new quick-add row lands at the bottom
+    // beside the input that made it.
+    .sort((left, right) => order.indexOf(left.status) - order.indexOf(right.status) || (left.dueAt ?? "9999").localeCompare(right.dueAt ?? "9999") || (left.createdAt ?? "").localeCompare(right.createdAt ?? ""));
+  // Subtasks render under their parent when the parent is visible here; an
+  // orphan (parent filtered out or in another project) stays at top level.
+  const ids = new Set(visible.map((task) => task.id));
+  const childrenOf = (id: string) => visible.filter((task) => task.parentId === id);
+  const topLevel = visible.filter((task) => !task.parentId || !ids.has(task.parentId));
+  const row = (task: WorkTask) => (
+    <li key={task.id}>
+      <div className="task-list-row">
+        <button type="button" className="task-list-title" onClick={() => onOpenTask(task.id)} aria-label={`Open ${task.id}: ${task.title}`}>
+          <strong>{task.title}</strong>
+          <small>{task.id}{task.delegated ? " · handed to an agent" : ""}</small>
+        </button>
+        <label className="task-list-status">
+          <span className="sr-only">Status for {task.id}</span>
+          <select value={task.status} onChange={(event) => onMove(task.id, event.target.value)}>
+            {order.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}
+          </select>
+        </label>
+      </div>
+      {childrenOf(task.id).length > 0 && (
+        <ol className="task-list task-list-children" aria-label={`Subtasks of ${task.id}`}>
+          {childrenOf(task.id).map((child) => row(child))}
+        </ol>
+      )}
+    </li>
+  );
   return (
     <section className="board-view task-list-view" aria-labelledby="board-heading">
       <div className="board-toolbar">
@@ -3877,27 +4030,15 @@ function TaskListView({ scopeLabel, tasks, statuses, showTerminal, onToggleTermi
       {visible.length === 0 ? (
         <div className="board-empty">
           <strong>No work items in this scope yet.</strong>
-          <span>Create one here, promote an Inbox thought, or type `/work task: …`.</span>
+          <span>Type the first one below, promote an Inbox thought, or open the full form.</span>
           <button type="button" className="primary-action" onClick={onCreate}>Create the first item</button>
         </div>
       ) : (
         <ol className="task-list" aria-label="Tasks in this project">
-          {visible.map((task) => (
-            <li key={task.id}>
-              <button type="button" className="task-list-title" onClick={() => onOpenTask(task.id)} aria-label={`Open ${task.id}: ${task.title}`}>
-                <strong>{task.title}</strong>
-                <small>{task.id}{task.delegated ? " · handed to an agent" : ""}</small>
-              </button>
-              <label className="task-list-status">
-                <span className="sr-only">Status for {task.id}</span>
-                <select value={task.status} onChange={(event) => onMove(task.id, event.target.value)}>
-                  {order.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}
-                </select>
-              </label>
-            </li>
-          ))}
+          {topLevel.map((task) => row(task))}
         </ol>
       )}
+      <QuickAddRow status="backlog" statusName={statusLabel("backlog")} onQuickAdd={onQuickAdd} />
     </section>
   );
 }
@@ -3918,6 +4059,7 @@ function KanbanBoard({
   onMove,
   onOpenTask,
   onCreate,
+  onQuickAdd,
   error,
 }: {
   scopeLabel: string;
@@ -3935,6 +4077,7 @@ function KanbanBoard({
   onMove: (id: string, status: string) => void;
   onOpenTask: (id: string) => void;
   onCreate: () => void;
+  onQuickAdd: QuickAddCreate;
   error: string | null;
 }) {
   const boardStatuses = showTerminal ? [...statuses, "cancelled", "archived"] : statuses;
@@ -3966,8 +4109,9 @@ function KanbanBoard({
       {tasks.length === 0 ? (
         <div className="board-empty">
           <strong>No work items in this scope yet.</strong>
-          <span>Create a full card here, promote an Inbox thought, or type `/work task: …`.</span>
+          <span>Type the first one below, promote an Inbox thought, or open the full form.</span>
           <button type="button" className="primary-action" onClick={onCreate}>Create the first card</button>
+          <QuickAddRow status="backlog" statusName={statusLabel("backlog")} onQuickAdd={onQuickAdd} />
         </div>
       ) : (
         <div className="kanban-scroll" aria-label="Kanban board">
@@ -4037,6 +4181,7 @@ function KanbanBoard({
                       );
                     })}
                   </div>
+                  <QuickAddRow status={status} statusName={statusLabel(status)} onQuickAdd={onQuickAdd} />
                 </section>
               );
             })}

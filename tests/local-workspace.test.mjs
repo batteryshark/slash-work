@@ -13,6 +13,7 @@ import { createTask, discoverProjects, initializeWorkspace } from "../lib/local-
 import { chooseWorkspaceDirectory } from "../lib/native-folder-picker.mjs";
 import { registerWorkspace } from "../lib/workspace-registry.mjs";
 import { normalizeTags, tagHueAngle, tagHueIndex, workspaceTags } from "../lib/tags.mjs";
+import { splitTaskTitles } from "../lib/task-lines.mjs";
 
 const temporaryDirectories = [];
 const execFile = promisify(execFileCallback);
@@ -2591,4 +2592,32 @@ test("project tags are optional, derived, and survive unrelated profile edits", 
   const clear = await execFile(process.execPath, [launcherPath.pathname, "project", "software/rekit"], { cwd: root });
   assert.match(clear.stdout, /Tags: \(none\)/);
   assert.equal(Object.hasOwn(JSON.parse(await readFile(markerPath, "utf8")), "tags"), false);
+});
+
+test("pasted lines split into one task title each", () => {
+  assert.deepEqual(splitTaskTitles("call the plumber\n\n  book the van  \n"), ["call the plumber", "book the van"]);
+  // Lists arrive with bullets and numbers attached; the marker is not a title.
+  assert.deepEqual(splitTaskTitles("- one\n* two\n3. three\n4) four"), ["one", "two", "three", "four"]);
+  assert.deepEqual(splitTaskTitles(""), []);
+  assert.deepEqual(splitTaskTitles(null), []);
+  assert.ok(splitTaskTitles("x".repeat(600))[0].length <= 500, "titles stay inside the 500-character server limit");
+  // A hyphen inside a title is not a bullet.
+  assert.deepEqual(splitTaskTitles("re-check the invoice"), ["re-check the invoice"]);
+});
+
+test("quick add creates subtasks with no new API surface: N titles are N calls", async () => {
+  const root = await temporaryDirectory("work-quickadd-");
+  const workspace = await initializeWorkspace(root, { force: true });
+  const parent = await createTask(workspace, { title: "Move house", status: "backlog" });
+  const child = await createTask(workspace, { title: "Book the van", status: "backlog", parentId: parent.id });
+  assert.equal(child.parentId, parent.id);
+
+  // Indenting again anchors on the subtask, and the row above being a subtask
+  // reuses its parent rather than nesting a second level.
+  const sibling = await createTask(workspace, { title: "Pack the kitchen", status: "backlog", parentId: child.parentId ?? child.id });
+  assert.equal(sibling.parentId, parent.id);
+
+  // A board column quick add files into that column's status, not backlog.
+  const inReview = await createTask(workspace, { title: "Sign the lease", status: "review" });
+  assert.equal(inReview.status, "review");
 });
