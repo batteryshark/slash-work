@@ -261,7 +261,13 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
 
   // --project filters rather than being ignored, and a path that matches no
   // project says so instead of printing an empty list that reads as "no work".
-  await execFile(process.execPath, [launcherPath.pathname, "new", "Filtered"], { cwd: root });
+  // Tagging at creation, so a project does not have to be tagged in a second
+  // step it is easy to forget.
+  const createdWithTags = await execFile(
+    process.execPath,
+    [launcherPath.pathname, "new", "Filtered", "--tag", "house", "--tag", "House"],
+    { cwd: root });
+  assert.match(createdWithTags.stdout, /Tags: house$/m, "duplicate casing collapses to first seen");
   const filtered = await execFile(
     process.execPath, [launcherPath.pathname, "list", "--project", "filtered"], { cwd: root });
   assert.match(filtered.stdout, /No work items in filtered\./);
@@ -809,7 +815,7 @@ test("work new creates a named project and work add refuses to invent a workspac
   assert.match(nested.stdout, /Created project writing\/sub-project/);
 
   const help = await execFile(process.execPath, [launcherPath.pathname, "--help"], { cwd: repositoryRoot });
-  assert.match(help.stdout, /work new "Name" \[--under rel\/path\]/);
+  assert.match(help.stdout, /work new "Name" \[--under p\] \[--tag t\]/);
 });
 
 test("restarts only after explicit local confirmation", async () => {

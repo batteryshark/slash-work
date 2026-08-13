@@ -64,7 +64,7 @@ Usage:
   work roots prune                    Drop registered roots whose directory is gone
   work roots forget <path>            Unregister one root without touching its files
   work projects                       List exact projects in the current workspace
-  work new "Name" [--under rel/path]  Create a project folder and marker from a name
+  work new "Name" [--under p] [--tag t] Create a project folder and marker from a name
   work project <rel-path> [--tag t]   Replace a project's tags (omit --tag to clear them)
   work remove <rel-path>              Remove a project from Work (folder deleted only when empty)
   work agent                          Print capabilities and resolved local context
@@ -392,9 +392,13 @@ async function runAgent(options, positionals) {
 async function runNew(options, positionals) {
   if (positionals.length === 0) throw new WorkspaceError('new requires a project name in quotes.');
   const workspace = await existingWorkspace(options);
-  const project = await createProject(workspace, { name: positionals.join(" "), parentPath: options.under });
+  let project = await createProject(workspace, { name: positionals.join(" "), parentPath: options.under });
+  if (options.tag.length > 0) {
+    project = await updateProjectProfile(workspace, project.path, { tags: options.tag });
+  }
   console.log(`Created project ${project.path} (${project.name})`);
   console.log(`Folder: ${workspace.root}/${project.path}`);
+  if (project.tags.length > 0) console.log(`Tags: ${project.tags.join(", ")}`);
 }
 
 async function runAdd(options, positionals) {

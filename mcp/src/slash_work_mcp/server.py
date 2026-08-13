@@ -49,6 +49,17 @@ async def project_create(workspace_id: str, name: str, parent_path: str | None =
     return await call("POST", "/api/projects", workspace_id, body=compact(name=name, parentPath=parent_path))
 
 
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
+async def project_update(workspace_id: str, project_path: str, name: str | None = None,
+                         description: str | None = None, view: str | None = None,
+                         tags: list[str] | None = None) -> dict[str, Any]:
+    """Update one project's profile. Only the fields you pass change; tags REPLACE the
+    project's list (pass [] to clear). view is board or list."""
+    return await call("PATCH", "/api/projects/profile", workspace_id,
+                      body=compact(projectPath=project_path, name=name,
+                                   description=description, view=view, tags=tags))
+
+
 @mcp.tool(annotations={"readOnlyHint": True})
 async def tasks_list(workspace_id: str, updated_since: str | None = None) -> dict[str, Any]:
     """List task records in one workspace, optionally only those updated after updated_since (ISO-8601)."""
