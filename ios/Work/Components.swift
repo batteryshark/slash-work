@@ -188,6 +188,24 @@ struct StatusPill: View {
     }
 }
 
+/// Same shape as StatusPill: the name always shows, the colour is only
+/// reinforcement, so the chip stays readable without hue discrimination.
+struct TagChip: View {
+    let tag: String
+    var selected = false
+    var color: Color { WorkTag.color(tag) }
+
+    var body: some View {
+        Text(tag)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(color.opacity(selected ? 0.28 : 0.12), in: Capsule())
+            .overlay(Capsule().stroke(color.opacity(selected ? 0.9 : 0.25), lineWidth: selected ? 1.5 : 1))
+    }
+}
+
 struct TaskCard: View {
     let task: WorkTask
 

@@ -23,6 +23,7 @@ import {
   moveTask,
   projectForScope,
   readWorkspace,
+  updateProjectProfile,
   updateTask,
 } from "../lib/local-workspace.mjs";
 import {
@@ -64,6 +65,7 @@ Usage:
   work roots forget <path>            Unregister one root without touching its files
   work projects                       List exact projects in the current workspace
   work new "Name" [--under rel/path]  Create a project folder and marker from a name
+  work project <rel-path> [--tag t]   Replace a project's tags (omit --tag to clear them)
   work remove <rel-path>              Remove a project from Work (folder deleted only when empty)
   work agent                          Print capabilities and resolved local context
   work agent context                  Print only the resolved local context
@@ -91,7 +93,7 @@ Options:
   --recommend <text>  Recommend one exact recorded decision option
   --ref <id>          Link the decision to a Work item; may be repeated
   --delegate          Hand the new task to an agent (human-only signal)
-  --tag <tag>         Tag; may be repeated
+  --tag <tag>         Tag; may be repeated (work project replaces the project's list)
   --depends-on <id>   Dependency; may be repeated
   --blocked-by <id>   Blocker task; may be repeated
   --status <status>   Initial Kanban status
@@ -119,6 +121,7 @@ Examples:
   work ~/Projects
   work agent
   work projects
+  work project life/lvp-repair --tag house --tag renovation
   work add "check whether the release needs a migration" --scope tools
   work add "validate the parser" --scope tools/parser --project tools/parser
   work decision "Where should the lab live?" --option "Keep unassigned" --option "Assign later"
@@ -435,6 +438,16 @@ async function runDecision(options, positionals) {
   );
   console.log(`Created decision ${decision.id}`);
   console.log(decision.projectPath ? `Project: ${decision.projectPath}` : "Unassigned");
+}
+
+// No CLI command owned project profile edits before tags; this is the smallest
+// one that does. --tag is repeatable exactly as it is for tasks, and the list
+// it builds replaces the project's tags outright (omit it to clear them).
+async function runProject(options, positionals) {
+  if (positionals.length !== 1) throw new WorkspaceError("project requires exactly one project path.");
+  const workspace = await currentWorkspace(options);
+  const project = await updateProjectProfile(workspace, positionals[0], { tags: options.tag });
+  console.log(`${project.path}\tTags: ${project.tags.join(", ") || "(none)"}`);
 }
 
 async function runRemove(options, positionals) {
@@ -777,6 +790,7 @@ const COMMANDS = {
   roots: runRoots,
   projects: runProjects,
   new: runNew,
+  project: runProject,
   remove: runRemove,
   agent: runAgent,
   add: runAdd,

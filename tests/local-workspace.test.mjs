@@ -12,6 +12,7 @@ import { closeLocalApi, startLocalApi } from "../server/local-api.mjs";
 import { createTask, discoverProjects, initializeWorkspace } from "../lib/local-workspace.mjs";
 import { chooseWorkspaceDirectory } from "../lib/native-folder-picker.mjs";
 import { registerWorkspace } from "../lib/workspace-registry.mjs";
+import { normalizeTags, tagHueAngle, tagHueIndex, workspaceTags } from "../lib/tags.mjs";
 
 const temporaryDirectories = [];
 const execFile = promisify(execFileCallback);
@@ -2502,4 +2503,86 @@ test("the workspace id floor sets where new task ids start", async () => {
     () => execFile(process.execPath, [launcherPath.pathname, "init", viaCli, "--id-floor", "later"], { cwd: repositoryRoot, env: environment }),
     /idFloor/,
   );
+});
+
+test("project tags are optional, derived, and survive unrelated profile edits", async () => {
+  // Pure rules first: one definition shared by the CLI, the API, and the web app.
+  assert.deepEqual(normalizeTags([" House ", "house", "", "HOUSE", "yard "]), ["House", "yard"]);
+  assert.deepEqual(normalizeTags(undefined), []);
+  assert.deepEqual(normalizeTags(["ok", 7, null]), ["ok"]);
+  // Suggestions are the union across projects, deduped case-insensitively.
+  assert.deepEqual(workspaceTags([{ tags: ["b", "House"] }, { tags: ["house", "a"] }, {}]), ["a", "b", "House"]);
+  assert.deepEqual(workspaceTags([]), []);
+  // Colour is a stable pure function of the name, so the phone agrees with the
+  // desktop. ios/Work/Models.swift pins these same numbers.
+  assert.equal(tagHueIndex("house"), 0);
+  assert.equal(tagHueIndex("House"), tagHueIndex("house"));
+  assert.equal(tagHueIndex("lvp-repair"), 4);
+  assert.equal(tagHueIndex("work"), 1);
+  assert.equal(tagHueAngle("lvp-repair"), 190);
+
+  const { root } = await makeWorkspaceFixture();
+  const api = await startLocalApi({ root, port: 0 });
+  const markerPath = join(root, "software", "rekit", ".work", "project.json");
+
+  try {
+    // An untagged project reads as [] and its marker never grows a tags key.
+    const before = await apiRequest(api.origin, "/api/projects");
+    assert.deepEqual(before.payload.projects.find((project) => project.path === "software/rekit").tags, []);
+
+    const tagged = await apiRequest(api.origin, "/api/projects/profile", {
+      method: "PATCH",
+      body: { projectPath: "software/rekit", tags: [" House ", "house", "renovation"] },
+    });
+    assert.equal(tagged.response.status, 200);
+    assert.deepEqual(tagged.payload.tags, ["House", "renovation"]);
+    assert.deepEqual(JSON.parse(await readFile(markerPath, "utf8")).tags, ["House", "renovation"]);
+    const listed = await apiRequest(api.origin, "/api/projects");
+    assert.deepEqual(listed.payload.projects.find((project) => project.path === "software/rekit").tags, ["House", "renovation"]);
+
+    // The regression most likely to bite: an unrelated profile edit must not
+    // drop the tags.
+    const renamed = await apiRequest(api.origin, "/api/projects/profile", {
+      method: "PATCH",
+      body: { projectPath: "software/rekit", name: "ReKit Studio" },
+    });
+    assert.equal(renamed.payload.name, "ReKit Studio");
+    assert.deepEqual(renamed.payload.tags, ["House", "renovation"]);
+
+    // Tags belong to the project alone: a task in it keeps its own tags.
+    const task = await apiRequest(api.origin, "/api/tasks", {
+      method: "POST",
+      body: { title: "Lay the plank", projectPath: "software/rekit", tags: ["flooring"] },
+    });
+    assert.deepEqual(task.payload.tags, ["flooring"]);
+
+    // The empty list clears them and leaves the marker in its original shape.
+    const cleared = await apiRequest(api.origin, "/api/projects/profile", {
+      method: "PATCH",
+      body: { projectPath: "software/rekit", tags: [] },
+    });
+    assert.deepEqual(cleared.payload.tags, []);
+    assert.equal(Object.hasOwn(JSON.parse(await readFile(markerPath, "utf8")), "tags"), false);
+
+    const missing = await apiRequest(api.origin, "/api/projects/profile", {
+      method: "PATCH",
+      body: { projectPath: "software/rekit" },
+    });
+    assert.equal(missing.response.status, 400);
+  } finally {
+    await closeLocalApi(api.server);
+  }
+
+  // The CLI sets the same list, and omitting --tag clears it.
+  const set = await execFile(
+    process.execPath,
+    [launcherPath.pathname, "project", "software/rekit", "--tag", "house", "--tag", "House", "--tag", "renovation"],
+    { cwd: root },
+  );
+  assert.match(set.stdout, /Tags: house, renovation/);
+  assert.deepEqual(JSON.parse(await readFile(markerPath, "utf8")).tags, ["house", "renovation"]);
+
+  const clear = await execFile(process.execPath, [launcherPath.pathname, "project", "software/rekit"], { cwd: root });
+  assert.match(clear.stdout, /Tags: \(none\)/);
+  assert.equal(Object.hasOwn(JSON.parse(await readFile(markerPath, "utf8")), "tags"), false);
 });

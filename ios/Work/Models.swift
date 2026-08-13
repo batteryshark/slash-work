@@ -101,8 +101,12 @@ struct WorkProject: Codable, Identifiable, Hashable, Sendable {
     let aliasPaths: [String]?
     /// "board" or "list". Absent on older servers, which only had boards.
     let view: String?
+    /// Free-text labels that cut across the folder hierarchy. Absent on older
+    /// servers and on untagged projects; only `id` is ever required.
+    let tags: [String]?
 
     var showsPlainList: Bool { view == "list" }
+    var tagList: [String] { tags ?? [] }
 }
 
 struct WorkCapture: Codable, Identifiable, Hashable, Sendable {
@@ -419,6 +423,43 @@ enum WorkFormatting {
             .split(separator: " ")
             .map { $0.prefix(1).uppercased() + $0.dropFirst() }
             .joined(separator: " ")
+    }
+}
+
+/// Project tags. The rules live in lib/tags.mjs on the service side; this is
+/// the verbatim port, so a tag looks the same on the phone and on the desktop
+/// with no stored colour and nothing to sync.
+enum WorkTag {
+    /// Hue angles chosen to stay distinguishable in light and dark mode.
+    static let hueAngles: [Double] = [8, 40, 92, 152, 190, 232, 276, 322]
+
+    /// Must match `tagHueIndex` in lib/tags.mjs exactly.
+    static func hueIndex(_ tag: String) -> Int {
+        var hash: UInt32 = 0
+        for unit in tag.lowercased().utf16 { hash = hash &* 31 &+ UInt32(unit) }
+        return Int(hash % UInt32(hueAngles.count))
+    }
+
+    static func color(_ tag: String) -> Color {
+        Color(hue: hueAngles[hueIndex(tag)] / 360, saturation: 0.62, brightness: 0.72)
+    }
+
+    /// Trim, drop blanks, dedupe case-insensitively, keep the first-seen casing.
+    static func normalize(_ values: [String]) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for value in values {
+            let tag = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !tag.isEmpty, seen.insert(tag.lowercased()).inserted else { continue }
+            result.append(tag)
+        }
+        return result
+    }
+
+    /// Suggestions are derived, never stored: the union of every project's tags.
+    static func vocabulary(_ projects: [WorkProject]) -> [String] {
+        normalize(projects.flatMap(\.tagList))
+            .sorted { $0.lowercased() < $1.lowercased() }
     }
 }
 

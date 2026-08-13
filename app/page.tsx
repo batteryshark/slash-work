@@ -1,6 +1,8 @@
 "use client";
 
+import { normalizeTags, tagHueAngle, workspaceTags } from "../lib/tags.mjs";
 import {
+  CSSProperties,
   FormEvent,
   KeyboardEvent,
   ReactNode,
@@ -17,11 +19,28 @@ type Project = {
   name: string;
   description: string;
   view: "board" | "list";
+  // Free-text labels that cut across the folder hierarchy. Absent reads as [].
+  // Nothing to do with task tags: a project never lends its tags to its tasks.
+  tags: string[];
   path: string;
   depth: number;
   markers: string[];
   aliasPaths?: string[];
 };
+
+type ProjectProfilePatch = { name?: string; description?: string; view?: "board" | "list"; tags?: string[] };
+
+// The chip carries its hue as a CSS custom property; globals.css owns the
+// lightness so one rule covers both themes. The name always shows, so colour
+// is never the only signal.
+function TagChip({ tag, children }: { tag: string; children?: ReactNode }) {
+  return (
+    <span className="tag-chip" style={{ "--tag-h": tagHueAngle(tag) } as CSSProperties}>
+      {tag}
+      {children}
+    </span>
+  );
+}
 
 type Capture = {
   id: string;
@@ -627,6 +646,7 @@ export default function Home() {
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [projectSearch, setProjectSearch] = useState("");
+  const [projectTagFilter, setProjectTagFilter] = useState<string | null>(null);
   const [expandedDecision, setExpandedDecision] = useState<string | null>(null);
   const [decisionDrafts, setDecisionDrafts] = useState<Record<string, DecisionDraft>>({});
   const [savingDecision, setSavingDecision] = useState<string | null>(null);
@@ -716,7 +736,7 @@ export default function Home() {
     await loadWorkspace();
   }
 
-  async function updateProjectProfile(projectPath: string, patch: { name?: string; description?: string; view?: "board" | "list" }) {
+  async function updateProjectProfile(projectPath: string, patch: ProjectProfilePatch) {
     const project = await requestJson<Project>("/api/projects/profile", {
       method: "PATCH",
       body: JSON.stringify({ projectPath, ...patch }),
@@ -1151,13 +1171,23 @@ export default function Home() {
       .sort((left, right) => scheduleDate(left).getTime() - scheduleDate(right).getTime());
   }, [data?.decisions, scopedTasks, scopePath]);
 
+  // Suggestions and the filter row are derived from the projects themselves;
+  // there is no tag registry to keep in step.
+  const projectTagVocabulary = useMemo(() => workspaceTags(data?.projects ?? []) as string[], [data?.projects]);
+
+  // The tag filter narrows the set first; search then runs inside it, so the
+  // two compose instead of competing. Folder grouping is untouched: the same
+  // groups render with fewer entries.
   const filteredProjectMenu = useMemo(() => {
     const query = projectSearch.trim().toLowerCase();
-    if (!query) return data?.projects.filter((project) => project.path !== ".") ?? [];
-    return (data?.projects ?? []).filter((project) =>
-      project.path !== "." && `${project.name} ${project.path} ${project.description} ${(project.aliasPaths ?? []).join(" ")}`.toLowerCase().includes(query),
-    );
-  }, [data, projectSearch]);
+    const tag = projectTagFilter?.toLowerCase() ?? null;
+    return (data?.projects ?? []).filter((project) => {
+      if (project.path === ".") return false;
+      if (tag && !project.tags.some((value) => value.toLowerCase() === tag)) return false;
+      if (!query) return true;
+      return `${project.name} ${project.path} ${project.description} ${project.tags.join(" ")} ${(project.aliasPaths ?? []).join(" ")}`.toLowerCase().includes(query);
+    });
+  }, [data, projectSearch, projectTagFilter]);
 
   const projectMenuGroups = useMemo(
     () => groupByFirstSegment(filteredProjectMenu, (project) => project.path),
@@ -1184,6 +1214,7 @@ export default function Home() {
     setProjectMenuOpen(false);
     setWorkspaceMenuOpen(false);
     setProjectSearch("");
+    setProjectTagFilter(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -1734,7 +1765,29 @@ export default function Home() {
               aria-label="Find a project in this root"
               autoFocus
             />
-            {recentProjects.length > 0 && !projectSearch.trim() && (
+            {/* Tags cut across the folder groups below: the grouping never
+                changes, it just shows fewer entries. An untagged workspace
+                renders no row at all. */}
+            {projectTagVocabulary.length > 0 && (
+              <div className="project-menu-tags" role="group" aria-label="Filter projects by tag">
+                {projectTagVocabulary.map((tag) => {
+                  const selected = projectTagFilter === tag;
+                  return (
+                    <button
+                      key={tag}
+                      type="button"
+                      className={`tag-chip tag-chip-button${selected ? " selected" : ""}`}
+                      style={{ "--tag-h": tagHueAngle(tag) } as CSSProperties}
+                      aria-pressed={selected}
+                      onClick={() => setProjectTagFilter(selected ? null : tag)}
+                    >
+                      {tag}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {recentProjects.length > 0 && !projectSearch.trim() && !projectTagFilter && (
               <section className="project-menu-recent" aria-label="Recently opened projects">
                 <p className="project-menu-group-title">Recent</p>
                 <div className="project-menu-grid">{recentProjects.map(projectMenuButton)}</div>
@@ -1981,6 +2034,7 @@ export default function Home() {
               project={selectedProject}
               captures={scopedCaptures.filter((capture) => capture.projectPath === selectedProject.path)}
               tasks={scopedTasks.filter((task) => task.projectPath === selectedProject.path)}
+              tagSuggestions={projectTagVocabulary}
               onOpenBoard={() => setView("board")}
               onOpenTask={(taskId) => { setView("board"); setSelectedTaskId(taskId); }}
               onUpdateProfile={updateProjectProfile}
@@ -2026,7 +2080,14 @@ export default function Home() {
                   {directProjects.map((project) => (
                     <button type="button" className="project-card" key={project.id} onClick={() => navigate(project.path)}>
                       <span className="project-card-code" aria-hidden="true">{project.name.slice(0, 2).toUpperCase()}</span>
-                      <span className="project-card-copy"><small>Project · {project.path}</small><strong>{project.name}</strong><span>{project.description || "Add a purpose description"}</span></span>
+                      <span className="project-card-copy">
+                        <small>Project · {project.path}</small>
+                        <strong>{project.name}</strong>
+                        <span>{project.description || "Add a purpose description"}</span>
+                        {project.tags.length > 0 && (
+                          <span className="project-card-tags">{project.tags.map((tag) => <TagChip key={tag} tag={tag} />)}</span>
+                        )}
+                      </span>
                       <span className="project-card-meta">Open<span aria-hidden="true">→</span></span>
                     </button>
                   ))}
@@ -2607,13 +2668,107 @@ function DecisionChoice({
   );
 }
 
-function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpdateProfile }: {
+// A real chip input, not a comma-separated string: existing tags are removable
+// chips, and one field both filters the workspace's existing tags and accepts
+// a brand-new one. Every change saves immediately through the profile PATCH,
+// so there is no half-typed state to lose.
+function ProjectTagEditor({ project, suggestions, onUpdateProfile }: {
+  project: Project;
+  suggestions: string[];
+  onUpdateProfile: (projectPath: string, patch: ProjectProfilePatch) => Promise<Project>;
+}) {
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const query = draft.trim().toLowerCase();
+  const matches = suggestions.filter((tag) =>
+    !project.tags.some((existing) => existing.toLowerCase() === tag.toLowerCase())
+    && (!query || tag.toLowerCase().includes(query)),
+  ).slice(0, 8);
+  // normalizeTags keeps the first-seen casing, so an existing "House" wins
+  // over a freshly typed "house" and the two can never both exist.
+  const isNew = query.length > 0 && !suggestions.some((tag) => tag.toLowerCase() === query);
+
+  async function save(tags: string[]) {
+    setSaving(true);
+    setError(null);
+    try {
+      await onUpdateProfile(project.path, { tags });
+      setDraft("");
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "The project tags could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function add(tag: string) {
+    const tags = normalizeTags([...project.tags, tag]) as string[];
+    if (tags.length === project.tags.length) { setDraft(""); return; }
+    void save(tags);
+  }
+
+  return (
+    <section className="project-tags" aria-label="Project tags">
+      <div className="project-tags-heading"><p className="eyebrow">Cuts across folders</p><h2>Tags</h2></div>
+      <div className="project-tag-chips">
+        {project.tags.map((tag) => (
+          <TagChip key={tag} tag={tag}>
+            <button
+              type="button"
+              className="tag-chip-remove"
+              aria-label={`Remove tag ${tag}`}
+              disabled={saving}
+              onClick={() => void save(project.tags.filter((value) => value !== tag))}
+            >×</button>
+          </TagChip>
+        ))}
+        {project.tags.length === 0 && <span className="project-tags-empty">No tags. Optional — a project works exactly the same without them.</span>}
+      </div>
+      <div className="project-tag-input">
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            if (draft.trim()) add(draft);
+          }}
+          maxLength={500}
+          disabled={saving}
+          aria-label="Add a tag"
+          placeholder="Add a tag…"
+        />
+        {(matches.length > 0 || isNew) && (
+          <div className="project-tag-suggestions" role="group" aria-label="Tag suggestions">
+            {matches.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                className="tag-chip tag-chip-button"
+                style={{ "--tag-h": tagHueAngle(tag) } as CSSProperties}
+                disabled={saving}
+                onClick={() => add(tag)}
+              >{tag}</button>
+            ))}
+            {isNew && <button type="button" className="tag-chip-new" disabled={saving} onClick={() => add(draft)}>+ Create “{draft.trim()}”</button>}
+          </div>
+        )}
+      </div>
+      {error && <p className="field-error" role="alert">{error}</p>}
+    </section>
+  );
+}
+
+function ProjectFocus({ project, captures, tasks, tagSuggestions, onOpenBoard, onOpenTask, onUpdateProfile }: {
   project: Project;
   captures: Capture[];
   tasks: WorkTask[];
+  tagSuggestions: string[];
   onOpenBoard: () => void;
   onOpenTask: (taskId: string) => void;
-  onUpdateProfile: (projectPath: string, patch: { name?: string; description?: string; view?: "board" | "list" }) => Promise<Project>;
+  onUpdateProfile: (projectPath: string, patch: ProjectProfilePatch) => Promise<Project>;
 }) {
   const [savingView, setSavingView] = useState(false);
   async function switchView(view: "board" | "list") {
@@ -2730,6 +2885,8 @@ function ProjectFocus({ project, captures, tasks, onOpenBoard, onOpenTask, onUpd
         )}
         {purposeError && <p className="field-error" role="alert">{purposeError}</p>}
       </section>
+
+      <ProjectTagEditor project={project} suggestions={tagSuggestions} onUpdateProfile={onUpdateProfile} />
 
       <div className="pulse-stats" aria-label="Project summary">
         <span><strong>{tasks.length}</strong> work items</span>

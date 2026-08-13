@@ -364,6 +364,14 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func setProjectTags(_ project: WorkProject, _ tags: [String]) async -> Bool {
+        await mutate {
+            guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
+            _ = try await client.updateProjectTags(path: project.path, tags: WorkTag.normalize(tags),
+                                                   workspaceID: workspaceID)
+        }
+    }
+
     func deleteProject(_ project: WorkProject) async -> Bool {
         if selectedProjectPath == project.path { selectProject(path: nil) }
         return await mutate {

@@ -97,7 +97,8 @@ test("exposes the same versioned capability catalog and canonical OpenAPI over H
     const projectProfile = await requestJson(api.origin, "/api/agent/operations/projects.update-profile");
     assert.equal(projectProfile.response.status, 200);
     assert.equal(projectProfile.payload.operation.inputSchema.properties.name.maxLength, 120);
-    assert.deepEqual(projectProfile.payload.operation.inputSchema.anyOf, [{ required: ["name"] }, { required: ["description"] }, { required: ["view"] }]);
+    assert.deepEqual(projectProfile.payload.operation.inputSchema.anyOf, [{ required: ["name"] }, { required: ["description"] }, { required: ["view"] }, { required: ["tags"] }]);
+    assert.equal(projectProfile.payload.operation.inputSchema.properties.tags.type, "array");
     assert.deepEqual(projectProfile.payload.operation.inputSchema.properties.view.enum, ["board", "list"]);
 
     const createDecision = await requestJson(api.origin, "/api/agent/operations/decisions.create");

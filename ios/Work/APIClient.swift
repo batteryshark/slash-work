@@ -153,6 +153,11 @@ struct WorkAPIClient: @unchecked Sendable {
                        body: CreateProjectRequest(name: name, parentPath: parentPath))
     }
 
+    func updateProjectTags(path: String, tags: [String], workspaceID: String) async throws -> WorkProject {
+        try await send("api/projects/profile", method: "PATCH", workspaceID: workspaceID,
+                       body: ProjectProfileRequest(projectPath: path, tags: tags))
+    }
+
     func deleteProject(path: String, workspaceID: String) async throws {
         try await delete("api/projects", workspaceID: workspaceID,
                          query: [URLQueryItem(name: "projectPath", value: path)])
@@ -342,6 +347,9 @@ private struct TaskLogRequest: Encodable { let message: String }
 private struct DecisionActionChoice: Encodable { let option: String?; let until: String? }
 private struct DecisionActionRequest: Encodable { let action: String; let choice: DecisionActionChoice?; let note: String? }
 private struct CreateProjectRequest: Encodable { let name: String; let parentPath: String? }
+/// The project profile PATCH. Only the named fields change; sending tags
+/// replaces the whole list.
+private struct ProjectProfileRequest: Encodable { let projectPath: String; let tags: [String] }
 private struct CreateNoteRequest: Encodable {
     let title: String
     let text: String

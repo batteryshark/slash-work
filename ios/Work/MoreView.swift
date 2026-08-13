@@ -671,16 +671,39 @@ private struct ProjectsView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showingNewProject = false
     @State private var projectToDelete: WorkProject?
+    @State private var projectToTag: WorkProject?
+    @State private var tagFilter: String?
     @State private var expandedGroups: Set<String> = []
 
     var body: some View {
         List {
+            // Tags cut across the folder groups below: selecting one narrows
+            // every group at once. An untagged workspace shows no row at all.
+            if !vocabulary.isEmpty {
+                Section {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(vocabulary, id: \.self) { tag in
+                                Button {
+                                    tagFilter = tagFilter == tag ? nil : tag
+                                } label: {
+                                    TagChip(tag: tag, selected: tagFilter == tag)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Filter by tag \(tag)")
+                                .accessibilityAddTraits(tagFilter == tag ? [.isSelected] : [])
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            }
             if projects.isEmpty {
                 ContentUnavailableView("No projects", systemImage: "folder",
                                        description: Text("Create a project to organize tasks, notes, and decisions."))
                     .listRowBackground(Color.clear)
             } else {
-                if !model.recentProjects.isEmpty {
+                if !model.recentProjects.isEmpty && tagFilter == nil {
                     Section("Recent") {
                         ForEach(model.recentProjects) { project in row(project) }
                     }
@@ -714,6 +737,7 @@ private struct ProjectsView: View {
             }
         }
         .sheet(isPresented: $showingNewProject) { NewProjectSheet().environmentObject(model) }
+        .sheet(item: $projectToTag) { project in ProjectTagsSheet(project: project).environmentObject(model) }
         .confirmationDialog("Delete this project?", isPresented: Binding(
             get: { projectToDelete != nil }, set: { if !$0 { projectToDelete = nil } }
         ), titleVisibility: .visible) {
@@ -736,6 +760,11 @@ private struct ProjectsView: View {
                 if !project.description.isEmpty {
                     Text(project.description).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
                 }
+                if !project.tagList.isEmpty {
+                    HStack(spacing: 5) {
+                        ForEach(project.tagList, id: \.self) { TagChip(tag: $0) }
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 5)
@@ -746,11 +775,111 @@ private struct ProjectsView: View {
                 Label("Delete", systemImage: "trash")
             }
             .disabled(model.isShowingCachedData || model.isMutating)
+            Button { projectToTag = project } label: {
+                Label("Tags", systemImage: "tag")
+            }
+            .tint(.indigo)
+            .disabled(model.isShowingCachedData || model.isMutating)
         }
     }
 
     private var projects: [WorkProject] {
-        (model.snapshot?.projects ?? []).sorted { $0.path < $1.path }
+        let all = (model.snapshot?.projects ?? []).sorted { $0.path < $1.path }
+        guard let tagFilter else { return all }
+        return all.filter { $0.tagList.contains { $0.caseInsensitiveCompare(tagFilter) == .orderedSame } }
+    }
+
+    private var vocabulary: [String] {
+        WorkTag.vocabulary(model.snapshot?.projects ?? [])
+    }
+}
+
+/// Tag editing follows EditableTextSection's rules: explicit action, disabled
+/// while mutating or on cached data. Each add or remove is its own save, so
+/// there is no half-typed list to lose.
+private struct ProjectTagsSheet: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    let project: WorkProject
+    @State private var draft = ""
+
+    private var tags: [String] {
+        (model.snapshot?.projects.first { $0.path == project.path } ?? project).tagList
+    }
+
+    private var suggestions: [String] {
+        let taken = Set(tags.map { $0.lowercased() })
+        let query = draft.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return WorkTag.vocabulary(model.snapshot?.projects ?? [])
+            .filter { !taken.contains($0.lowercased()) && (query.isEmpty || $0.lowercased().contains(query)) }
+            .prefix(8)
+            .map(\.self)
+    }
+
+    private var isNew: Bool {
+        let query = draft.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return !query.isEmpty
+            && !WorkTag.vocabulary(model.snapshot?.projects ?? []).contains { $0.lowercased() == query }
+    }
+
+    private var locked: Bool { model.isMutating || model.isShowingCachedData }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Tags") {
+                    if tags.isEmpty {
+                        Text("No tags. Optional — a project works exactly the same without them.")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    ForEach(tags, id: \.self) { tag in
+                        HStack {
+                            TagChip(tag: tag)
+                            Spacer()
+                            Button {
+                                save(tags.filter { $0 != tag })
+                            } label: {
+                                Image(systemName: "minus.circle.fill").foregroundStyle(.red)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(locked)
+                            .accessibilityLabel("Remove tag \(tag)")
+                        }
+                    }
+                }
+                Section("Add") {
+                    TextField("Tag", text: $draft)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .onSubmit { add(draft) }
+                    if isNew {
+                        Button("Create “\(draft.trimmingCharacters(in: .whitespacesAndNewlines))”") { add(draft) }
+                            .disabled(locked)
+                    }
+                    ForEach(suggestions, id: \.self) { tag in
+                        Button { add(tag) } label: { TagChip(tag: tag) }
+                            .buttonStyle(.plain)
+                            .disabled(locked)
+                    }
+                }
+            }
+            .navigationTitle(project.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+    }
+
+    private func add(_ tag: String) {
+        let next = WorkTag.normalize(tags + [tag])
+        draft = ""
+        guard next.count != tags.count else { return }
+        save(next)
+    }
+
+    private func save(_ next: [String]) {
+        Task { _ = await model.setProjectTags(project, next) }
     }
 }
 

@@ -78,6 +78,30 @@ test("keeps the ADHD usability gates present in the interface", async () => {
   assert.match(page, /project-menu-roots/);
   assert.match(css, /\.project-menu-roots button\.selected \{/);
 
+  // Project tags cut across the folder groups. The chip row sits above the
+  // groups and only renders when a project in the workspace actually has a
+  // tag, so an untagged workspace looks exactly as it did before tags existed.
+  assert.match(page, /projectTagVocabulary\.length > 0 && \(/);
+  assert.match(page, /project-menu-tags/);
+  assert.ok(
+    page.indexOf("project-menu-tags") < page.indexOf("project-menu-groups"),
+    "the tag chip row sits above the folder groups",
+  );
+  // The filter narrows the set and search runs inside it; grouping is untouched.
+  assert.match(page, /projectTagFilter/);
+  assert.match(page, /setProjectTagFilter\(selected \? null : tag\)/);
+  // Chips carry their colour as a hue custom property, never as text colour
+  // alone, and the tag name always shows.
+  assert.match(css, /\.tag-chip \{/);
+  assert.match(css, /--tag-h/);
+  assert.match(page, /tagHueAngle\(tag\)/);
+  // Editing lives beside the name and purpose controls on the profile card.
+  assert.match(page, /function ProjectTagEditor/);
+  assert.match(page, /<ProjectTagEditor/);
+  assert.match(page, /project-tag-suggestions/);
+  // Tags stay a project attribute: tasks never inherit them.
+  assert.doesNotMatch(page, /project\.tags.*task\.tags|task\.tags.*project\.tags/);
+
   // Deleting a project requires an inline second confirmation.
   assert.match(page, /project-delete-panel/);
   assert.match(page, /danger-zone-button/);

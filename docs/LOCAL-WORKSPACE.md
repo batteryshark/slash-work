@@ -145,6 +145,14 @@ description. The purpose is project context rather than an operational record:
 it should explain the durable reason for the project, not duplicate its board
 or latest status.
 
+An optional `tags` array holds free-text labels that cut across the folder
+hierarchy — the area a project belongs to, for example — because the folder
+path is a single taxonomy and cannot express it without another nesting level.
+Tags are loose by design: no vocabulary, no hierarchy, no validation beyond
+trimming, and a case-insensitive dedupe that keeps the first-seen casing. The
+key is absent on untagged projects and reads as `[]`. These are the project's
+own tags; a task's `tags` are separate and never inherited from its project.
+
 Assignment is a physical ownership operation. Assigning or reassigning a
 record atomically relocates its file to the destination `.work/`; making it
 unassigned relocates it to the root `.work/`. On startup, older centralized

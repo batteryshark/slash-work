@@ -162,9 +162,37 @@ struct WorkTests {
         #expect(projectGroups(paths.reversed().map(Self.project)) == groups)
     }
 
+    // The tag colour is a pure function of the name, shared by hand with
+    // lib/tags.mjs. These indices are the ones the JavaScript side produces.
+    @Test func tagColoursMatchTheWebPalette() {
+        #expect(WorkTag.hueIndex("house") == 0)
+        #expect(WorkTag.hueIndex("House") == WorkTag.hueIndex("house"))
+        #expect(WorkTag.hueIndex("lvp-repair") == 4)
+        #expect(WorkTag.hueIndex("work") == 1)
+        #expect(WorkTag.hueAngles[WorkTag.hueIndex("lvp-repair")] == 190)
+    }
+
+    @Test func tagNormalizationDedupesCaseInsensitivelyAndKeepsFirstCasing() {
+        #expect(WorkTag.normalize([" House ", "house", "", "HOUSE", "yard "]) == ["House", "yard"])
+        #expect(WorkTag.vocabulary([Self.tagged("a", ["b", "House"]),
+                                    Self.tagged("c", ["house", "a"]),
+                                    Self.project(path: "d")]) == ["a", "b", "House"])
+    }
+
+    @Test func projectDecodesWithoutTags() throws {
+        let data = #"{"id":"p","name":"P","description":"","path":"p","depth":1,"markers":[]}"#.data(using: .utf8)!
+        #expect(try JSONDecoder().decode(WorkProject.self, from: data).tagList == [])
+    }
+
     private static func project(path: String) -> WorkProject {
         WorkProject(id: path, projectId: nil, name: path, description: "", path: path,
-                    depth: path.split(separator: "/").count, markers: [], aliasPaths: nil, view: nil)
+                    depth: path.split(separator: "/").count, markers: [], aliasPaths: nil, view: nil,
+                    tags: nil)
+    }
+
+    private static func tagged(_ path: String, _ tags: [String]) -> WorkProject {
+        WorkProject(id: path, projectId: nil, name: path, description: "", path: path,
+                    depth: 1, markers: [], aliasPaths: nil, view: nil, tags: tags)
     }
 
     private static func iso(_ date: Date) -> String {
