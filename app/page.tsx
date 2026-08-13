@@ -4148,6 +4148,10 @@ function KanbanBoard({
           <span className="sr-only">Search work items</span>
           <input type="search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search title, ID, project, or tag…" />
         </label>
+        {/* One entry point, not one per column: new work starts in backlog.
+            An add box on every status implied you could create something
+            already in review or already done. Drag it if it belongs elsewhere. */}
+        <QuickAddRow status="backlog" statusName={statusLabel("backlog")} onQuickAdd={onQuickAdd} compact />
       </div>
       {error && <div className="task-error" role="alert">{error}</div>}
       {tasks.length === 0 ? (
@@ -4225,7 +4229,6 @@ function KanbanBoard({
                       );
                     })}
                   </div>
-                  <QuickAddRow status={status} statusName={statusLabel(status)} onQuickAdd={onQuickAdd} compact />
                 </section>
               );
             })}

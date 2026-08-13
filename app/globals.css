@@ -1257,3 +1257,8 @@ html[data-theme="dark"] { --tag-s: 40%; --tag-bg-l: 25%; --tag-ink-l: 80%; --tag
 .quick-add.compact .quick-add-input { min-height: 38px; padding: 8px 10px; font-size: 13px; background: transparent; }
 .quick-add.compact .quick-add-input:not(:focus):placeholder-shown { border-color: color-mix(in srgb, var(--line) 60%, transparent); }
 .quick-add.compact .quick-add-state { grid-column: 1; }
+
+/* The board's single add line sits beside the search, not in a column. */
+.board-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.board-filters .board-search { flex: 1 1 260px; }
+.board-filters .quick-add.compact { flex: 1 1 220px; margin-top: 0; }
