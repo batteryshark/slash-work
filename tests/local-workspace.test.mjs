@@ -310,6 +310,25 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   }
 });
 
+test("a stray sidecar or unreadable file cannot take a workspace down", async () => {
+  const root = await temporaryDirectory("work-stray-files-");
+  const workspace = await initializeWorkspace(root);
+  await createTask(workspace, { title: "Real work" });
+
+  // macOS writes AppleDouble sidecars beside every file on exFAT and SMB
+  // volumes. They match *.md, they are not records, and reading one as a
+  // record used to fail the request that listed it — one stray file on a
+  // Windows share made the whole workspace unreachable from every client.
+  const tasks = join(root, ".work", "tasks");
+  await writeFile(join(tasks, "._W-0001.md"), "\u0000\u0005\u0016\u0007applefile");
+  // And a genuinely corrupt record must not take the rest with it either.
+  await writeFile(join(tasks, "W-0999.md"), "not a work record at all");
+
+  const snapshot = await workspaceSnapshot(workspace);
+  assert.equal(snapshot.tasks.length, 1, "the real task still lists");
+  assert.equal(snapshot.tasks[0].title, "Real work");
+});
+
 test("a workspace snapshot never references a project it does not list", async () => {
   const root = await temporaryDirectory("work-snapshot-consistency-");
   const workspace = await initializeWorkspace(root);
