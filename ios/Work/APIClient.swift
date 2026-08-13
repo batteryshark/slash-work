@@ -108,9 +108,11 @@ struct WorkAPIClient: @unchecked Sendable {
     }
 
     func createTask(title: String, description: String, delegated: Bool, projectPath: String?,
-                    dueAt: Date?, workspaceID: String) async throws -> WorkTask {
+                    dueAt: Date?, workspaceID: String,
+                    status: String? = nil, parentId: String? = nil) async throws -> WorkTask {
         let body = CreateTaskRequest(title: title, projectPath: projectPath, description: description,
-                                     delegated: delegated, dueAt: dueAt.map(ISO8601DateFormatter().string))
+                                     delegated: delegated, dueAt: dueAt.map(ISO8601DateFormatter().string),
+                                     status: status, parentId: parentId)
         return try await send("api/tasks", method: "POST", workspaceID: workspaceID, body: body)
     }
 
@@ -325,6 +327,8 @@ private struct CreateTaskRequest: Encodable {
     let description: String
     let delegated: Bool
     let dueAt: String?
+    var status: String? = nil
+    var parentId: String? = nil
 }
 
 /// The human-only task PATCH. A nil field stays out of the body, so a caller

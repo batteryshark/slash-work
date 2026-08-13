@@ -309,6 +309,37 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Rapid entry: one line becomes one task. Returns the tasks created, so the
+    /// caller can anchor an indent on the last one, and reports how far it got
+    /// when the server refuses partway — matching the web's quick-add.
+    @discardableResult
+    func quickAddTasks(_ text: String, status: String, parentId: String?) async -> (created: [WorkTask], remaining: [String], error: String?) {
+        let titles = TaskLines.split(text)
+        guard !titles.isEmpty, !isMutating, !isShowingCachedData,
+              let client, let workspaceID = selectedWorkspaceID else { return ([], [], nil) }
+        isMutating = true
+        lastError = nil
+        defer { isMutating = false }
+        var created: [WorkTask] = []
+        for (index, title) in titles.enumerated() {
+            do {
+                // Each line after the first hangs off the same parent as the
+                // first, never off its predecessor: parentId is a single link,
+                // so depth stays at one level (the web rule, verbatim).
+                let task = try await client.createTask(
+                    title: title, description: "", delegated: false,
+                    projectPath: selectedProjectPath, dueAt: nil, workspaceID: workspaceID,
+                    status: status, parentId: parentId)
+                created.append(task)
+            } catch {
+                await refresh()
+                return (created, Array(titles[index...]), error.localizedDescription)
+            }
+        }
+        await refresh()
+        return (created, [], nil)
+    }
+
     func setDelegated(_ task: WorkTask, _ delegated: Bool) async -> Bool {
         await patch(task, TaskPatchRequest(delegated: delegated))
     }

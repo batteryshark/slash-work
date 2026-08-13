@@ -210,3 +210,15 @@ struct WorkTests {
         return try JSONDecoder().decode(WorkDecision.self, from: data)
     }
 }
+
+@Test func taskLineSplitMatchesTheSharedRule() throws {
+    // Pinned to lib/task-lines.mjs: two implementations of one rule is how the
+    // clients drifted three times before.
+    #expect(TaskLines.split("Pack the kitchen\nBook the van\n\n- Cancel the internet\n2) Forward the mail")
+            == ["Pack the kitchen", "Book the van", "Cancel the internet", "Forward the mail"])
+    #expect(TaskLines.split("  spaced  ") == ["spaced"])
+    #expect(TaskLines.split("• bullet") == ["bullet"])
+    #expect(TaskLines.split("1. numbered") == ["numbered"])
+    #expect(TaskLines.split("").isEmpty)
+    #expect(TaskLines.split(String(repeating: "x", count: 600)).first?.count == 498)
+}

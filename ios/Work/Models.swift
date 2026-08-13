@@ -477,3 +477,20 @@ extension Color {
         }
     }
 }
+
+enum TaskLines {
+    /// One typed or pasted line becomes one task title. Must match
+    /// `splitTaskTitles` in lib/task-lines.mjs exactly — pasting a list is the
+    /// whole point, so the shapes a list arrives in are normalised here rather
+    /// than in each input handler.
+    static func split(_ text: String) -> [String] {
+        text.components(separatedBy: .newlines).compactMap { raw in
+            var line = raw.trimmingCharacters(in: .whitespaces)
+            if let marker = line.range(of: #"^(?:[-*+•–]|\d+[.)])\s+"#, options: .regularExpression) {
+                line = String(line[marker.upperBound...]).trimmingCharacters(in: .whitespaces)
+            }
+            guard !line.isEmpty else { return nil }
+            return line.count > 500 ? String(line.prefix(497)) + "…" : line
+        }
+    }
+}
