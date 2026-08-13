@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { closeLocalApi, startLocalApi } from "../server/local-api.mjs";
-import { createTask, discoverProjects, initializeWorkspace } from "../lib/local-workspace.mjs";
+import { createProject, createTask, discoverProjects, initializeWorkspace, missingProjectPaths, workspaceSnapshot } from "../lib/local-workspace.mjs";
 import { chooseWorkspaceDirectory } from "../lib/native-folder-picker.mjs";
 import { registerWorkspace } from "../lib/workspace-registry.mjs";
 import { normalizeTags, tagHueAngle, tagHueIndex, workspaceTags } from "../lib/tags.mjs";
@@ -308,6 +308,25 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   } finally {
     await stopChild(launched.child);
   }
+});
+
+test("a workspace snapshot never references a project it does not list", async () => {
+  const root = await temporaryDirectory("work-snapshot-consistency-");
+  const workspace = await initializeWorkspace(root);
+  const project = await createProject(workspace, { name: "Late Arrival" });
+  await createTask(workspace, { title: "Filed into it", projectPath: project.path });
+
+  const snapshot = await workspaceSnapshot(workspace);
+  const groups = [snapshot.captures, snapshot.decisions, snapshot.issues, snapshot.notes, snapshot.tasks];
+  assert.deepEqual(missingProjectPaths(snapshot.projects, groups), [],
+    "a client cannot tell a stale project list from a real misfiling");
+
+  // The detection itself, on the shape the race produces: records naming a
+  // project the list was assembled too early to contain.
+  assert.deepEqual(
+    missingProjectPaths([{ path: "maestro" }], [[{ projectPath: "one-offs/interface-design" }, { projectPath: "maestro" }]]),
+    ["one-offs/interface-design"]);
+  assert.deepEqual(missingProjectPaths([{ path: "maestro" }], [[{ projectPath: null }]]), []);
 });
 
 test("resolves a marked current project for agents and local artifact creation", async () => {
