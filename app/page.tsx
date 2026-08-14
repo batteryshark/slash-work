@@ -76,6 +76,7 @@ type IssueMessage = {
 
 type Issue = {
   id: string;
+  longId: string;
   title: string;
   body: string;
   state: IssueState;
@@ -3442,7 +3443,7 @@ function IssuesView({
                   <span className="issue-list-title"><strong>{issue.title}</strong></span>
                   <span className={`issue-state state-${issue.state}`}>{ISSUE_STATE_LABELS[issue.state]}</span>
                   {issue.delegated && <span className="card-delegated">agent</span>}
-                  <small>{issueLocation(issue)} · {shortTime(issue.updatedAt)}</small>
+                  <small>{issue.id} · {issueLocation(issue)} · {shortTime(issue.updatedAt)}</small>
                 </button>
               ))}
             </div>
@@ -3456,7 +3457,9 @@ function IssuesView({
                 <div>
                   <span className={`issue-state state-${selectedIssue.state}`}>{ISSUE_STATE_LABELS[selectedIssue.state]}</span>
                   <h2>{selectedIssue.title}</h2>
+                  <strong className="issue-short-id">{selectedIssue.id}</strong>
                   <small>{issueLocation(selectedIssue)} · Opened {new Date(selectedIssue.createdAt).toLocaleString()}</small>
+                  <small className="issue-long-id">Long ID · <code>{selectedIssue.longId}</code></small>
                 </div>
                 <div className="issue-state-actions">
                   {(selectedIssue.state === "resolved" || selectedIssue.state === "closed") && (

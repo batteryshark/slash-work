@@ -180,6 +180,7 @@ enum WorkIssueState: String, Codable, Sendable {
 
 struct WorkIssue: Codable, Identifiable, Hashable, Sendable {
     let id: String
+    let longId: String
     let title: String
     let body: String
     let state: WorkIssueState
@@ -197,6 +198,7 @@ struct WorkIssue: Codable, Identifiable, Hashable, Sendable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
+        longId = c.value(.longId, id)
         title = try c.decode(String.self, forKey: .title)
         body = try c.decode(String.self, forKey: .body)
         state = try c.decode(WorkIssueState.self, forKey: .state)
