@@ -157,6 +157,12 @@ async def issue_reply(workspace_id: str, id: str, body: str, agent_name: str | N
 
 
 @mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
+async def issue_note(workspace_id: str, id: str, body: str, agent_name: str | None = None) -> dict[str, Any]:
+    """Note another occurrence on a queued, unclaimed issue without claiming it."""
+    return await call("POST", f"/api/agent/issues/{id}/notes", workspace_id, agent_name=require_agent(agent_name), body={"body": body})
+
+
+@mcp.tool(annotations={"readOnlyHint": False, "destructiveHint": False})
 async def issue_update_state(workspace_id: str, id: str, state: str, reason: str | None = None, resolution_summary: str | None = None, agent_name: str | None = None) -> dict[str, Any]:
     """Set a claimed issue to in_progress, needs_human, or resolved. Resolving requires resolution_summary."""
     return await call("POST", f"/api/agent/issues/{id}/state", workspace_id, agent_name=require_agent(agent_name), body=compact(state=state, reason=reason, resolutionSummary=resolution_summary))

@@ -27,6 +27,7 @@ import {
   listTasks,
   moveTask,
   claimIssue,
+  noteUnclaimedIssue,
   replyToIssue,
   toggleTaskChecklist,
   updateCaptureDestination,
@@ -573,6 +574,7 @@ const WORKSPACE_ROUTES = [
   route("POST", "/api/issues/{id}/replies", async (c) => [200, await replyToIssue(c.workspace, c.id, await c.body())]),
   route("POST", "/api/issues/{id}/state", async (c) => [200, await updateIssueState(c.workspace, c.id, await c.body())]),
   route("POST", "/api/agent/issues/{id}/claim", async (c) => [200, await claimIssue(c.workspace, c.id, requiredAgentName(c.request))]),
+  route("POST", "/api/agent/issues/{id}/notes", async (c) => [200, await noteUnclaimedIssue(c.workspace, c.id, await c.body(), requiredAgentName(c.request))]),
   route("POST", "/api/agent/issues/{id}/replies", async (c) => {
     const agentName = requiredAgentName(c.request);
     return [200, await replyToIssue(c.workspace, c.id, await c.body(), { agentName })];

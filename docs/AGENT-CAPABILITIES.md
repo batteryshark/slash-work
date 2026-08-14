@@ -53,7 +53,8 @@ operation but never authorize it. In particular:
   a null project only when workspace-level work is intentional.
 - Notes are reference material; a note never authorizes implementation.
 - Filing an issue authorizes investigation and replies only. Dedicated agent
-  issue routes require `X-Work-Agent`; an agent may claim, reply, request a
+  issue routes require `X-Work-Agent`; an agent may note another occurrence on
+  a queued, unclaimed issue without claiming it, or may claim, reply, request a
   human response, or mark an issue resolved with a summary.
 - Agents cannot close, delete, archive, lock, or prevent replies to an issue.
   Only a human may close it, and a human may always reopen it.

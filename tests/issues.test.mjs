@@ -100,6 +100,68 @@ test("lets agents file attributed issues while delegation stays human-only", asy
   }
 });
 
+test("lets an agent note a recurring finding without claiming the issue", async () => {
+  const root = await temporaryDirectory();
+  const api = await startLocalApi({ root, port: 0 });
+
+  try {
+    const filed = await requestJson(api.origin, "/api/agent/issues", {
+      method: "POST",
+      body: { title: "Retry loop leaks connections", body: "First seen in run 11." },
+      headers: { "x-work-agent": "maestro/frosty_rabbit" },
+    });
+    const id = filed.payload.id;
+    await requestJson(api.origin, `/api/issues/${id}`, {
+      method: "PATCH",
+      body: { delegated: true },
+    });
+
+    const ordinaryReply = await requestJson(api.origin, `/api/agent/issues/${id}/replies`, {
+      method: "POST",
+      body: { body: "Seen again." },
+      headers: { "x-work-agent": "maestro/brisk_otter" },
+    });
+    assert.equal(ordinaryReply.response.status, 409, "a reply still requires a claim");
+    assert.equal(ordinaryReply.payload.error.code, "issue_not_claimed");
+
+    const missingIdentity = await requestJson(api.origin, `/api/agent/issues/${id}/notes`, {
+      method: "POST",
+      body: { body: "Seen again." },
+    });
+    assert.equal(missingIdentity.response.status, 400);
+    assert.equal(missingIdentity.payload.error.code, "agent_identity_required");
+
+    const noted = await requestJson(api.origin, `/api/agent/issues/${id}/notes`, {
+      method: "POST",
+      body: { body: "Seen again in run 12; occurrence count is now 2." },
+      headers: { "x-work-agent": "maestro/brisk_otter" },
+    });
+    assert.equal(noted.response.status, 200);
+    assert.equal(noted.payload.state, "queued");
+    assert.equal(noted.payload.claimedBy, null);
+    assert.equal(noted.payload.delegated, true, "noting does not change delegation");
+    assert.equal(noted.payload.stateHistory.length, 1, "noting does not create a state transition");
+    assert.deepEqual(noted.payload.messages[0].author, { kind: "agent", name: "maestro/brisk_otter" });
+
+    const stored = await readFile(join(root, ".work", "issues", `${id}.md`), "utf8");
+    assert.match(stored, /Seen again in run 12; occurrence count is now 2\./);
+
+    await requestJson(api.origin, `/api/agent/issues/${id}/claim`, {
+      method: "POST",
+      headers: { "x-work-agent": "maestro/claiming_agent" },
+    });
+    const noteAfterClaim = await requestJson(api.origin, `/api/agent/issues/${id}/notes`, {
+      method: "POST",
+      body: { body: "This must not bypass ownership." },
+      headers: { "x-work-agent": "maestro/brisk_otter" },
+    });
+    assert.equal(noteAfterClaim.response.status, 409);
+    assert.equal(noteAfterClaim.payload.error.code, "issue_not_unclaimed");
+  } finally {
+    await closeLocalApi(api.server);
+  }
+});
+
 test("allocates quotable issue ids at idFloor and resolves the permanent long alias", async () => {
   const root = await temporaryDirectory();
   await initializeWorkspace(root, { force: true, idFloor: 4200 });
@@ -421,6 +483,9 @@ test("persists issue conversations and keeps final closure under human control",
     const createOperation = openapi.payload.paths["/api/agent/issues"].post;
     assert.equal(createOperation.operationId, "issues.create");
     assert.equal(createOperation.parameters.some((parameter) => parameter.name === "X-Work-Agent"), true);
+    const noteOperation = openapi.payload.paths["/api/agent/issues/{id}/notes"].post;
+    assert.equal(noteOperation.operationId, "issues.note");
+    assert.equal(noteOperation.parameters.some((parameter) => parameter.name === "X-Work-Agent"), true);
   } finally {
     await closeLocalApi(restarted.server);
   }

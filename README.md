@@ -207,7 +207,9 @@ Do not commit `.work/` if the workspace contains private operational notes.
   authorizes investigation and replies, not repository changes; create a task
   when you authorize execution. Tasks and issues both carry a human-only
   "Hand to an agent" toggle; an agent runner picks up delegated items on its
-  next pass, and Work rejects the flag from any agent identity.
+  next pass, and Work rejects the flag from any agent identity. An agent can
+  add an attributed occurrence note to a queued, unclaimed issue without
+  claiming it or changing its lifecycle.
 - An agent may mark an issue **Resolved** with a resolution summary, but that is
   its assessment rather than a permanent closure. Only a human can choose
   **Close**. **Reopen** remains available after either state, and a human reply
@@ -267,6 +269,7 @@ work projects --json
 work agent operations
 work agent instructions tasks.create
 work agent instructions issues.reply --json
+work agent instructions issues.note --json
 ```
 
 The operation index stays small; the agent loads rules and input schemas only
