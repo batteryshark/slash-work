@@ -23,6 +23,7 @@ import {
   moveTask,
   projectForScope,
   readWorkspace,
+  toggleTaskChecklist,
   updateProjectProfile,
   updateTask,
 } from "../lib/local-workspace.mjs";
@@ -77,6 +78,8 @@ Usage:
   work list [--project p|--unassigned] List work items; filter to one project or to workspace scope
   work show <id>                       Print a complete work item
   work update <id> [options]           Edit a card's title and sections
+  work check <id> requirement|acceptance <index> [--off]
+                                      Tick one checklist item (index counts from 0)
   work move <id> <status> [--note n]  Move a card and append to its log
   work log <id> "what happened"        Append a progress entry
   work delegate <id> [--off]           Hand an existing card to an agent (--off takes it back)
@@ -540,6 +543,27 @@ async function runMove(options, positionals) {
   console.log(`${task.id} → ${task.status}`);
 }
 
+async function runCheck(options, positionals) {
+  if (positionals.length !== 3) {
+    throw new WorkspaceError('check requires an id, a section, and an index: work check W-0001 requirement 0');
+  }
+  const [id, rawSection, rawIndex] = positionals;
+  const section = rawSection === "requirement" ? "requirements"
+    : rawSection === "acceptance" ? "acceptance"
+    : null;
+  if (!section) throw new WorkspaceError("section must be requirement or acceptance.");
+  const index = Number(rawIndex);
+  if (!Number.isInteger(index) || index < 0) {
+    throw new WorkspaceError("index must be a whole number, counting from 0 as `work show` lists them.");
+  }
+  const workspace = await currentWorkspace(options);
+  const task = await toggleTaskChecklist(workspace, id, { section, index, checked: !options.off });
+  const items = section === "requirements" ? task.requirements : task.acceptanceCriteria;
+  for (const [position, item] of items.entries()) {
+    console.log(`${position}\t[${item.checked ? "x" : " "}]\t${item.text}`);
+  }
+}
+
 async function runLog(options, positionals) {
   if (positionals.length < 2) throw new WorkspaceError("log requires a task id and message.");
   const task = await appendTaskLog(await currentWorkspace(options), positionals[0], { message: positionals.slice(1).join(" ") });
@@ -804,6 +828,7 @@ const COMMANDS = {
   list: runList,
   show: runShow,
   update: runUpdate,
+  check: runCheck,
   move: runMove,
   log: runLog,
   delegate: runDelegate,

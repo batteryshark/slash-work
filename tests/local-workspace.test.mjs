@@ -311,6 +311,33 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   }
 });
 
+test("the CLI can tick a checklist item, so a delegated task can reach review", async () => {
+  const root = await temporaryDirectory("work-check-cli-");
+  await execFile(process.execPath, [launcherPath.pathname, "init", root], { cwd: root });
+  await execFile(process.execPath, [launcherPath.pathname, "task", "Gated work",
+    "--requirement", "does the thing", "--acceptance", "proves it"], { cwd: root });
+
+  // Entering review requires every box ticked, and CONTRACT v0.2 sends harness
+  // agents through the CLI — which could only REPLACE a checklist, never tick
+  // one. So a delegated task did its work, failed the gate, and landed in
+  // blocked with nothing able to unblock it.
+  await assert.rejects(
+    execFile(process.execPath, [launcherPath.pathname, "move", "W-0001", "review"], { cwd: root }),
+    /review_checklist_incomplete|Verify and check/);
+
+  const ticked = await execFile(process.execPath,
+    [launcherPath.pathname, "check", "W-0001", "requirement", "0"], { cwd: root });
+  assert.match(ticked.stdout, /0\s+\[x\]\s+does the thing/);
+  await execFile(process.execPath, [launcherPath.pathname, "check", "W-0001", "acceptance", "0"], { cwd: root });
+  const moved = await execFile(process.execPath,
+    [launcherPath.pathname, "move", "W-0001", "review"], { cwd: root });
+  assert.match(moved.stdout, /W-0001 → review/);
+
+  const off = await execFile(process.execPath,
+    [launcherPath.pathname, "check", "W-0001", "requirement", "0", "--off"], { cwd: root });
+  assert.match(off.stdout, /0\s+\[ \]\s+does the thing/);
+});
+
 test("an expired deferral counts as active, including through Array.filter", async () => {
   const open = { status: "open" };
   const future = { status: "deferred", resolution: { choice: { until: "2999-01-01T00:00:00.000Z" } } };
