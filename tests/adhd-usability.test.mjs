@@ -54,6 +54,14 @@ test("keeps the ADHD usability gates present in the interface", async () => {
   const eyeLevel = page.slice(page.indexOf("function TaskFields"), page.indexOf("function TaskMoreFields"));
   assert.doesNotMatch(eyeLevel, /Due date|Parent task ID|Tags|Depends on/);
 
+  // Project assignment is chosen when the work item is created, not changed
+  // from an existing item's detail card.
+  const createPanel = page.slice(page.indexOf("function CreateTaskPanel"), page.indexOf("function TaskDetailPanel"));
+  const detailPanel = page.slice(page.indexOf("function TaskDetailPanel"), page.indexOf("function TaskChecklist"));
+  assert.match(createPanel, /<span>Project<\/span><select/);
+  assert.doesNotMatch(detailPanel, /<span>Project<\/span><select/);
+  assert.doesNotMatch(detailPanel, /projectPath: fields\.projectPath/);
+
   // Open questions surface on the task card only while an unresolved linked
   // decision exists; a card with none renders no open-questions markup.
   assert.match(page, /selectedTaskQuestions\.length > 0 \? \(/);
