@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { closeLocalApi, startLocalApi } from "../server/local-api.mjs";
-import { createProject, createTask, discoverProjects, initializeWorkspace, missingProjectPaths, workspaceSnapshot } from "../lib/local-workspace.mjs";
+import { createProject, createTask, discoverProjects, getTask, initializeWorkspace, missingProjectPaths, updateTask, workspaceSnapshot } from "../lib/local-workspace.mjs";
 import { chooseWorkspaceDirectory } from "../lib/native-folder-picker.mjs";
 import { registerWorkspace } from "../lib/workspace-registry.mjs";
 import { normalizeTags, tagHueAngle, tagHueIndex, workspaceTags } from "../lib/tags.mjs";
@@ -308,6 +308,30 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   } finally {
     await stopChild(launched.child);
   }
+});
+
+test("markdown headers inside a section survive the round trip", async () => {
+  const root = await temporaryDirectory("work-section-headers-");
+  const workspace = await initializeWorkspace(root);
+  // The exact shape that destroyed W-0144: the file format marks sections with
+  // "## ", so a body containing one was re-parsed as several sections.
+  const description = "## Destination\n\nsome text\n\n## Second\n\nmore";
+  const created = await createTask(workspace, { title: "Header carrier", description });
+
+  const read = await getTask(workspace, created.id);
+  assert.equal(read.sections.description, description, "the description came back whole");
+  assert.deepEqual(read.extraSections, [], "no content leaked into extra sections");
+
+  // And the cascade: an edit that reads, changes nothing, and writes back must
+  // not report a change — three of those silently wrote empty over real text.
+  const untouched = await updateTask(workspace, created.id, { description });
+  assert.equal(untouched.sections.description, description);
+  const log = untouched.log.map((entry) => entry.message).join("\n");
+  assert.doesNotMatch(log, /Updated description/, "a no-op update claims nothing");
+
+  const edited = await updateTask(workspace, created.id, { description: `${description}\n\n## Third\n\nadded` });
+  assert.match(edited.sections.description, /## Third/);
+  assert.deepEqual(edited.extraSections, []);
 });
 
 test("a stray sidecar or unreadable file cannot take a workspace down", async () => {
