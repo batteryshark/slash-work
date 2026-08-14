@@ -784,6 +784,8 @@ kbd { display: inline-grid; place-items: center; min-width: 23px; height: 23px; 
 .issue-thread-heading > div:first-child { display: grid; gap: 7px; min-width: 0; }
 .issue-thread-heading h2 { margin: 0; font-size: clamp(23px, 2.2vw, 31px); line-height: 1.15; letter-spacing: -.035em; overflow-wrap: anywhere; }
 .issue-thread-heading small { color: var(--muted); font-size: 10px; }
+.issue-short-id { color: var(--accent-dark); font: 700 13px var(--mono); }
+.issue-long-id code { user-select: all; color: var(--soft); font: inherit; }
 .issue-state-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
 .issue-state-actions .secondary-action { min-height: 44px; padding-inline: 14px; }
 .issue-close-action, .issue-close-confirm button { min-height: 44px; padding: 0 11px; border: 0; border-radius: 10px; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; font-weight: 700; }

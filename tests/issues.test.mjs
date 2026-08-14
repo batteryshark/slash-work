@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { after, test } from "node:test";
 
 import { closeLocalApi, startLocalApi } from "../server/local-api.mjs";
+import { initializeWorkspace } from "../lib/local-workspace.mjs";
 
 const temporaryDirectories = [];
 
@@ -99,6 +100,35 @@ test("lets agents file attributed issues while delegation stays human-only", asy
   }
 });
 
+test("allocates quotable issue ids at idFloor and resolves the permanent long alias", async () => {
+  const root = await temporaryDirectory();
+  await initializeWorkspace(root, { force: true, idFloor: 4200 });
+  const api = await startLocalApi({ root, port: 0 });
+
+  try {
+    const filed = await requestJson(api.origin, "/api/issues", {
+      method: "POST",
+      body: { title: "Quote this issue", body: "A human should be able to say its ID aloud." },
+    });
+    assert.equal(filed.response.status, 201);
+    assert.equal(filed.payload.id, "I-4200");
+    assert.match(filed.payload.longId, /^issue_[a-z0-9][a-z0-9_-]{7,80}$/);
+
+    const byShortId = await requestJson(api.origin, `/api/issues/${filed.payload.id}`);
+    const byLongId = await requestJson(api.origin, `/api/issues/${filed.payload.longId}`);
+    assert.equal(byShortId.payload.id, "I-4200");
+    assert.deepEqual(byLongId.payload, byShortId.payload);
+
+    const next = await requestJson(api.origin, "/api/issues", {
+      method: "POST",
+      body: { title: "Quote the next issue", body: "Allocation remains monotonic." },
+    });
+    assert.equal(next.payload.id, "I-4201");
+  } finally {
+    await closeLocalApi(api.server);
+  }
+});
+
 test("treats a legacy issue agents list as history, never as delegation", async () => {
   const root = await temporaryDirectory();
   const api = await startLocalApi({ root, port: 0 });
@@ -126,6 +156,8 @@ updatedAt: "2026-01-01T00:00:00.000Z"
 `);
     const loaded = await requestJson(api.origin, `/api/issues/${issueId}`);
     assert.equal(loaded.response.status, 200);
+    assert.equal(loaded.payload.id, "I-0001");
+    assert.equal(loaded.payload.longId, issueId);
     assert.equal(loaded.payload.delegated, false,
       "a legacy agents list must never hand an old record to a runner");
     assert.equal("agents" in loaded.payload, false);
@@ -135,9 +167,11 @@ updatedAt: "2026-01-01T00:00:00.000Z"
       body: { body: "Still relevant." },
     });
     assert.equal(replied.response.status, 200);
-    const rewritten = await readFile(join(root, ".work", "issues", `${issueId}.md`), "utf8");
+    const rewritten = await readFile(join(root, ".work", "issues", `${loaded.payload.id}.md`), "utf8");
+    assert.match(rewritten, new RegExp(`longId: ${JSON.stringify(issueId)}`));
     assert.match(rewritten, /delegated: false/);
     assert.doesNotMatch(rewritten, /agents:/);
+    assert.deepEqual(await readdir(join(root, ".work", "issues")), [`${loaded.payload.id}.md`]);
   } finally {
     await closeLocalApi(api.server);
   }
@@ -152,6 +186,7 @@ test("persists issue conversations and keeps final closure under human control",
   const initialBody = "\n\n# Cache refresh is confusing\n\nThe UI still shows `old-value`.\n\n";
   const markdownReply = "\n\nI reproduced this with:\n\n```sh\nwork start\n```\n\n";
   let issueId;
+  let issueLongId;
 
   try {
     const created = await requestJson(first.origin, "/api/issues", {
@@ -178,6 +213,7 @@ test("persists issue conversations and keeps final closure under human control",
       resolutionSummary: null,
     });
     issueId = created.payload.id;
+    issueLongId = created.payload.longId;
 
     const storedPath = join(projectRoot, ".work", "issues", `${issueId}.md`);
     const stored = await readFile(storedPath, "utf8");
@@ -361,6 +397,8 @@ test("persists issue conversations and keeps final closure under human control",
     assert.equal(issue.messages.length, 4);
     assert.equal(issue.messages[0].body, markdownReply);
     assert.ok(issue.stateHistory.length >= 12);
+    const permanentAlias = await requestJson(restarted.origin, `/api/issues/${issueLongId}`);
+    assert.equal(permanentAlias.payload.id, issueId);
 
     const agentListMissingIdentity = await requestJson(restarted.origin, "/api/agent/issues");
     assert.equal(agentListMissingIdentity.response.status, 400);

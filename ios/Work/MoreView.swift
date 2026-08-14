@@ -293,6 +293,11 @@ struct IssueDetailView: View {
                             Text(issue.id)
                                 .font(.caption.monospaced())
                                 .foregroundStyle(.secondary)
+                            Text(issue.longId)
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.tertiary)
+                                .textSelection(.enabled)
+                                .accessibilityLabel("Long issue ID, \(issue.longId)")
                             MarkdownText(source: issue.body)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             Text(messageMetadata(

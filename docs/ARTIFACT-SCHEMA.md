@@ -18,7 +18,7 @@ the note body.
 | --- | --- | --- | --- |
 | Capture | `.work/captures/` | `<project>/.work/captures/` | `<capture id>.md` |
 | Note | `.work/notes/` | `<project>/.work/notes/` | `<note id>.md` |
-| Issue | `.work/issues/` | `<project>/.work/issues/` | `<issue id>.md` |
+| Issue | `.work/issues/` | `<project>/.work/issues/` | `<short issue id>.md` |
 | Decision | `.work/decisions/` | `<project>/.work/decisions/` | `<decision id>.md` |
 | Task | `.work/tasks/` | `<project>/.work/tasks/` | `<task id>.md` |
 
@@ -27,20 +27,21 @@ non-null project path must exactly match a discovered, root-relative project
 path. Store project-owned records inside that project's `.work/` directory;
 do not merely set the metadata while leaving the file at the root.
 
-IDs and filenames must agree. Capture, note, issue, and decision IDs use
+IDs and filenames must agree. Capture, note, and decision IDs use
 these forms:
 
 ```text
 capture_<8-to-81 lowercase letters, digits, underscores, or hyphens>
 note_<8-to-81 lowercase letters, digits, underscores, or hyphens>
-issue_<8-to-81 lowercase letters, digits, underscores, or hyphens>
 decision_<8-to-81 lowercase letters, digits, underscores, or hyphens>
 ```
 
-Task IDs use `W-` followed by 4–10 digits, such as `W-0001`. Before allocating
-a task ID, scan every root and project task store and choose one greater than
-the highest existing numeric suffix. Never reuse an ID. Duplicate IDs across
-stores are an error.
+Issue IDs use `I-` and task IDs use `W-`, each followed by 4–10 digits, such
+as `I-0001` and `W-0001`. Each issue also keeps its original generated
+`issue_...` value in `longId` as a permanent lookup alias. Before allocating a
+short ID, scan every root and project store of that artifact type and choose
+one greater than the highest existing numeric suffix, honoring the workspace
+`idFloor`. Never reuse an ID. Duplicate IDs across stores are an error.
 
 ## Common serialization rules
 
@@ -159,7 +160,8 @@ Keep the header and rendered transcript synchronized.
 
 ````markdown
 ---
-id: "issue_mabc1234_ab12cd34ef56"
+id: "I-0001"
+longId: "issue_mabc1234_ab12cd34ef56"
 type: "issue"
 title: "The save indicator disappears too early"
 body: "The save indicator disappears too early.\n\n```text\nExpected: Saved\nActual: blank\n```"
