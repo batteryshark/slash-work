@@ -176,6 +176,7 @@ private struct NewIssueSheet: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @FocusState private var isFocused: Bool
+    @FocusState private var nameFocused: Bool
     @State private var title = ""
     @State private var bodyText = ""
 
@@ -201,13 +202,14 @@ private struct NewIssueSheet: View {
                     }
                 }
 
+                // An issue names itself. Scraping the first body line produced
+                // titles like: In issues, """Hand to an agent
                 Section {
-                    TextField("Issue name (optional)", text: $title)
+                    TextField("What is this about?", text: $title)
                         .textInputAutocapitalization(.sentences)
+                        .focused($nameFocused)
                 } header: {
                     Text("Name")
-                } footer: {
-                    Text("Leave blank to use the first line of the description.")
                 }
 
                 Section {
@@ -227,8 +229,6 @@ private struct NewIssueSheet: View {
                     }
                 } header: {
                     Text("Description")
-                } footer: {
-                    Text("Only this text is required. A title is created automatically.")
                 }
             }
             .navigationTitle("File Issue")
@@ -243,11 +243,16 @@ private struct NewIssueSheet: View {
                             if await model.createIssue(title: title, body: bodyText) { dismiss() }
                         }
                     }
-                    .disabled(trimmedBody.isEmpty || model.isMutating || model.isShowingCachedData)
+                    .disabled(trimmedTitle.isEmpty || trimmedBody.isEmpty
+                              || model.isMutating || model.isShowingCachedData)
                 }
             }
-            .onAppear { isFocused = true }
+            .onAppear { nameFocused = true }
         }
+    }
+
+    private var trimmedTitle: String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var trimmedBody: String {
