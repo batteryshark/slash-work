@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { closeLocalApi, startLocalApi } from "../server/local-api.mjs";
+import { decisionIsActive } from "../lib/decisions.mjs";
 import { createProject, createTask, discoverProjects, getTask, initializeWorkspace, missingProjectPaths, updateTask, workspaceSnapshot } from "../lib/local-workspace.mjs";
 import { chooseWorkspaceDirectory } from "../lib/native-folder-picker.mjs";
 import { registerWorkspace } from "../lib/workspace-registry.mjs";
@@ -308,6 +309,18 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
   } finally {
     await stopChild(launched.child);
   }
+});
+
+test("an expired deferral counts as active, including through Array.filter", async () => {
+  const open = { status: "open" };
+  const future = { status: "deferred", resolution: { choice: { until: "2999-01-01T00:00:00.000Z" } } };
+  const expired = { status: "deferred", resolution: { choice: { until: "2000-01-01T00:00:00.000Z" } } };
+  const noDate = { status: "deferred", resolution: { choice: {} } };
+  assert.deepEqual([open, future, expired, noDate].filter(decisionIsActive), [open, expired]);
+  // Point-free filtering is how both clients and the server call this. A
+  // second parameter would arrive as the array index and silently report
+  // everything inactive, which is exactly what the needs-you queue did.
+  assert.equal(decisionIsActive.length, 1, "one parameter, so Array.filter cannot poison it");
 });
 
 test("markdown headers inside a section survive the round trip", async () => {

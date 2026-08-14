@@ -42,6 +42,7 @@ import { listFiles, readFilePreview } from "../lib/file-browser.mjs";
 import { chooseWorkspaceDirectory } from "../lib/native-folder-picker.mjs";
 import { registerWorkspace, unregisterWorkspace } from "../lib/workspace-registry.mjs";
 import { buildFingerprint } from "../lib/build-fingerprint.mjs";
+import { decisionIsActive } from "../lib/decisions.mjs";
 import {
   getAgentIndex,
   getAgentOpenApi,
@@ -499,7 +500,7 @@ const WORKSPACE_ROUTES = [
     const entries = [
       ...tasks.filter((task) => task.status === "blocked").map((task) => ({ type: "task", id: task.id, title: task.title, updatedAt: task.updatedAt, projectPath: task.projectPath })),
       ...issues.filter((issue) => issue.state === "needs_human").map((issue) => ({ type: "issue", id: issue.id, title: issue.title, updatedAt: issue.updatedAt, projectPath: issue.projectPath })),
-      ...decisions.filter((decision) => decision.status === "open").map((decision) => ({ type: "decision", id: decision.id, title: decision.title, updatedAt: decision.updatedAt, projectPath: decision.projectPath })),
+      ...decisions.filter(decisionIsActive).map((decision) => ({ type: "decision", id: decision.id, title: decision.title, updatedAt: decision.updatedAt, projectPath: decision.projectPath })),
     ].sort((left, right) => (right.updatedAt ?? "").localeCompare(left.updatedAt ?? ""));
     return [200, { entries }];
   }),

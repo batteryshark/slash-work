@@ -2,6 +2,7 @@
 
 import { normalizeTags, tagHueAngle, workspaceTags } from "../lib/tags.mjs";
 import { splitTaskTitles } from "../lib/task-lines.mjs";
+import { decisionIsActive } from "../lib/decisions.mjs";
 import {
   CSSProperties,
   FormEvent,
@@ -550,12 +551,7 @@ function deferUntil(preset: DecisionDraft["deferFor"]) {
   return date.toISOString();
 }
 
-function decisionIsActive(decision: Decision) {
-  if (decision.status === "open") return true;
-  if (decision.status !== "deferred") return false;
-  const until = decision.resolution?.choice?.until;
-  return typeof until === "string" && new Date(until).getTime() <= Date.now();
-}
+
 
 // Where you are looking is per-window; what you looked at last is shared.
 // localStorage is one value for every tab on this origin, so two windows on
