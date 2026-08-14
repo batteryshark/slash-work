@@ -2385,7 +2385,6 @@ export default function Home() {
         <TaskDetailPanel
           task={selectedTask}
           tasks={data.tasks ?? []}
-          projects={data.projects}
           statuses={data.workspace.statuses}
           saving={savingTask}
           error={taskError}
@@ -4280,19 +4279,15 @@ function commaList(value: string) {
 }
 
 // The eye-level fields shared by the create and detail panels. `children`
-// renders the one panel-specific field (Status when creating).
-function TaskFields({ projects, values, onChange, children }: {
-  projects: Project[];
+// renders fields specific to one panel (Project and Status when creating).
+function TaskFields({ values, onChange, children }: {
   values: TaskFieldValues;
   onChange: (patch: Partial<TaskFieldValues>) => void;
   children?: ReactNode;
 }) {
   return (
     <>
-      <div className="field-grid">
-        <label><span>Project</span><select value={values.projectPath} onChange={(event) => onChange({ projectPath: event.target.value })}><option value="">Unassigned</option>{projects.filter((project) => project.path !== ".").map((project) => <option key={project.id} value={project.path}>{project.name} — {project.path}</option>)}</select></label>
-        {children}
-      </div>
+      {children && <div className="field-grid">{children}</div>}
       <label className="field-delegate"><input type="checkbox" checked={values.delegated} onChange={(event) => onChange({ delegated: event.target.checked })} /><span><strong>Hand to an agent</strong><small>An agent runner picks up delegated items on its next pass.</small></span></label>
     </>
   );
@@ -4369,7 +4364,8 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
       <div className="task-panel-header"><div><p className="eyebrow">New work item</p><h2 id="create-task-heading">What outcome or task needs tracking?</h2></div><button type="button" onClick={onClose} aria-label="Close new work item">×</button></div>
       <form onSubmit={submit} className="task-form">
         <label className="field-wide"><span className="sr-only">Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Name it in a few words" autoFocus /></label>
-        <TaskFields projects={projects} values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))}>
+        <TaskFields values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))}>
+          <label><span>Project</span><select value={fields.projectPath} onChange={(event) => setFields((current) => ({ ...current, projectPath: event.target.value }))}><option value="">Unassigned</option>{projects.filter((project) => project.path !== ".").map((project) => <option key={project.id} value={project.path}>{project.name} — {project.path}</option>)}</select></label>
           <label><span>Status</span><select value={status} onChange={(event) => setStatus(event.target.value)}>{statuses.map((item) => <option key={item} value={item}>{statusLabel(item)}</option>)}</select></label>
         </TaskFields>
         <label className="field-wide"><span>Description</span><textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Background and context — what is this, and what is the situation?" /></label>
@@ -4385,10 +4381,9 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
   );
 }
 
-function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, openQuestions, onClose, onMove, onPatch, onToggle, onLog }: {
+function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, onClose, onMove, onPatch, onToggle, onLog }: {
   task: WorkTask;
   tasks: WorkTask[];
-  projects: Project[];
   statuses: string[];
   saving: boolean;
   error: string | null;
@@ -4430,7 +4425,7 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, openQ
 
   function saveDetails(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onPatch({ title, projectPath: fields.projectPath || null, delegated: fields.delegated, tags: commaList(fields.tags), dependsOn: commaList(dependsOn), blockedBy: commaList(blockedBy), blockedReason: blockedReason.trim() || null, parentId: fields.parentId.trim() || null, dueAt: fields.dueAt || null, description, goal, plan, notes, completionSummary });
+    onPatch({ title, delegated: fields.delegated, tags: commaList(fields.tags), dependsOn: commaList(dependsOn), blockedBy: commaList(blockedBy), blockedReason: blockedReason.trim() || null, parentId: fields.parentId.trim() || null, dueAt: fields.dueAt || null, description, goal, plan, notes, completionSummary });
   }
 
   const childTasks = tasks.filter((item) => item.parentId === task.id);
@@ -4445,7 +4440,7 @@ function TaskDetailPanel({ task, tasks, projects, statuses, saving, error, openQ
       {openQuestions}
       <form className="task-form" onSubmit={saveDetails}>
         <label className="field-wide"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-        <TaskFields projects={projects} values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))} />
+        <TaskFields values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))} />
         <label className="field-wide"><span>Description</span><textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Background and context — what is this, and what is the situation?" /></label>
         <label className="field-wide"><span>Goal</span><textarea value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="The discrete outcome — what does done accomplish?" /></label>
         <label className="field-wide"><span>Plan</span><textarea value={plan} onChange={(event) => setPlan(event.target.value)} placeholder="How to get there — known steps or research shape" /></label>
