@@ -348,21 +348,23 @@ test("persists issue conversations and keeps final closure under human control",
     });
     assert.equal(resumed.payload.state, "in_progress");
 
+    // Closing without a summary is refused; "resolved" is a legacy alias that
+    // hits the same gate.
     const missingResolution = await requestJson(first.origin, `/api/agent/issues/${issueId}/state`, {
-      method: "POST",
-      body: { state: "resolved" },
-      headers: { "x-work-agent": "codex-cli" },
-    });
-    assert.equal(missingResolution.response.status, 400);
-
-    const agentCloses = await requestJson(first.origin, `/api/agent/issues/${issueId}/state`, {
       method: "POST",
       body: { state: "closed" },
       headers: { "x-work-agent": "codex-cli" },
     });
-    assert.equal(agentCloses.response.status, 403);
-    assert.equal(agentCloses.payload.error.code, "agent_issue_state_forbidden");
+    assert.equal(missingResolution.response.status, 400);
+    const missingResolutionAlias = await requestJson(first.origin, `/api/agent/issues/${issueId}/state`, {
+      method: "POST",
+      body: { state: "resolved" },
+      headers: { "x-work-agent": "codex-cli" },
+    });
+    assert.equal(missingResolutionAlias.response.status, 400);
 
+    // An old agent client sending "resolved" closes the issue: the state
+    // vocabulary collapsed, the alias maps forward.
     const resolved = await requestJson(first.origin, `/api/agent/issues/${issueId}/state`, {
       method: "POST",
       body: {
@@ -372,7 +374,7 @@ test("persists issue conversations and keeps final closure under human control",
       headers: { "x-work-agent": "codex-cli" },
     });
     assert.equal(resolved.response.status, 200);
-    assert.equal(resolved.payload.state, "resolved");
+    assert.equal(resolved.payload.state, "closed");
     assert.equal(resolved.payload.resolutionSummary, "The refresh completes after the cache generation advances.");
 
     const agentReopens = await requestJson(first.origin, `/api/agent/issues/${issueId}/state`, {
@@ -473,8 +475,8 @@ test("persists issue conversations and keeps final closure under human control",
     const capability = await requestJson(restarted.origin, "/api/agent/operations/issues.update-state");
     assert.equal(capability.response.status, 200);
     assert.equal(capability.payload.operation.transport.api.path, "/api/agent/issues/{id}/state");
-    assert.deepEqual(capability.payload.operation.inputSchema.properties.state.enum, ["in_progress", "needs_human", "resolved"]);
-    assert.ok(capability.payload.operation.rules.some((rule) => /cannot close, reopen, delete, archive, or lock/i.test(rule)));
+    assert.deepEqual(capability.payload.operation.inputSchema.properties.state.enum, ["in_progress", "needs_human", "closed"]);
+    assert.ok(capability.payload.operation.rules.some((rule) => /cannot reopen, delete, archive, or lock/i.test(rule)));
 
     const openapi = await requestJson(restarted.origin, "/api/openapi.json");
     const claimOperation = openapi.payload.paths["/api/agent/issues/{id}/claim"].post;
