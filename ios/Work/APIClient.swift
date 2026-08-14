@@ -180,10 +180,14 @@ struct WorkAPIClient: @unchecked Sendable {
         return response.issues
     }
 
-    func createIssue(body: String, projectPath: String?, workspaceID: String) async throws -> WorkIssue {
+    func createIssue(title: String?, body: String, projectPath: String?, workspaceID: String) async throws -> WorkIssue {
         try await send("api/issues", method: "POST", workspaceID: workspaceID,
-                       body: CreateIssueRequest(body: body, scopePath: projectPath ?? ".",
+                       body: CreateIssueRequest(title: title, body: body, scopePath: projectPath ?? ".",
                                                 projectPath: projectPath))
+    }
+
+    func updateIssue(id: String, patch: IssuePatchRequest, workspaceID: String) async throws -> WorkIssue {
+        try await send("api/issues/\(encoded(id))", method: "PATCH", workspaceID: workspaceID, body: patch)
     }
 
     func replyToIssue(id: String, body: String, workspaceID: String) async throws -> WorkIssue {
@@ -361,10 +365,12 @@ private struct CreateNoteRequest: Encodable {
     let projectPath: String?
 }
 private struct CreateIssueRequest: Encodable {
+    let title: String?
     let body: String
     let scopePath: String
     let projectPath: String?
 }
+struct IssuePatchRequest: Encodable { let delegated: Bool }
 private struct IssueListResponse: Decodable { let issues: [WorkIssue] }
 private struct IssueReplyRequest: Encodable { let body: String }
 private struct IssueStateRequest: Encodable { let state: WorkIssueState }

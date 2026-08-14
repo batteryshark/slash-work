@@ -426,10 +426,20 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func createIssue(body: String) async -> Bool {
+    func createIssue(title: String, body: String) async -> Bool {
         await mutate {
             guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
-            _ = try await client.createIssue(body: body, projectPath: self.selectedProjectPath,
+            let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            _ = try await client.createIssue(title: name.isEmpty ? nil : name, body: body,
+                                             projectPath: self.selectedProjectPath,
+                                             workspaceID: workspaceID)
+        }
+    }
+
+    func setDelegated(_ issue: WorkIssue, _ delegated: Bool) async -> Bool {
+        await mutate {
+            guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
+            _ = try await client.updateIssue(id: issue.id, patch: IssuePatchRequest(delegated: delegated),
                                              workspaceID: workspaceID)
         }
     }

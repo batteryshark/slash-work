@@ -92,7 +92,7 @@ private struct IssuesView: View {
                         IssueRow(issue: issue)
                     }
                     .accessibilityLabel(
-                        "\(issue.title), \(issue.state.title), \(issue.messages.count) replies"
+                        "\(issue.title), \(issue.id), \(issue.state.title), \(issue.messages.count) replies"
                     )
                 }
             }
@@ -137,10 +137,15 @@ private struct IssueRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
-                Text(issue.title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(issue.title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                    Text(issue.id)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                }
                 Spacer(minLength: 8)
                 IssueStatePill(state: issue.state)
             }
@@ -171,6 +176,7 @@ private struct NewIssueSheet: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     @FocusState private var isFocused: Bool
+    @State private var title = ""
     @State private var bodyText = ""
 
     var body: some View {
@@ -196,9 +202,18 @@ private struct NewIssueSheet: View {
                 }
 
                 Section {
+                    TextField("Issue name (optional)", text: $title)
+                        .textInputAutocapitalization(.sentences)
+                } header: {
+                    Text("Name")
+                } footer: {
+                    Text("Leave blank to use the first line of the description.")
+                }
+
+                Section {
                     ZStack(alignment: .topLeading) {
                         if bodyText.isEmpty {
-                            Text("What should the agent pick up?")
+                            Text("What should the agent investigate?")
                                 .foregroundStyle(.tertiary)
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 8)
@@ -210,6 +225,8 @@ private struct NewIssueSheet: View {
                             .accessibilityLabel("Issue description")
                             .accessibilityHint("Markdown and multiple lines are supported")
                     }
+                } header: {
+                    Text("Description")
                 } footer: {
                     Text("Only this text is required. A title is created automatically.")
                 }
@@ -223,7 +240,7 @@ private struct NewIssueSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Submit") {
                         Task {
-                            if await model.createIssue(body: bodyText) { dismiss() }
+                            if await model.createIssue(title: title, body: bodyText) { dismiss() }
                         }
                     }
                     .disabled(trimmedBody.isEmpty || model.isMutating || model.isShowingCachedData)
@@ -279,6 +296,19 @@ struct IssueDetailView: View {
                             ))
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        }
+                        .padding()
+                        .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+
+                        VStack(alignment: .leading, spacing: 7) {
+                            Toggle("Hand to an agent", isOn: Binding(
+                                get: { issue.delegated },
+                                set: { on in Task { _ = await model.setDelegated(issue, on) } }
+                            ))
+                            .disabled(model.isShowingCachedData || model.isMutating)
+                            Text("An agent runner picks up delegated items on its next pass.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                         .padding()
                         .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
