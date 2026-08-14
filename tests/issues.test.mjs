@@ -387,3 +387,44 @@ test("persists issue conversations and keeps final closure under human control",
     await closeLocalApi(restarted.server);
   }
 });
+
+test("a human reply takes the issue back off the runner", async () => {
+  const root = await temporaryDirectory();
+  const api = await startLocalApi({ root, port: 0 });
+  try {
+    const filed = await requestJson(api.origin, "/api/issues", {
+      method: "POST",
+      body: { title: "Mobile cannot tick delegation", body: "No box to tap.", delegated: true },
+    });
+    assert.equal(filed.payload.delegated, true);
+    const id = filed.payload.id;
+
+    // Several replies in a row are one train of thought, not several
+    // dispatches: the human re-ticks when the thought is finished.
+    const replied = await requestJson(api.origin, `/api/issues/${id}/replies`, {
+      method: "POST",
+      body: { body: "One more detail before you start." },
+    });
+    assert.equal(replied.response.status, 200);
+    assert.equal(replied.payload.delegated, false, "a human reply unticks delegation");
+
+    // An agent's own reply must leave the flag exactly as it found it.
+    await requestJson(api.origin, `/api/issues/${id}`, {
+      method: "PATCH",
+      body: { delegated: true },
+    });
+    await requestJson(api.origin, `/api/agent/issues/${id}/claim`, {
+      method: "POST",
+      headers: { "x-work-agent": "maestro/brisk_otter" },
+    });
+    const byAgent = await requestJson(api.origin, `/api/agent/issues/${id}/replies`, {
+      method: "POST",
+      body: { body: "working on it" },
+      headers: { "x-work-agent": "maestro/brisk_otter" },
+    });
+    assert.equal(byAgent.response.status, 200);
+    assert.equal(byAgent.payload.delegated, true, "an agent reply leaves delegation alone");
+  } finally {
+    await closeLocalApi(api.server);
+  }
+});
