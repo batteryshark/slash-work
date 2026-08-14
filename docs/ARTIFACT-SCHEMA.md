@@ -22,10 +22,13 @@ the note body.
 | Decision | `.work/decisions/` | `<project>/.work/decisions/` | `<decision id>.md` |
 | Task | `.work/tasks/` | `<project>/.work/tasks/` | `<task id>.md` |
 
-`projectPath: null` means the artifact is owned by the workspace root. A
-non-null project path must exactly match a discovered, root-relative project
-path. Store project-owned records inside that project's `.work/` directory;
-do not merely set the metadata while leaving the file at the root.
+`projectId: null` means the artifact is owned by the workspace root. A
+project-owned artifact stores the immutable ID from the project's
+`.work/project.json`; `projectPath` is its current discovered, root-relative
+location and may change when the directory moves. Store project-owned records
+inside that project's `.work/` directory; do not merely set the metadata while
+leaving the file at the root. Legacy records without `projectId` are matched by
+their exact `projectPath` once and upgraded.
 
 IDs and filenames must agree. Capture, note, and decision IDs use
 these forms:
@@ -87,6 +90,7 @@ type: "capture"
 kind: "question"
 scopePath: "."
 projectPath: null
+projectId: null
 createdAt: "2026-07-13T14:30:00.000Z"
 updatedAt: "2026-07-13T14:30:00.000Z"
 ---
@@ -113,6 +117,7 @@ type: "note"
 title: "Release context"
 scopePath: "software/rekit"
 projectPath: "software/rekit"
+projectId: "550e8400-e29b-41d4-a716-446655440000"
 createdBy: {"kind":"human","name":null}
 createdAt: "2026-07-13T14:30:00.000Z"
 updatedAt: "2026-07-13T14:30:00.000Z"
@@ -170,6 +175,7 @@ body: "The save indicator disappears too early.\n\n```text\nExpected: Saved\nAct
 state: "resolved"
 scopePath: "software/rekit"
 projectPath: "software/rekit"
+projectId: "550e8400-e29b-41d4-a716-446655440000"
 delegated: true
 claimedBy: {"kind":"agent","name":"codex-team"}
 resolutionSummary: "The indicator now remains visible after the durable write."
@@ -217,6 +223,7 @@ id: "decision_mabc1234_ab12cd34ef56"
 type: "decision"
 title: "Where should the release task live?"
 projectPath: null
+projectId: null
 options: ["Keep unassigned","Assign to software/rekit"]
 recommendedOption: "Keep unassigned"
 status: "open"
@@ -282,6 +289,7 @@ id: "W-0001"
 title: "Build the operational board"
 status: "in_progress"
 project_path: "software/rekit"
+projectId: "550e8400-e29b-41d4-a716-446655440000"
 delegated: false
 tags: ["kanban","release"]
 depends_on: []
@@ -346,7 +354,9 @@ Before writing an artifact:
 4. Allocate a globally unique ID and make the filename match it.
 5. Serialize header values as compact JSON and the body with the exact grammar
    above.
-6. Put the file in the physical store implied by `projectPath`/`project_path`.
+6. Persist the project's immutable `projectId` and put the file in that
+   project's physical store; treat `projectPath`/`project_path` as its current
+   location, not its identity.
 7. Preserve unknown fields and content on update, advance the update timestamp,
    and append required history.
 8. Write atomically, then reread and validate the resulting file.

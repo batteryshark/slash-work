@@ -1882,6 +1882,14 @@ test("keeps project work inside the project when its directory moves", async () 
   assert.equal((await readdir(join(root, ".work", "notes"))).includes(`${noteId}.md`), false);
   assert.equal((await readdir(join(root, ".work", "tasks"))).includes(`${taskId}.md`), false);
 
+  const projectId = JSON.parse(await readFile(join(originalProject, ".work", "project.json"), "utf8")).id;
+  const originalTaskPath = join(originalProject, ".work", "tasks", `${taskId}.md`);
+  assert.match(await readFile(originalTaskPath, "utf8"), new RegExp(`projectId: ${JSON.stringify(projectId)}`));
+
+  // Simulate a record still waiting in the legacy workspace store. Its old
+  // path will stop resolving, so only the immutable project id can refile it.
+  await rename(originalTaskPath, join(root, ".work", "tasks", `${taskId}.md`));
+
   await unlink(join(originalProject, ".project"));
   const movedParent = join(root, "active");
   const movedProject = join(movedParent, "rekit-moved");
@@ -1896,6 +1904,11 @@ test("keeps project work inside the project when its directory moves", async () 
     assert.equal(snapshot.payload.captures.find((capture) => capture.id === captureId)?.projectPath, "active/rekit-moved");
     assert.equal(snapshot.payload.notes.find((note) => note.id === noteId)?.projectPath, "active/rekit-moved");
     assert.equal(snapshot.payload.tasks.find((task) => task.id === taskId)?.projectPath, "active/rekit-moved");
+    assert.equal(snapshot.payload.tasks.find((task) => task.id === taskId)?.projectId, projectId);
+    const movedTask = await readFile(join(movedProject, ".work", "tasks", `${taskId}.md`), "utf8");
+    assert.match(movedTask, /projectPath: "active\/rekit-moved"/);
+    assert.match(movedTask, new RegExp(`projectId: ${JSON.stringify(projectId)}`));
+    assert.equal((await readdir(join(root, ".work", "tasks"))).includes(`${taskId}.md`), false);
   } finally {
     await closeLocalApi(restarted.server);
   }
