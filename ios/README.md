@@ -21,8 +21,8 @@ The initial build targets iOS 17 and uses the same development team configured b
 - Task creation, lifecycle moves, checklist confirmation, and progress updates
 - Due dates on task cards and an upcoming-date strip
 - Project creation and deletion (deletion is human-only and asks for confirmation)
-- Free-form issue filing, Markdown conversation threads, state history, human
-  closure, and reopening after resolution or closure
+- Named issue filing, visible issue IDs, human-only delegation, Markdown
+  conversation threads, state history, closure, and reopening
 - Human note creation and a capture inbox
 - Conditional workspace refreshes using ETags
 - Last-snapshot caching with clearly marked read-only offline mode
@@ -42,7 +42,8 @@ returns it to **Queued** on the server.
 
 The native client expects `issues` in `GET /api/workspace` and also supports
 `GET /api/issues` (an `{issues: [...]}` response). It creates issues with `POST /api/issues` using
-`{body, scopePath, projectPath}`, replies with
+`{title?, body, scopePath, projectPath}`, changes human-only delegation with
+`PATCH /api/issues/:id` using `{delegated}`, replies with
 `POST /api/issues/:id/replies` using `{body}`, and changes state with
 `POST /api/issues/:id/state` using `{state}`. Reopen sends `queued`; human
 Close sends `closed`. The server is responsible for automatically returning an

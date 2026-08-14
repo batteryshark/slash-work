@@ -185,12 +185,31 @@ struct WorkIssue: Codable, Identifiable, Hashable, Sendable {
     let state: WorkIssueState
     let scopePath: String
     let projectPath: String?
+    /// A human ticks this to hand the issue to automation. Agents cannot set it.
+    let delegated: Bool
     let claimedBy: WorkIssueAuthor?
     let resolutionSummary: String?
     let messages: [WorkIssueMessage]
     let stateHistory: [WorkIssueStateChange]
     let createdAt: String
     let updatedAt: String
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        body = try c.decode(String.self, forKey: .body)
+        state = try c.decode(WorkIssueState.self, forKey: .state)
+        scopePath = try c.decode(String.self, forKey: .scopePath)
+        projectPath = try c.decodeIfPresent(String.self, forKey: .projectPath)
+        delegated = c.value(.delegated, false)
+        claimedBy = try c.decodeIfPresent(WorkIssueAuthor.self, forKey: .claimedBy)
+        resolutionSummary = try c.decodeIfPresent(String.self, forKey: .resolutionSummary)
+        messages = try c.decode([WorkIssueMessage].self, forKey: .messages)
+        stateHistory = try c.decode([WorkIssueStateChange].self, forKey: .stateHistory)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
+    }
 }
 
 struct WorkIssueAuthor: Codable, Hashable, Sendable {

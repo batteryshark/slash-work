@@ -36,7 +36,7 @@ struct WorkTests {
           "captures":[],
           "decisions":[{"id":"decision-1","title":"Choose the client","detail":"Pick one","projectPath":"work","options":["Native","Web"],"recommendedOption":"Native","status":"open","resolution":null,"refs":["W-0001"],"createdAt":"2026-07-19T12:00:00.000Z","updatedAt":"2026-07-19T12:00:00.000Z"}],
           "issues":[{
-            "id":"issue_mabc1234_ab12cd34ef56","title":"App freezes on refresh","body":"The app freezes after tapping **Refresh**.\\n\\n```swift\\nawait model.refresh()\\n```","state":"needs_human","scopePath":"work","projectPath":"work","claimedBy":{"kind":"agent","name":"codex-cli"},"resolutionSummary":null,
+            "id":"issue_mabc1234_ab12cd34ef56","title":"App freezes on refresh","body":"The app freezes after tapping **Refresh**.\\n\\n```swift\\nawait model.refresh()\\n```","state":"needs_human","scopePath":"work","projectPath":"work","delegated":true,"claimedBy":{"kind":"agent","name":"codex-cli"},"resolutionSummary":null,
             "messages":[{"id":"message_mabc1234_ab12cd34ef56","body":"Can you confirm whether this happens while offline?","author":{"kind":"agent","name":"codex-cli"},"createdAt":"2026-07-19T12:05:00.000Z"}],
             "stateHistory":[
               {"from":null,"to":"queued","actor":{"kind":"human","name":null},"at":"2026-07-19T12:00:00.000Z","reason":null,"resolutionSummary":null},
@@ -60,6 +60,7 @@ struct WorkTests {
         #expect(snapshot.issues.first?.messages.first?.author.name == "codex-cli")
         #expect(snapshot.issues.first?.stateHistory.first?.from == nil)
         #expect(snapshot.issues.first?.body.contains("```swift") == true)
+        #expect(snapshot.issues.first?.delegated == true)
         #expect(snapshot.tasks.first?.checklistCompleted == 1)
         #expect(snapshot.tasks.first?.dueAt != nil)
         #expect(snapshot.tasks.first?.delegated == true)
@@ -111,6 +112,17 @@ struct WorkTests {
 
         let snapshot = try JSONDecoder().decode(WorkspacePayload.self, from: data)
         #expect(snapshot.issues.isEmpty)
+    }
+
+    @Test func issueDelegationDefaultsOffAndPatchesOnlyDelegation() throws {
+        let issue = #"{"id":"issue_mabc1234_ab12cd34ef56","title":"Named issue","body":"Details","state":"queued","scopePath":".","projectPath":null,"claimedBy":null,"resolutionSummary":null,"messages":[],"stateHistory":[],"createdAt":"","updatedAt":""}"#.data(using: .utf8)!
+        #expect(try JSONDecoder().decode(WorkIssue.self, from: issue).delegated == false)
+
+        let patch = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(IssuePatchRequest(delegated: true))
+        ) as? [String: Any]
+        #expect(patch?.keys.sorted() == ["delegated"])
+        #expect(patch?["delegated"] as? Bool == true)
     }
 
     /// The web treats a deferral whose date has passed as active again. iOS used
