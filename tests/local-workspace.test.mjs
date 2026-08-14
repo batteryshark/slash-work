@@ -323,7 +323,7 @@ test("the CLI can tick a checklist item, so a delegated task can reach review", 
   // blocked with nothing able to unblock it.
   await assert.rejects(
     execFile(process.execPath, [launcherPath.pathname, "move", "W-0001", "review"], { cwd: root }),
-    /review_checklist_incomplete|Verify and check/);
+    /unaccounted checklist items/);
 
   const ticked = await execFile(process.execPath,
     [launcherPath.pathname, "check", "W-0001", "requirement", "0"], { cwd: root });
@@ -336,6 +336,63 @@ test("the CLI can tick a checklist item, so a delegated task can reach review", 
   const off = await execFile(process.execPath,
     [launcherPath.pathname, "check", "W-0001", "requirement", "0", "--off"], { cwd: root });
   assert.match(off.stdout, /0\s+\[ \]\s+does the thing/);
+});
+
+test("blocked is gated like review: every criterion is ticked or declined with a reason", async () => {
+  const root = await temporaryDirectory("work-decline-");
+  const work = (...argv) => execFile(process.execPath, [launcherPath.pathname, ...argv], { cwd: root });
+  await work("init", root);
+  await work("task", "Stuck work", "--requirement", "does the thing",
+    "--acceptance", "proves it", "--acceptance", "and the other thing");
+
+  // The failure this closes: a run that could not finish moved the card to
+  // blocked with every box still empty, and the human had to read the diff to
+  // learn which criteria were even attempted.
+  await assert.rejects(work("move", "W-0001", "blocked"), /unaccounted checklist items/);
+
+  await work("check", "W-0001", "requirement", "0");
+  await assert.rejects(work("move", "W-0001", "blocked"),
+    /2 unaccounted checklist items \(acceptance criterion: proves it/);
+
+  // Declining is the other half of the answer. It needs a reason.
+  await assert.rejects(work("check", "W-0001", "acceptance", "0", "--decline", ""),
+    /reason/i);
+  const declined = await work("check", "W-0001", "acceptance", "0",
+    "--decline", "the staging box is down, so nothing can prove it");
+  assert.match(declined.stdout, /0\s+\[~\]\s+proves it — the staging box is down/);
+
+  await assert.rejects(work("move", "W-0001", "blocked"), /1 unaccounted checklist item\b/);
+  await work("check", "W-0001", "acceptance", "1", "--decline", "not attempted");
+  const moved = await work("move", "W-0001", "blocked");
+  assert.match(moved.stdout, /W-0001 → blocked/);
+
+  // The reason is in the record, in the log, and survives a round-trip through
+  // the API — the UI PATCHes the whole list back when a criterion is added.
+  const shown = JSON.parse((await work("show", "W-0001")).stdout);
+  assert.deepEqual(shown.acceptanceCriteria[0],
+    { checked: false, declined: true, reason: "the staging box is down, so nothing can prove it", text: "proves it" });
+  assert.ok(shown.log.some((entry) => /Declined acceptance criterion: proves it — the staging box is down/.test(entry.message)));
+
+  const launched = await launchApiFromCli(root);
+  try {
+    const patched = await apiRequest(launched.origin, "/api/tasks/W-0001", {
+      method: "PATCH",
+      body: { acceptanceCriteria: [...shown.acceptanceCriteria, { checked: false, text: "a third thing" }] },
+    });
+    assert.equal(patched.payload.acceptanceCriteria[0].declined, true);
+    assert.equal(patched.payload.acceptanceCriteria[0].reason, "the staging box is down, so nothing can prove it");
+
+    // Ticking a declined item clears the decline; it is one state, not a flag
+    // stacked on another.
+    const reticked = await apiRequest(launched.origin, "/api/tasks/W-0001/checklist", {
+      method: "POST",
+      body: { section: "acceptance", index: 0, checked: true },
+    });
+    assert.deepEqual(reticked.payload.acceptanceCriteria[0],
+      { checked: true, declined: false, reason: "", text: "proves it" });
+  } finally {
+    await stopChild(launched.child);
+  }
 });
 
 test("an expired deferral counts as active, including through Array.filter", async () => {
@@ -2206,7 +2263,7 @@ test("persists a full Kanban lifecycle with fields, checklists, dependencies, an
       body: { status: "review", notes: "Ready for the dependency gate test." },
     });
     assert.equal(prematureReview.response.status, 409);
-    assert.match(prematureReview.payload.error.message, /unchecked checklist/i);
+    assert.match(prematureReview.payload.error.message, /unaccounted checklist/i);
 
     for (const [section, index] of [["requirements", 1], ["acceptance", 0], ["acceptance", 1]]) {
       const completedCheck = await apiRequest(first.origin, `/api/tasks/${foundation.payload.id}/checklist`, {

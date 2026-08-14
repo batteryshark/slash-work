@@ -78,8 +78,9 @@ Usage:
   work list [--project p|--unassigned] List work items; filter to one project or to workspace scope
   work show <id>                       Print a complete work item
   work update <id> [options]           Edit a card's title and sections
-  work check <id> requirement|acceptance <index> [--off]
-                                      Tick one checklist item (index counts from 0)
+  work check <id> requirement|acceptance <index> [--off|--decline "why"]
+                                      Account for one checklist item (index counts from 0):
+                                      tick it, untick it, or decline it with a reason
   work move <id> <status> [--note n]  Move a card and append to its log
   work log <id> "what happened"        Append a progress entry
   work delegate <id> [--off]           Hand an existing card to an agent (--off takes it back)
@@ -158,6 +159,7 @@ const CLI_FLAGS = {
   plan: { type: "string" },
   notes: { type: "string" },
   note: { type: "string" },
+  decline: { type: "string" },
   "id-floor": { type: "string" },
   "api-port": { type: "string" },
   "ui-port": { type: "string" },
@@ -557,10 +559,15 @@ async function runCheck(options, positionals) {
     throw new WorkspaceError("index must be a whole number, counting from 0 as `work show` lists them.");
   }
   const workspace = await currentWorkspace(options);
-  const task = await toggleTaskChecklist(workspace, id, { section, index, checked: !options.off });
+  const declined = options.decline != null;
+  if (declined && options.off) throw new WorkspaceError("use either --off or --decline, not both.");
+  const task = await toggleTaskChecklist(workspace, id, declined
+    ? { section, index, declined: true, reason: options.decline }
+    : { section, index, checked: !options.off });
   const items = section === "requirements" ? task.requirements : task.acceptanceCriteria;
   for (const [position, item] of items.entries()) {
-    console.log(`${position}\t[${item.checked ? "x" : " "}]\t${item.text}`);
+    const mark = item.declined ? "~" : item.checked ? "x" : " ";
+    console.log(`${position}\t[${mark}]\t${item.text}${item.declined && item.reason ? ` — ${item.reason}` : ""}`);
   }
 }
 

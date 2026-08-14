@@ -169,7 +169,8 @@ type Decision = {
   updatedAt: string;
 };
 
-type ChecklistItem = { checked: boolean; text: string };
+type ChecklistItem = { checked: boolean; text: string; declined?: boolean; reason?: string };
+type ChecklistPatch = { checked: boolean } | { declined: true; reason: string };
 
 type WorkTask = {
   id: string;
@@ -1442,11 +1443,11 @@ export default function Home() {
     }, { saving: setSavingTask, error: setTaskError, fallback: "The work item could not be updated." });
   }
 
-  async function toggleWorkChecklist(taskId: string, section: "requirements" | "acceptance", index: number, checked: boolean) {
+  async function toggleWorkChecklist(taskId: string, section: "requirements" | "acceptance", index: number, state: ChecklistPatch) {
     await run(async () => {
       const task = await requestJson<WorkTask>(`/api/tasks/${encodeURIComponent(taskId)}/checklist`, {
         method: "POST",
-        body: JSON.stringify({ section, index, checked }),
+        body: JSON.stringify({ section, index, ...state }),
       });
       replaceIn("tasks", task);
     }, { error: setTaskError, fallback: "The checklist could not be updated." }).catch(() => {});
@@ -2410,7 +2411,7 @@ export default function Home() {
           onClose={() => { setSelectedTaskId(null); setTaskError(null); }}
           onMove={(status, note) => void moveWorkTask(selectedTask.id, status, note).catch(() => {})}
           onPatch={(patch) => void patchWorkTask(selectedTask.id, patch).catch(() => {})}
-          onToggle={(section, index, checked) => void toggleWorkChecklist(selectedTask.id, section, index, checked)}
+          onToggle={(section, index, state) => void toggleWorkChecklist(selectedTask.id, section, index, state)}
           onLog={(message) => logWorkProgress(selectedTask.id, message)}
         />
       )}
@@ -4391,7 +4392,7 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
   onClose: () => void;
   onMove: (status: string, note?: string) => void;
   onPatch: (patch: Record<string, unknown>) => void;
-  onToggle: (section: "requirements" | "acceptance", index: number, checked: boolean) => void;
+  onToggle: (section: "requirements" | "acceptance", index: number, state: ChecklistPatch) => void;
   onLog: (message: string) => Promise<void>;
 }) {
   const taskFieldValues = (): TaskFieldValues => ({
@@ -4454,9 +4455,9 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
         <button type="submit" className="primary-action" disabled={saving}>{saving ? "Saving…" : "Save card details"}</button>
       </form>
 
-      <TaskChecklist title="Requirements" items={task.requirements} onToggle={(index, checked) => onToggle("requirements", index, checked)} />
+      <TaskChecklist title="Requirements" items={task.requirements} onToggle={(index, state) => onToggle("requirements", index, state)} />
       <form className="add-check" onSubmit={(event) => { event.preventDefault(); if (!newRequirement.trim()) return; onPatch({ requirements: [...task.requirements, { checked: false, text: newRequirement.trim() }] }); setNewRequirement(""); }}><input value={newRequirement} onChange={(event) => setNewRequirement(event.target.value)} placeholder="Add requirement…" /><button type="submit">Add</button></form>
-      <TaskChecklist title="Acceptance criteria" items={task.acceptanceCriteria} onToggle={(index, checked) => onToggle("acceptance", index, checked)} />
+      <TaskChecklist title="Acceptance criteria" items={task.acceptanceCriteria} onToggle={(index, state) => onToggle("acceptance", index, state)} />
       <form className="add-check" onSubmit={(event) => { event.preventDefault(); if (!newAcceptance.trim()) return; onPatch({ acceptanceCriteria: [...task.acceptanceCriteria, { checked: false, text: newAcceptance.trim() }] }); setNewAcceptance(""); }}><input value={newAcceptance} onChange={(event) => setNewAcceptance(event.target.value)} placeholder="Add acceptance criterion…" /><button type="submit">Add</button></form>
 
       {childTasks.length > 0 && <section className="task-subsection"><h3>Child work</h3><ul>{childTasks.map((child) => <li key={child.id}><strong>{child.id}</strong> {child.title} <span>{statusLabel(child.status)}</span></li>)}</ul></section>}
@@ -4467,8 +4468,19 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
   );
 }
 
-function TaskChecklist({ title, items, onToggle }: { title: string; items: ChecklistItem[]; onToggle: (index: number, checked: boolean) => void }) {
+function TaskChecklist({ title, items, onToggle }: { title: string; items: ChecklistItem[]; onToggle: (index: number, state: ChecklistPatch) => void }) {
+  function decline(index: number, item: ChecklistItem) {
+    const reason = window.prompt(`Why is this not done?\n\n${item.text}`, item.reason ?? "");
+    if (reason && reason.trim()) onToggle(index, { declined: true, reason: reason.trim() });
+  }
   return (
-    <section className="task-subsection"><h3>{title}</h3>{items.length === 0 ? <p>None recorded.</p> : <ul className="task-checklist">{items.map((item, index) => <li key={`${item.text}-${index}`}><label><input type="checkbox" checked={item.checked} onChange={(event) => onToggle(index, event.target.checked)} /><span>{item.text}</span></label></li>)}</ul>}</section>
+    <section className="task-subsection"><h3>{title}</h3>{items.length === 0 ? <p>None recorded.</p> : <ul className="task-checklist">{items.map((item, index) => (
+      <li key={`${item.text}-${index}`} className={item.declined ? "declined" : undefined}>
+        <label><input type="checkbox" checked={item.checked} onChange={(event) => onToggle(index, { checked: event.target.checked })} /><span>{item.text}</span></label>
+        {item.declined
+          ? <p className="check-reason">Declined: {item.reason || "no reason recorded"} <button type="button" onClick={() => decline(index, item)}>Edit</button></p>
+          : item.checked ? null : <button type="button" className="decline-check" onClick={() => decline(index, item)}>Decline…</button>}
+      </li>
+    ))}</ul>}</section>
   );
 }

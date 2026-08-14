@@ -1051,6 +1051,10 @@ kbd { display: inline-grid; place-items: center; min-width: 23px; height: 23px; 
 .task-checklist label { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; min-height: 42px; padding: 8px 10px; border-radius: 10px; background: var(--field); cursor: pointer; }
 .task-checklist input { width: 18px; height: 18px; accent-color: var(--accent); }
 .task-checklist input:checked + span { color: var(--muted); text-decoration: line-through; }
+.task-checklist li.declined label span { color: var(--muted); text-decoration: line-through; }
+.task-checklist .check-reason { display: flex; gap: 8px; align-items: baseline; margin: 4px 0 0 32px; color: var(--soft); font-size: 12px; line-height: 1.4; }
+.task-checklist .decline-check, .task-checklist .check-reason button { padding: 2px 6px; border: 0; border-radius: 6px; background: none; color: var(--soft); font-size: 12px; cursor: pointer; text-decoration: underline; }
+.task-checklist .decline-check { margin-left: 32px; }
 .add-check { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 9px; }
 .add-check button { min-height: 46px; padding: 0 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); cursor: pointer; font-weight: 720; }
 .task-log { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
