@@ -182,10 +182,11 @@ Important behavior:
   humans retain control through the UI;
 - issue provenance distinguishes human and named agent replies. Filing an issue
   authorizes investigation and a reply, not executable changes. Agents may
-  claim an issue, request a human response, or resolve it with a summary, but
-  only a human may close it. Human replies to issues needing input, resolved
-  issues, or closed issues return them to the queue automatically, and prior
-  messages and state transitions remain append-only;
+  note another occurrence on a queued, unclaimed issue without claiming it;
+  they may also claim an issue, request a human response, or resolve it with a
+  summary, but only a human may close it. Human replies to issues needing input,
+  resolved issues, or closed issues return them to the queue automatically, and
+  prior messages and state transitions remain append-only;
 - restarting reads the existing files instead of seeding example data;
 - unknown fields and Markdown body content are preserved when possible;
 - files remain useful with the app stopped.

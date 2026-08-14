@@ -138,7 +138,9 @@ repository changes or other executable work.
 `delegated` is a boolean, human-only exactly as on tasks: it is the only way
 an issue enters an orchestrator's queue, agents cannot set it, and a legacy
 non-empty `agents` list reads as `delegated: true` and is dropped on the next
-write. `claimedBy` is null or an agent actor. An agent may claim a queued issue, reply,
+write. `claimedBy` is null or an agent actor. An agent may append an attributed
+observation to a queued, unclaimed issue without changing its state, claim, or
+delegation. An agent may also claim a queued issue, reply,
 move it to `needs_human` with a concrete question or blocker, and move it to
 `resolved` only with a non-empty `resolutionSummary`. Only a human may move an
 issue to `closed`. A human may always move a resolved or closed issue back to
