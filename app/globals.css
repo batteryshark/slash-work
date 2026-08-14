@@ -1252,3 +1252,7 @@ html[data-theme="dark"] { --tag-s: 40%; --tag-bg-l: 25%; --tag-ink-l: 80%; --tag
 .tag-chip-new { min-height: 34px; padding: 3px 10px; border: 1px dashed var(--line); border-radius: 999px; background: transparent; color: var(--muted); font-size: 11px; font-weight: 720; cursor: pointer; }
 
 
+
+/* An issue names itself; the title is not scraped from the first body line. */
+.issue-title-input { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--field); color: var(--ink); font-size: 15px; font-weight: 620; }
+.issue-title-input:focus-visible { border-color: var(--accent); }

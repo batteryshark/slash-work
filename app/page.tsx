@@ -1308,11 +1308,13 @@ export default function Home() {
     } : current);
   }
 
-  function createIssue(body: string) {
+  function createIssue(title: string, body: string) {
     return run(async () => {
       const issue = await requestJson<Issue>("/api/issues", {
         method: "POST",
-        body: JSON.stringify({ body, scopePath, projectPath: selectedProject?.path ?? null }),
+        // The title is its own field. Deriving it from the first body line
+        // produced titles like: In issues, """Hand to an agent
+        body: JSON.stringify({ title, body, scopePath, projectPath: selectedProject?.path ?? null }),
       });
       replaceIn("issues", issue);
       setSelectedIssueId(issue.id);
@@ -3312,13 +3314,14 @@ function IssuesView({
   saving: boolean;
   error: string | null;
   onSelect: (issueId: string) => void;
-  onCreate: (body: string) => Promise<Issue>;
+  onCreate: (title: string, body: string) => Promise<Issue>;
   onReply: (issueId: string, body: string) => Promise<Issue>;
   onSetState: (issueId: string, state: "queued" | "closed") => Promise<Issue>;
   onSetDelegated: (issueId: string, delegated: boolean) => Promise<Issue>;
 }) {
   const selectedIssue = issues.find((issue) => issue.id === selectedIssueId) ?? null;
   const stateNote = selectedIssue ? ISSUE_STATE_NOTES[selectedIssue.state] : undefined;
+  const [title, setTitle] = useState("");
   const [draft, setDraft] = useState("");
   const [reply, setReply] = useState("");
   const [search, setSearch] = useState("");
@@ -3345,8 +3348,9 @@ function IssuesView({
   async function submitIssue(event?: FormEvent) {
     event?.preventDefault();
     const body = draft;
-    if (!body.trim() || saving) return;
-    await onCreate(body);
+    if (!title.trim() || !body.trim() || saving) return;
+    await onCreate(title.trim(), body);
+    setTitle("");
     setDraft("");
   }
 
@@ -3374,15 +3378,24 @@ function IssuesView({
         <div>
           <p className="eyebrow">A durable conversation beside the work</p>
           <h1 id="issues-heading">{scopeLabel} issues</h1>
-          <p>Write what is wrong, unclear, or worth investigating. No title or categorization required.</p>
+          <p>Name it, then write what is wrong, unclear, or worth investigating.</p>
         </div>
       </header>
 
       <form className="issue-composer" onSubmit={(event) => void submitIssue(event).catch(() => {})}>
-        <label htmlFor="new-issue-body">
+        <label htmlFor="new-issue-title">
           <strong>File an issue</strong>
-          <span>Markdown supported · Enter adds a new line</span>
+          <span>A short name, then the detail below</span>
         </label>
+        <input
+          id="new-issue-title"
+          className="issue-title-input"
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
+          placeholder="What is this about?"
+          maxLength={300}
+        />
+        <label htmlFor="new-issue-body" className="sr-only">Issue detail</label>
         <textarea
           id="new-issue-body"
           value={draft}
@@ -3395,7 +3408,7 @@ function IssuesView({
           <span id="issue-scope"><strong>Exact scope:</strong> {exactScope}</span>
           <div>
             <span id="issue-submit-hint"><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
-            <button type="submit" className="primary-action" disabled={saving || !draft.trim()}>
+            <button type="submit" className="primary-action" disabled={saving || !title.trim() || !draft.trim()}>
               {saving ? "Submitting…" : "Submit issue"}
             </button>
           </div>
