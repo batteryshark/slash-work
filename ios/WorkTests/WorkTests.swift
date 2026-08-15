@@ -116,6 +116,51 @@ struct WorkTests {
         #expect(snapshot.issues.isEmpty)
     }
 
+    /// The server collapsed resolved into closed and its vocabulary can grow
+    /// again. Any unknown state string must decode to closed, never fail the
+    /// whole snapshot.
+    @Test func unknownIssueStatesDecodeToClosed() throws {
+        let issue = #"{"id":"I-0002","title":"Old","body":"b","state":"resolved","scopePath":".","projectPath":null,"claimedBy":null,"resolutionSummary":null,"messages":[],"stateHistory":[{"from":"some_future_state","to":"resolved","actor":{"kind":"human","name":null},"at":"","reason":null,"resolutionSummary":null}],"createdAt":"","updatedAt":""}"#.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(WorkIssue.self, from: issue)
+        #expect(decoded.state == .closed)
+        #expect(decoded.state.isTerminal)
+        #expect(decoded.stateHistory.first?.from == .closed)
+        #expect(decoded.stateHistory.first?.to == .closed)
+    }
+
+    /// CONTRACT §3: declined means verified-as-not-done with the reason kept.
+    /// Older payloads without the keys still decode.
+    @Test func checklistItemsCarryDeclineStateTolerantly() throws {
+        let declined = #"{"checked":false,"text":"Ship it","declined":true,"reason":"Superseded by W-0002."}"#.data(using: .utf8)!
+        let item = try JSONDecoder().decode(ChecklistItem.self, from: declined)
+        #expect(item.declined)
+        #expect(item.reason == "Superseded by W-0002.")
+
+        let bare = #"{"checked":true,"text":"Connect"}"#.data(using: .utf8)!
+        let old = try JSONDecoder().decode(ChecklistItem.self, from: bare)
+        #expect(old.checked)
+        #expect(old.declined == false)
+        #expect(old.reason.isEmpty)
+    }
+
+    @Test func statusGroupsFollowTheWebOrder() {
+        let statuses = ["backlog", "ready", "in_progress", "review", "done", "someday"]
+        #expect(WorkFormatting.statusGroups(for: statuses, showTerminal: false)
+                == ["in_progress", "review", "ready", "backlog", "done", "someday"])
+        #expect(Array(WorkFormatting.statusGroups(for: statuses, showTerminal: true).suffix(2))
+                == ["cancelled", "archived"])
+    }
+
+    /// The capture bar's task: switch, pinned to the web dock's regex.
+    @Test func taskPrefixTurnsCaptureLinesIntoTaskTitles() {
+        #expect(TaskLines.taskCommandTitles("task: Pack the kitchen\ntask: Book the van")
+                == ["Pack the kitchen", "Book the van"])
+        #expect(TaskLines.taskCommandTitles("TODO buy tape\nsecond line")
+                == ["buy tape", "second line"])
+        #expect(TaskLines.taskCommandTitles("a plain thought") == nil)
+        #expect(TaskLines.taskCommandTitles("task:") == nil)
+    }
+
     @Test func issueDelegationDefaultsOffAndPatchesOnlyDelegation() throws {
         let issue = #"{"id":"issue_mabc1234_ab12cd34ef56","title":"Named issue","body":"Details","state":"queued","scopePath":".","projectPath":null,"claimedBy":null,"resolutionSummary":null,"messages":[],"stateHistory":[],"createdAt":"","updatedAt":""}"#.data(using: .utf8)!
         let decoded = try JSONDecoder().decode(WorkIssue.self, from: issue)

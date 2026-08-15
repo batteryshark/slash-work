@@ -30,7 +30,7 @@ private struct RootView: View {
     var body: some View {
         ZStack(alignment: .top) {
             if model.snapshot != nil {
-                DashboardTabs()
+                WorkbenchTabs()
             } else {
                 ConnectionView()
             }
@@ -38,26 +38,29 @@ private struct RootView: View {
                 .padding(.top, 6)
                 .animation(.snappy, value: model.lastError)
         }
+        .tint(WorkTheme.accent)
     }
 }
 
-private struct DashboardTabs: View {
+/// The workbench tab row, scoped by the scope button in each tab's bar.
+private struct WorkbenchTabs: View {
     @EnvironmentObject private var model: AppModel
 
     var body: some View {
         TabView {
-            HomeView()
-                .tabItem { Label("Home", systemImage: "house.fill") }
-                .badge(model.openDecisions.count + model.needsHumanIssueCount)
+            TodayView()
+                .tabItem { Label("Today", systemImage: "sun.max") }
+                .badge(model.attentionCount)
 
-            BoardView()
-                .tabItem { Label("Board", systemImage: "rectangle.3.group") }
+            WorkListView()
+                .tabItem { Label("Work", systemImage: "checklist") }
 
-            CaptureView()
-                .tabItem { Label("Capture", systemImage: "plus.circle.fill") }
+            IssuesView()
+                .tabItem { Label("Issues", systemImage: "bubble.left.and.bubble.right") }
+                .badge(model.needsHumanIssueCount)
 
-            MoreView()
-                .tabItem { Label("More", systemImage: "ellipsis.circle") }
+            NotesView()
+                .tabItem { Label("Notes", systemImage: "note.text") }
         }
     }
 }

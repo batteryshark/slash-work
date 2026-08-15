@@ -1,5 +1,30 @@
 import SwiftUI
 
+/// The workbench palette, verbatim from app/globals.css. Light and dark are
+/// the web's tokens, so the phone and the desktop read as one product.
+enum WorkTheme {
+    static let canvas = dynamic(light: 0xF4F4F8, dark: 0x0F0F14)
+    static let surface = dynamic(light: 0xFFFFFF, dark: 0x16161D)
+    static let surfaceMuted = dynamic(light: 0xEBEBF2, dark: 0x1E1E28)
+    static let ink = dynamic(light: 0x1C1C24, dark: 0xE9E9F0)
+    static let muted = dynamic(light: 0x63636F, dark: 0x8D8D9E)
+    static let line = dynamic(light: 0xDDDDE6, dark: 0x262631)
+    static let accent = dynamic(light: 0x7261EE, dark: 0x8B7CF7)
+    static let accentSoft = dynamic(light: 0xE9E6FF, dark: 0x262242)
+    static let danger = dynamic(light: 0xC04545, dark: 0xF16969)
+    static let warning = dynamic(light: 0x8F5F14, dark: 0xF0A231)
+    static let success = dynamic(light: 0x1E7A4C, dark: 0x4ADE80)
+
+    private static func dynamic(light: UInt32, dark: UInt32) -> Color {
+        Color(uiColor: UIColor { traits in
+            let value = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: CGFloat((value >> 16) & 0xFF) / 255,
+                           green: CGFloat((value >> 8) & 0xFF) / 255,
+                           blue: CGFloat(value & 0xFF) / 255, alpha: 1)
+        })
+    }
+}
+
 struct WorkMark: View {
     var body: some View {
         GeometryReader { proxy in
@@ -26,83 +51,35 @@ struct WorkMark: View {
     }
 }
 
-struct WorkScopeMenu: View {
-    @EnvironmentObject private var model: AppModel
-
-    var body: some View {
-        Menu {
-            if let directory = model.directory {
-                Section("Workspace") {
-                    ForEach(directory.workspaces) { workspace in
-                        Button {
-                            Task { await model.selectWorkspace(workspace) }
-                        } label: {
-                            Label(workspace.name,
-                                  systemImage: workspace.id == model.selectedWorkspaceID
-                                    ? "checkmark" : "folder")
-                        }
-                    }
-                }
-            }
-
-            if let projects = model.snapshot?.projects, !projects.isEmpty {
-                Section("Project") {
-                    Button {
-                        model.selectProject(path: nil)
-                    } label: {
-                        Label("All projects", systemImage: model.selectedProjectPath == nil ? "checkmark" : "square.grid.2x2")
-                    }
-                }
-                if !model.recentProjects.isEmpty {
-                    Section("Recent") {
-                        ForEach(model.recentProjects) { project in projectButton(project) }
-                    }
-                }
-                // Submenus are the menu's collapsed-by-default disclosure group.
-                ForEach(projectGroups(projects)) { group in
-                    Menu {
-                        ForEach(group.projects) { project in projectButton(project) }
-                    } label: {
-                        Label("\(group.title) (\(group.projects.count))", systemImage: "folder")
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 7) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(model.selectedProject?.name ?? "All projects")
-                        .font(.headline)
-                        .lineLimit(1)
-                    Text(model.selectedWorkspace?.name ?? model.snapshot?.workspace.name ?? "Workspace")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Image(systemName: "chevron.down.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .accessibilityLabel("Change workspace or project")
-    }
-
-    private func projectButton(_ project: WorkProject) -> some View {
-        Button {
-            model.selectProject(path: project.path)
-        } label: {
-            Label(project.name,
-                  systemImage: project.path == model.selectedProjectPath ? "checkmark" : "folder")
-        }
-    }
-}
-
+/// The rail translated to a phone: a scope button in the navigation bar that
+/// opens the scope sheet, plus the refresh control.
 private struct WorkNavigationModifier: ViewModifier {
     @EnvironmentObject private var model: AppModel
+    @State private var showingScope = false
 
     func body(content: Content) -> some View {
         content
             .toolbar {
-                ToolbarItem(placement: .principal) { WorkScopeMenu() }
+                ToolbarItem(placement: .principal) {
+                    Button { showingScope = true } label: {
+                        HStack(spacing: 6) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(model.selectedProject?.name ?? "All projects")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(WorkTheme.ink)
+                                    .lineLimit(1)
+                                Text(model.selectedWorkspace?.name ?? model.snapshot?.workspace.name ?? "Workspace")
+                                    .font(.caption2)
+                                    .foregroundStyle(WorkTheme.muted)
+                                    .lineLimit(1)
+                            }
+                            Image(systemName: "chevron.down.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(WorkTheme.muted)
+                        }
+                    }
+                    .accessibilityLabel("Change workspace or project")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         Task { await model.refresh() }
@@ -114,11 +91,44 @@ private struct WorkNavigationModifier: ViewModifier {
                     .accessibilityLabel("Refresh")
                 }
             }
+            .sheet(isPresented: $showingScope) {
+                ScopeSheet().environmentObject(model)
+            }
+    }
+}
+
+/// The capture pill translated to a phone: a floating button that opens the
+/// one-line capture bar. Hidden on offline snapshots, which are read-only.
+private struct CaptureButtonModifier: ViewModifier {
+    @EnvironmentObject private var model: AppModel
+    @State private var showingCapture = false
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .bottomTrailing) {
+                if !model.isShowingCachedData {
+                    Button { showingCapture = true } label: {
+                        Image(systemName: "plus")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 48, height: 48)
+                            .background(WorkTheme.accent, in: Circle())
+                            .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
+                    }
+                    .padding(.trailing, 18)
+                    .padding(.bottom, 18)
+                    .accessibilityLabel("Capture")
+                }
+            }
+            .sheet(isPresented: $showingCapture) {
+                CaptureBar().environmentObject(model)
+            }
     }
 }
 
 extension View {
     func workNavigation() -> some View { modifier(WorkNavigationModifier()) }
+    func workCapture() -> some View { modifier(CaptureButtonModifier()) }
 }
 
 struct ConnectionBanner: View {
@@ -138,10 +148,10 @@ struct ConnectionBanner: View {
                     .buttonStyle(.bordered)
                     .disabled(model.isRestartingService)
                 }
-                .foregroundStyle(.orange)
+                .foregroundStyle(WorkTheme.warning)
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                .background(WorkTheme.warning.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
             }
             switch model.connectionState {
             case let .offline(message):
@@ -156,18 +166,18 @@ struct ConnectionBanner: View {
                             .font(.caption2)
                     }
                 }
-                .foregroundStyle(.orange)
+                .foregroundStyle(WorkTheme.warning)
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                .background(WorkTheme.warning.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
             default:
                 if let warning = model.cacheWarning {
                     Label(warning, systemImage: "externaldrive.badge.exclamationmark")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(WorkTheme.warning)
                         .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                        .background(WorkTheme.warning.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
                 }
             }
         }
@@ -206,55 +216,107 @@ struct TagChip: View {
     }
 }
 
-struct TaskCard: View {
-    let task: WorkTask
+/// The web's due chip: overdue red, today amber, later plain.
+struct DueChip: View {
+    let dueAt: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(task.id)
-                    .font(.caption.monospaced().weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                StatusPill(value: task.status)
+        if let label = WorkFormatting.dueLabel(dueAt) {
+            let tone = WorkFormatting.dueTone(dueAt)
+            let color: Color = switch tone {
+            case .overdue: WorkTheme.danger
+            case .today: WorkTheme.warning
+            default: WorkTheme.muted
             }
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(color)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(color.opacity(0.12), in: Capsule())
+        }
+    }
+}
+
+/// The web's 34px list row: status dot, id, title, chips. Compact on purpose.
+struct TaskRowView: View {
+    @EnvironmentObject private var model: AppModel
+    let task: WorkTask
+    var showsProject = false
+    /// Called when the checkbox gate needs the panel open (incomplete checklist).
+    var onOpen: (String) -> Void = { _ in }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button {
+                Task { await completeFromRow() }
+            } label: {
+                Image(systemName: task.status == "done" ? "checkmark.square.fill" : "square")
+                    .font(.subheadline)
+                    .foregroundStyle(task.status == "done" ? WorkTheme.accent : WorkTheme.muted)
+            }
+            .buttonStyle(.plain)
+            .disabled(model.isMutating || model.isShowingCachedData)
+            .accessibilityLabel(task.status == "done" ? "Mark \(task.id) not done" : "Mark \(task.id) done")
+
+            Circle()
+                .fill(Color.workStatus(task.status))
+                .frame(width: 7, height: 7)
+
+            Text(task.id)
+                .font(.caption2.monospaced())
+                .foregroundStyle(WorkTheme.muted)
 
             Text(task.title)
-                .font(.headline)
-                .foregroundStyle(.primary)
-                .multilineTextAlignment(.leading)
+                .font(.footnote)
+                .foregroundStyle(task.isFinished ? WorkTheme.muted : WorkTheme.ink)
+                .strikethrough(task.status == "done")
+                .lineLimit(1)
 
-            if let summary = task.descriptionSummary {
-                Text(summary)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            Spacer(minLength: 4)
+
+            if task.delegated {
+                Text("agent")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(WorkTheme.accent)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(WorkTheme.accentSoft, in: Capsule())
+            }
+            if task.blockedReason != nil || task.status == "blocked" {
+                Text("blocked")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(WorkTheme.danger)
+            }
+            if !task.isFinished { DueChip(dueAt: task.dueAt) }
+            if task.checklistTotal > 0 {
+                Text("\(task.checklistCompleted)/\(task.checklistTotal)")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(WorkTheme.muted)
+            }
+            if showsProject, let path = task.projectPath {
+                Text(path.split(separator: "/").last.map(String.init) ?? path)
+                    .font(.caption2)
+                    .foregroundStyle(WorkTheme.muted)
                     .lineLimit(1)
-                    .multilineTextAlignment(.leading)
             }
-
-            HStack(spacing: 12) {
-                if task.delegated {
-                    Label("Agent", systemImage: "sparkles")
-                        .foregroundStyle(.purple)
-                }
-                if let due = WorkFormatting.shortDate(task.dueAt) {
-                    Label(due, systemImage: "calendar")
-                        .foregroundStyle(dueColor)
-                }
-                if task.checklistTotal > 0 {
-                    Label("\(task.checklistCompleted)/\(task.checklistTotal)", systemImage: "checklist")
-                }
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
         }
-        .padding(.vertical, 8)
         .contentShape(Rectangle())
     }
 
-    private var dueColor: Color {
-        guard let date = WorkFormatting.date(from: task.dueAt), !task.isFinished else { return .secondary }
-        return date < .now ? .red : .secondary
+    /// The web's checkbox rule: an incomplete checklist opens the card at its
+    /// unfinished boxes instead of silently refusing; unchecking returns the
+    /// task to backlog.
+    private func completeFromRow() async {
+        if task.status == "done" {
+            _ = await model.moveTask(task, to: "backlog")
+            return
+        }
+        if task.checklistTotal > 0, task.checklistCompleted < task.checklistTotal {
+            onOpen(task.id)
+            return
+        }
+        _ = await model.moveTask(task, to: "done")
     }
 }
 
@@ -271,7 +333,7 @@ struct ErrorToast: View {
             }
             .foregroundStyle(.white)
             .padding(12)
-            .background(.red.opacity(0.92), in: RoundedRectangle(cornerRadius: 12))
+            .background(WorkTheme.danger.opacity(0.92), in: RoundedRectangle(cornerRadius: 10))
             .padding(.horizontal)
             .transition(.move(edge: .top).combined(with: .opacity))
         }

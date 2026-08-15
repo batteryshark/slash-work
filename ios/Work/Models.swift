@@ -162,20 +162,26 @@ enum WorkIssueState: String, Codable, Sendable {
     case queued
     case inProgress = "in_progress"
     case needsHuman = "needs_human"
-    case resolved
     case closed
 
+    /// The server's vocabulary can grow. An unknown state must never fail the
+    /// whole snapshot, so it decodes to closed instead of throwing.
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = WorkIssueState(rawValue: raw) ?? .closed
+    }
+
+    /// Labels match the web workbench: queued is simply "Open".
     var title: String {
         switch self {
-        case .queued: "Queued"
-        case .inProgress: "Agent working"
+        case .queued: "Open"
+        case .inProgress: "In progress"
         case .needsHuman: "Needs you"
-        case .resolved: "Resolved"
         case .closed: "Closed"
         }
     }
 
-    var isTerminal: Bool { self == .resolved || self == .closed }
+    var isTerminal: Bool { self == .closed }
 }
 
 struct WorkIssue: Codable, Identifiable, Hashable, Sendable {
@@ -259,6 +265,25 @@ struct NoteAuthor: Codable, Hashable, Sendable {
 struct ChecklistItem: Codable, Hashable, Sendable {
     let checked: Bool
     let text: String
+    /// An agent verified the item as not-done and recorded why. Read-only on
+    /// the phone; humans tick boxes or delete rows.
+    let declined: Bool
+    let reason: String
+
+    init(checked: Bool, text: String, declined: Bool = false, reason: String = "") {
+        self.checked = checked
+        self.text = text
+        self.declined = declined
+        self.reason = reason
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        checked = c.value(.checked, false)
+        text = c.value(.text, "")
+        declined = c.value(.declined, false)
+        reason = c.value(.reason, "")
+    }
 }
 
 struct WorkTask: Codable, Identifiable, Hashable, Sendable {
@@ -438,6 +463,41 @@ enum WorkFormatting {
         return date.formatted(.relative(presentation: .named))
     }
 
+    enum DueTone { case overdue, today, upcoming }
+
+    /// Calendar-day comparison, matching the web's scheduleTone for all-day
+    /// dates: before today is overdue, today is today, later is upcoming.
+    static func dueTone(_ value: String?) -> DueTone? {
+        guard let date = date(from: value) else { return nil }
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: date)
+        let today = calendar.startOfDay(for: .now)
+        if start < today { return .overdue }
+        if start == today { return .today }
+        return .upcoming
+    }
+
+    /// Chip text matching the web: "Overdue · Aug 12", "Today", "Tomorrow",
+    /// or a short date.
+    static func dueLabel(_ value: String?) -> String? {
+        guard let date = date(from: value), let tone = dueTone(value) else { return nil }
+        let day: String
+        if Calendar.current.isDateInToday(date) { day = "Today" }
+        else if Calendar.current.isDateInTomorrow(date) { day = "Tomorrow" }
+        else { day = date.formatted(.dateTime.month(.abbreviated).day()) }
+        return tone == .overdue ? "Overdue · \(day)" : day
+    }
+
+    /// The web's Work-list group order: known statuses in a fixed rank, then
+    /// whatever else the workspace defines, then the terminal pair on demand.
+    static func statusGroups(for statuses: [String], showTerminal: Bool) -> [String] {
+        let known = ["in_progress", "blocked", "review", "ready", "backlog", "done"]
+        var order = known.filter { statuses.contains($0) }
+        order.append(contentsOf: statuses.filter { !known.contains($0) && $0 != "cancelled" && $0 != "archived" })
+        if showTerminal { order.append(contentsOf: ["cancelled", "archived"]) }
+        return order
+    }
+
     static func title(for value: String) -> String {
         value.replacingOccurrences(of: "_", with: " ")
             .replacingOccurrences(of: "-", with: " ")
@@ -492,8 +552,7 @@ extension Color {
         case "review", "proposed": .purple
         case "blocked", "rejected", "declined": .red
         case "deferred", "needs_human": .orange
-        case "cancelled", "closed": .secondary
-        case "resolved": .green
+        case "cancelled", "closed", "archived": .secondary
         default: .indigo
         }
     }
@@ -513,5 +572,25 @@ enum TaskLines {
             guard !line.isEmpty else { return nil }
             return line.count > 500 ? String(line.prefix(497)) + "…" : line
         }
+    }
+
+    private static let commandPrefix = #"^(?:task|todo)\s*:?\s+"#
+
+    /// The capture bar's `task:` switch, matching the web dock: when the first
+    /// line starts with `task:` or `todo:`, every line becomes a task title
+    /// (the prefix is stripped wherever it repeats). Nil means plain capture.
+    static func taskCommandTitles(_ text: String) -> [String]? {
+        let lines = split(text)
+        guard let first = lines.first,
+              first.range(of: commandPrefix, options: [.regularExpression, .caseInsensitive]) != nil else {
+            return nil
+        }
+        let titles = lines.map { line in
+            if let marker = line.range(of: commandPrefix, options: [.regularExpression, .caseInsensitive]) {
+                return String(line[marker.upperBound...]).trimmingCharacters(in: .whitespaces)
+            }
+            return line
+        }.filter { !$0.isEmpty }
+        return titles.isEmpty ? nil : titles
     }
 }

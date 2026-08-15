@@ -111,6 +111,21 @@ final class AppModel: ObservableObject {
 
     var unfinishedTaskCount: Int { scopedTasks.filter { !$0.isFinished }.count }
 
+    var blockedTasks: [WorkTask] { scopedTasks.filter { $0.status == "blocked" } }
+
+    /// The Today badge: decisions waiting, issues waiting, work stuck.
+    var attentionCount: Int {
+        openDecisions.count + needsHumanIssueCount + blockedTasks.count
+    }
+
+    /// Open (unfinished) task count for one project subtree; the scope sheet
+    /// shows it beside each project, like the web rail.
+    func openTaskCount(under path: String?) -> Int {
+        let tasks = snapshot?.tasks.filter { !$0.isFinished } ?? []
+        guard let path, path != "." else { return tasks.count }
+        return tasks.filter { $0.projectPath == path || $0.projectPath?.hasPrefix("\(path)/") == true }.count
+    }
+
     func connect() async {
         guard connectionState != .connecting else { return }
         connectionState = .connecting
@@ -289,7 +304,7 @@ final class AppModel: ObservableObject {
         defaults.set(recentProjectPaths, forKey: DefaultsKey.recentProjects(profile.id, workspaceID))
     }
 
-    func createCapture(text: String, kind: String, toProject: Bool = false) async -> Bool {
+    func createCapture(text: String, kind: String? = nil, toProject: Bool = false) async -> Bool {
         await mutate {
             guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
             // Captures default to the workspace inbox; a project only receives
@@ -344,10 +359,26 @@ final class AppModel: ObservableObject {
         await patch(task, TaskPatchRequest(delegated: delegated))
     }
 
-    /// Description and goal are the only words the phone edits. The rest of the
-    /// card stays desktop-only, where a keyboard makes structured editing easy.
-    func editTask(_ task: WorkTask, description: String? = nil, goal: String? = nil) async -> Bool {
-        await patch(task, TaskPatchRequest(description: description, goal: goal))
+    /// Every prose section the web edits, the phone edits: title, description,
+    /// goal, plan, notes, and the outcome (completion summary).
+    func editTask(_ task: WorkTask, title: String? = nil, description: String? = nil,
+                  goal: String? = nil, plan: String? = nil, notes: String? = nil,
+                  completionSummary: String? = nil) async -> Bool {
+        await patch(task, TaskPatchRequest(title: title, description: description, goal: goal,
+                                           plan: plan, notes: notes,
+                                           completionSummary: completionSummary))
+    }
+
+    func setTaskTags(_ task: WorkTask, _ tags: [String]) async -> Bool {
+        await patch(task, TaskPatchRequest(tags: WorkTag.normalize(tags)))
+    }
+
+    /// Replaces one checklist wholesale; add and remove both go through here.
+    func setChecklist(_ task: WorkTask, section: String, items: [ChecklistItem]) async -> Bool {
+        let patch = section == "requirements"
+            ? TaskPatchRequest(requirements: items)
+            : TaskPatchRequest(acceptanceCriteria: items)
+        return await self.patch(task, patch)
     }
 
     private func patch(_ task: WorkTask, _ request: TaskPatchRequest) async -> Bool {
@@ -416,6 +447,43 @@ final class AppModel: ObservableObject {
             guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
             try await client.deleteCapture(id: capture.id, workspaceID: workspaceID)
         }
+    }
+
+    /// Inbox triage. Same title/notes shape as the web's promote, then the
+    /// capture is removed so triage actually empties the inbox.
+    func promoteCaptureToTask(_ capture: WorkCapture) async -> Bool {
+        await mutate {
+            guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
+            let firstLine = capture.text.split(whereSeparator: \.isNewline)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .first { !$0.isEmpty } ?? capture.text
+            let title = firstLine.count > 500 ? String(firstLine.prefix(497)) + "…" : firstLine
+            let notes = capture.text.contains("\n")
+                ? "Promoted from capture \(capture.id).\n\n\(capture.text)"
+                : "Promoted from capture \(capture.id)."
+            _ = try await client.createTask(title: title, description: "", delegated: false,
+                                            projectPath: capture.projectPath, dueAt: nil,
+                                            workspaceID: workspaceID, status: "backlog",
+                                            notes: notes, source: capture.id)
+            try await client.deleteCapture(id: capture.id, workspaceID: workspaceID)
+        }
+    }
+
+    func promoteCaptureToNote(_ capture: WorkCapture) async -> Bool {
+        await mutate {
+            guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
+            let firstLine = capture.text.split(whereSeparator: \.isNewline)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .first { !$0.isEmpty } ?? capture.text
+            let title = firstLine.count > 300 ? String(firstLine.prefix(297)) + "…" : firstLine
+            _ = try await client.createNote(title: title, text: capture.text,
+                                            projectPath: capture.projectPath, workspaceID: workspaceID)
+            try await client.deleteCapture(id: capture.id, workspaceID: workspaceID)
+        }
+    }
+
+    func reopenDecision(_ decision: WorkDecision) async -> Bool {
+        await resolveDecision(decision, action: "reopen", option: nil, note: nil)
     }
 
     func createNote(title: String, text: String) async -> Bool {

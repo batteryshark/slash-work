@@ -13,11 +13,12 @@
 		B10000000000000000000004 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000004 /* Models.swift */; };
 		B10000000000000000000005 /* SnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000005 /* SnapshotStore.swift */; };
 		B10000000000000000000006 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000006 /* Components.swift */; };
-		B10000000000000000000007 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000007 /* HomeView.swift */; };
-		B10000000000000000000008 /* BoardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000008 /* BoardView.swift */; };
+		B10000000000000000000007 /* TodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000007 /* TodayView.swift */; };
+		B10000000000000000000008 /* WorkListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000008 /* WorkListView.swift */; };
 		B10000000000000000000009 /* TaskDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000009 /* TaskDetailView.swift */; };
 		B1000000000000000000000A /* CaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000000A /* CaptureView.swift */; };
-		B1000000000000000000000C /* MoreView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000000C /* MoreView.swift */; };
+		B1000000000000000000000B /* ScopeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000000B /* ScopeView.swift */; };
+		B1000000000000000000000C /* IssuesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000000C /* IssuesView.swift */; };
 		B1000000000000000000000D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000000D /* Assets.xcassets */; };
 		B1000000000000000000000E /* WorkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000000F /* WorkTests.swift */; };
 /* End PBXBuildFile section */
@@ -39,11 +40,12 @@
 		A10000000000000000000004 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		A10000000000000000000005 /* SnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotStore.swift; sourceTree = "<group>"; };
 		A10000000000000000000006 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
-		A10000000000000000000007 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
-		A10000000000000000000008 /* BoardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoardView.swift; sourceTree = "<group>"; };
+		A10000000000000000000007 /* TodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayView.swift; sourceTree = "<group>"; };
+		A10000000000000000000008 /* WorkListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkListView.swift; sourceTree = "<group>"; };
 		A10000000000000000000009 /* TaskDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDetailView.swift; sourceTree = "<group>"; };
 		A1000000000000000000000A /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
-		A1000000000000000000000C /* MoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreView.swift; sourceTree = "<group>"; };
+		A1000000000000000000000B /* ScopeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopeView.swift; sourceTree = "<group>"; };
+		A1000000000000000000000C /* IssuesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IssuesView.swift; sourceTree = "<group>"; };
 		A1000000000000000000000D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A1000000000000000000000E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1000000000000000000000F /* WorkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkTests.swift; sourceTree = "<group>"; };
@@ -87,11 +89,12 @@
 				A10000000000000000000004 /* Models.swift */,
 				A10000000000000000000005 /* SnapshotStore.swift */,
 				A10000000000000000000006 /* Components.swift */,
-				A10000000000000000000007 /* HomeView.swift */,
-				A10000000000000000000008 /* BoardView.swift */,
+				A10000000000000000000007 /* TodayView.swift */,
+				A10000000000000000000008 /* WorkListView.swift */,
 				A10000000000000000000009 /* TaskDetailView.swift */,
 				A1000000000000000000000A /* CaptureView.swift */,
-				A1000000000000000000000C /* MoreView.swift */,
+				A1000000000000000000000B /* ScopeView.swift */,
+				A1000000000000000000000C /* IssuesView.swift */,
 				A1000000000000000000000D /* Assets.xcassets */,
 				A1000000000000000000000E /* Info.plist */,
 			);
@@ -206,11 +209,12 @@
 				B10000000000000000000004 /* Models.swift in Sources */,
 				B10000000000000000000005 /* SnapshotStore.swift in Sources */,
 				B10000000000000000000006 /* Components.swift in Sources */,
-				B10000000000000000000007 /* HomeView.swift in Sources */,
-				B10000000000000000000008 /* BoardView.swift in Sources */,
+				B10000000000000000000007 /* TodayView.swift in Sources */,
+				B10000000000000000000008 /* WorkListView.swift in Sources */,
 				B10000000000000000000009 /* TaskDetailView.swift in Sources */,
 				B1000000000000000000000A /* CaptureView.swift in Sources */,
-				B1000000000000000000000C /* MoreView.swift in Sources */,
+				B1000000000000000000000B /* ScopeView.swift in Sources */,
+				B1000000000000000000000C /* IssuesView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

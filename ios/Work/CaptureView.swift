@@ -1,138 +1,105 @@
 import SwiftUI
 
-struct CaptureView: View {
+/// The workbench capture dock as a sheet: one field, no ceremony. Plain text
+/// files a capture into the current scope; a `task:` first line files tasks.
+struct CaptureBar: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
     @State private var text = ""
-    @State private var kind = "update"
-    @State private var saved = false
-    @State private var captureToProject = false
-    @State private var savedTask: Task<Void, Never>?
+    @State private var notice: String?
+    @State private var errorMessage: String?
     @FocusState private var focused: Bool
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    ConnectionBanner()
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Capture anything").font(.largeTitle.bold())
-                        Text("Get it out of your head. You can organize it later.")
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Picker("Kind", selection: $kind) {
-                        Label("Update", systemImage: "bolt").tag("update")
-                        Label("Idea", systemImage: "lightbulb").tag("idea")
-                        Label("Question", systemImage: "questionmark").tag("question")
-                    }
-                    .pickerStyle(.segmented)
-
-                    TextEditor(text: $text)
-                        .focused($focused)
-                        .frame(minHeight: 180)
-                        .padding(10)
-                        .scrollContentBackground(.hidden)
-                        .background(.background, in: RoundedRectangle(cornerRadius: 16))
-                        .overlay(alignment: .topLeading) {
-                            if text.isEmpty {
-                                Text("A thought, observation, question, or thing you do not want to lose…")
-                                    .foregroundStyle(.tertiary)
-                                    .padding(.horizontal, 15)
-                                    .padding(.vertical, 18)
-                                    .allowsHitTesting(false)
-                            }
-                        }
-
-                    if let project = model.selectedProject {
-                        Button {
-                            captureToProject.toggle()
-                        } label: {
-                            HStack(spacing: 6) {
-                                Label(captureToProject ? "Saving to \(project.name)" : "Saving to the Inbox",
-                                      systemImage: captureToProject ? "folder.fill" : "tray.fill")
-                                Text("· switch").foregroundStyle(.tertiary)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .font(.subheadline).foregroundStyle(.secondary)
-                    } else {
-                        Label("Saving to the Inbox", systemImage: "tray.fill")
-                            .font(.subheadline).foregroundStyle(.secondary)
-                    }
-
-                    Button {
-                        save()
-                    } label: {
-                        HStack {
-                            if model.isMutating { ProgressView().tint(.white) }
-                            if saved { Label("Saved", systemImage: "checkmark") }
-                            else { Text(model.isMutating ? "Saving…" : "Save Capture") }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 7)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                              || model.isMutating || model.isShowingCachedData)
-
-                    if !recentCaptures.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Recently captured").font(.title3.bold())
-                            ForEach(recentCaptures) { capture in
-                                HStack(alignment: .top, spacing: 10) {
-                                    Image(systemName: icon(for: capture.kind)).foregroundStyle(.purple)
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(capture.text).lineLimit(2)
-                                        if let date = WorkFormatting.date(from: capture.createdAt) {
-                                            Text(date.formatted(.relative(presentation: .named)))
-                                                .font(.caption).foregroundStyle(.secondary)
-                                        }
-                                    }
-                                }
-                                .padding(12)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(.background, in: RoundedRectangle(cornerRadius: 12))
-                            }
-                        }
-                        .padding(.top, 6)
-                    }
-                }
-                .padding(16)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Capture").font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }
+                    .font(.subheadline)
             }
-            .background(Color(.systemGroupedBackground))
-            .navigationBarTitleDisplayMode(.inline)
-            .workNavigation()
-            .onDisappear { savedTask?.cancel() }
+
+            TextField("Write anything you want remembered", text: $text, axis: .vertical)
+                .lineLimit(1...6)
+                .font(.subheadline)
+                .padding(10)
+                .background(WorkTheme.surface, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(WorkTheme.line, lineWidth: 1))
+                .focused($focused)
+                .submitLabel(.send)
+                .onSubmit { submit() }
+
+            Group {
+                if let errorMessage {
+                    Text(errorMessage).foregroundStyle(WorkTheme.danger)
+                } else if let notice {
+                    Text(notice).foregroundStyle(WorkTheme.success)
+                } else {
+                    Text("Saves to \(destinationName). Start with \"task:\" to file a task instead.")
+                        .foregroundStyle(WorkTheme.muted)
+                }
+            }
+            .font(.caption)
+
+            Button {
+                submit()
+            } label: {
+                Text(model.isMutating ? "Saving…" : "Save")
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                      || model.isMutating || model.isShowingCachedData)
+
+            Spacer(minLength: 0)
         }
+        .padding(16)
+        .background(WorkTheme.canvas)
+        .presentationDetents([.height(240), .medium])
+        .presentationDragIndicator(.visible)
+        .onAppear { focused = true }
     }
 
-    private var recentCaptures: [WorkCapture] {
-        Array(model.scopedCaptures.sorted { $0.createdAt > $1.createdAt }.prefix(5))
+    private var destinationName: String {
+        model.selectedProject?.name ?? "the workspace inbox"
     }
 
-    private func icon(for kind: String) -> String {
-        switch kind {
-        case "idea": "lightbulb.fill"
-        case "question": "questionmark.circle.fill"
-        default: "bolt.fill"
-        }
-    }
-
-    private func save() {
+    private func submit() {
         let content = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        focused = false
-        Task {
-            if await model.createCapture(text: content, kind: kind, toProject: captureToProject) {
-                text = ""
-                saved = true
-                savedTask?.cancel()
-                savedTask = Task {
-                    try? await Task.sleep(for: .seconds(2))
-                    guard !Task.isCancelled else { return }
-                    await MainActor.run { saved = false }
+        guard !content.isEmpty else { return }
+        errorMessage = nil
+        notice = nil
+
+        if let titles = TaskLines.taskCommandTitles(content) {
+            text = ""
+            Task {
+                let result = await model.quickAddTasks(titles.joined(separator: "\n"),
+                                                       status: "backlog", parentId: nil)
+                if let error = result.error {
+                    errorMessage = "Added \(result.created.count) of \(titles.count). Not saved — \(error)"
+                    if text.isEmpty {
+                        text = result.remaining.map { "task: \($0)" }.joined(separator: "\n")
+                    }
+                } else {
+                    notice = result.created.count == 1
+                        ? "Added 1 task to \(destinationName)."
+                        : "Added \(result.created.count) tasks to \(destinationName)."
                 }
+                focused = true
             }
+            return
+        }
+
+        text = ""
+        Task {
+            if await model.createCapture(text: content, toProject: model.selectedProjectPath != nil) {
+                notice = "Saved to \(destinationName)."
+            } else {
+                errorMessage = model.lastError.map { "Not saved — \($0)" } ?? "Not saved."
+                if text.isEmpty { text = content }
+            }
+            focused = true
         }
     }
 }

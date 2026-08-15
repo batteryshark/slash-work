@@ -101,7 +101,7 @@ struct WorkAPIClient: @unchecked Sendable {
                          etag: response.value(forHTTPHeaderField: "ETag"))
     }
 
-    func createCapture(text: String, kind: String, projectPath: String?, workspaceID: String) async throws -> WorkCapture {
+    func createCapture(text: String, kind: String?, projectPath: String?, workspaceID: String) async throws -> WorkCapture {
         let body = CaptureRequest(text: text, kind: kind,
                                   scopePath: projectPath ?? ".", projectPath: projectPath)
         return try await send("api/captures", method: "POST", workspaceID: workspaceID, body: body)
@@ -109,10 +109,11 @@ struct WorkAPIClient: @unchecked Sendable {
 
     func createTask(title: String, description: String, delegated: Bool, projectPath: String?,
                     dueAt: Date?, workspaceID: String,
-                    status: String? = nil, parentId: String? = nil) async throws -> WorkTask {
+                    status: String? = nil, parentId: String? = nil,
+                    notes: String? = nil, source: String? = nil) async throws -> WorkTask {
         let body = CreateTaskRequest(title: title, projectPath: projectPath, description: description,
                                      delegated: delegated, dueAt: dueAt.map(ISO8601DateFormatter().string),
-                                     status: status, parentId: parentId)
+                                     status: status, parentId: parentId, notes: notes, source: source)
         return try await send("api/tasks", method: "POST", workspaceID: workspaceID, body: body)
     }
 
@@ -320,7 +321,8 @@ private struct APIErrorEnvelope: Decodable {
 
 private struct CaptureRequest: Encodable {
     let text: String
-    let kind: String
+    /// Nil lets the server infer idea/question/update from the text itself.
+    let kind: String?
     let scopePath: String
     let projectPath: String?
 }
@@ -333,19 +335,38 @@ private struct CreateTaskRequest: Encodable {
     let dueAt: String?
     var status: String? = nil
     var parentId: String? = nil
+    var notes: String? = nil
+    var source: String? = nil
 }
 
 /// The human-only task PATCH. A nil field stays out of the body, so a caller
 /// changes exactly the fields it names and leaves the rest of the card alone.
 struct TaskPatchRequest: Encodable {
     var delegated: Bool?
+    var title: String?
     var description: String?
     var goal: String?
+    var plan: String?
+    var notes: String?
+    var completionSummary: String?
+    var tags: [String]?
+    var requirements: [ChecklistItem]?
+    var acceptanceCriteria: [ChecklistItem]?
 
-    init(delegated: Bool? = nil, description: String? = nil, goal: String? = nil) {
+    init(delegated: Bool? = nil, title: String? = nil, description: String? = nil,
+         goal: String? = nil, plan: String? = nil, notes: String? = nil,
+         completionSummary: String? = nil, tags: [String]? = nil,
+         requirements: [ChecklistItem]? = nil, acceptanceCriteria: [ChecklistItem]? = nil) {
         self.delegated = delegated
+        self.title = title
         self.description = description
         self.goal = goal
+        self.plan = plan
+        self.notes = notes
+        self.completionSummary = completionSummary
+        self.tags = tags
+        self.requirements = requirements
+        self.acceptanceCriteria = acceptanceCriteria
     }
 }
 
