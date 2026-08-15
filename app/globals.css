@@ -1580,3 +1580,10 @@ html[data-theme="dark"] .kanban-card { border-color: var(--line); box-shadow: no
 .wb-panel .task-panel { position: static; inset: auto; width: 100%; max-width: none; min-width: 0; height: auto; max-height: none; border: 0; border-radius: 0; box-shadow: none; transform: none; background: none; }
 .wb-panel .task-panel-header { padding: 12px 16px 8px; }
 .wb-panel .task-form { padding: 0 16px; }
+
+/* The header tag editor is chips and a pill — never the old card. */
+.wb-projheader .project-tags.wb-tags-inline { margin: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.wb-projheader { min-height: 34px; padding: 4px 16px; }
+.wb-projheader > strong { font-size: 13.5px; }
+.wb-projheader-danger.project-delete-panel .wb-proj-more.danger-zone-button { border: 0; background: none; color: var(--soft); min-height: 26px; padding: 2px 8px; }
+.wb-projheader-danger.project-delete-panel .wb-proj-more.danger-zone-button:hover { color: var(--danger); }
