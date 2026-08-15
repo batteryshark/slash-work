@@ -1461,3 +1461,56 @@ html[data-theme="dark"] { --tag-s: 40%; --tag-bg-l: 25%; --tag-ink-l: 80%; --tag
 .wb-viewbar { display: flex; align-items: center; gap: 8px; padding: 10px 16px 4px; font-size: 14px; }
 .wb-viewbar .wb-n { font-size: 12px; }
 .issue-composer { margin: 8px 16px; }
+
+/* ============================================================
+   Mockup metrics, exactly. The old app never set a base size,
+   so everything unstyled ran at the browser's 16px. The mockup
+   is a 13px instrument; pin it and strip the old chrome.
+   ============================================================ */
+body { font-size: 13px; line-height: 1.45; background: var(--canvas); }
+
+/* rail */
+.wb-rootbtn strong { font-size: 13px; }
+.wb-root-text small { font-size: 10px; }
+.wb-proj, .wb-grouphead { font-size: 13px; padding: 5px 8px; min-height: 30px; font-weight: 450; }
+.wb-proj.on { font-weight: 650; }
+.wb-grouphead { font-size: 12.5px; font-weight: 650; }
+.wb-count { font-size: 11px; }
+.wb-newproj, .wb-settings { font-size: 12.5px; }
+.wb-menu-row > button:first-child, .wb-setmenu > button, .wb-menu-add { font-size: 13px; }
+
+/* tabs + bars */
+.wb-tab { font-size: 13px; padding: 6px 10px; min-height: 32px; }
+.wb-newbtn { font-size: 12.5px; padding: 6px 12px; min-height: 32px; }
+.wb-viewbar { font-size: 13px; }
+.wb-viewbar strong { font-size: 13.5px; }
+
+/* board: mockup cards are two lines and a sub-line, nothing else */
+.wb-board-toolbar .board-search input { min-height: 34px; font-size: 13px; border-radius: 9px; padding: 0 12px; }
+.kanban-column header h2 { font-size: 12px; }
+.kanban-column header { font-size: 11px; }
+.kanban-card { min-height: 0; padding: 8px 10px; gap: 5px; border-radius: 9px; box-shadow: none; border-color: var(--line); }
+html[data-theme="dark"] .kanban-card { border-color: var(--line); box-shadow: none; }
+.card-title { font-size: 13px; font-weight: 600; line-height: 1.35; -webkit-line-clamp: 2; }
+.card-topline { font-size: 10.5px; }
+.card-topline strong { font-family: var(--mono); font-weight: 500; color: var(--soft); }
+.card-project, .card-due, .card-questions, .card-progress, .card-tags { font-size: 11px; }
+.card-description, .card-updated, .card-links { display: none; }
+.card-blocked { font-size: 11px; }
+
+/* dock: one quiet line, small keys */
+.wb-capbar textarea { font-size: 13.5px; }
+.wb-cap-hintrow { font-size: 11px; }
+.wb-capbar kbd { font-size: 10px; padding: 0 5px; border-radius: 4px; }
+.wb-cap-keys .wb-newbtn { min-height: 30px; padding: 4px 12px; font-size: 12px; }
+.wb-cap-pill { font-size: 13px; }
+
+/* list + quick add */
+.wb-lrow-main, .wb-lrow { font-size: 13px; }
+.quick-add-input { min-height: 34px; font-size: 13px; }
+
+/* panel */
+.task-panel .wb-title-read, .task-panel h2 { font-size: 15px; font-weight: 650; line-height: 1.35; }
+.wb-title-input { font-size: 15px; }
+.task-panel .eyebrow { font-size: 10.5px; }
+.task-panel { font-size: 13px; }
