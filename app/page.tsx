@@ -4613,7 +4613,7 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
 
   function saveDetails(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onPatch({ tags: commaList(fields.tags), dependsOn: commaList(dependsOn), blockedBy: commaList(blockedBy), blockedReason: blockedReason.trim() || null, parentId: fields.parentId.trim() || null, dueAt: fields.dueAt || null, notes, completionSummary });
+    onPatch({ tags: commaList(fields.tags), dependsOn: commaList(dependsOn), blockedBy: commaList(blockedBy), blockedReason: blockedReason.trim() || null, parentId: fields.parentId.trim() || null, dueAt: fields.dueAt || null, notes });
   }
 
   const childTasks = tasks.filter((item) => item.parentId === task.id);
@@ -4649,6 +4649,18 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
         {task.dueAt && <span className={`wb-chip ${scheduleTone({ scheduledAt: task.dueAt, allDay: true }) === "overdue" ? "overdue" : scheduleTone({ scheduledAt: task.dueAt, allDay: true }) === "today" ? "due" : ""}`}>{scheduleLabel({ scheduledAt: task.dueAt, allDay: true }, "due")}</span>}
         {progress.total > 0 && <span className="wb-chip">{progress.complete}/{progress.total} checks</span>}
         {task.tags.map((tag) => <TagChip key={tag} tag={tag} />)}
+        <input
+          className="wb-strip-addtag"
+          placeholder="+ tag"
+          aria-label="Add a tag to this task"
+          onKeyDown={(event) => {
+            const value = (event.target as HTMLInputElement).value.trim().toLowerCase();
+            if (event.key === "Enter" && value) {
+              onPatch({ tags: normalizeTags([...task.tags, value]) });
+              (event.target as HTMLInputElement).value = "";
+            }
+          }}
+        />
       </div>
       {task.status === "review" && progress.complete < progress.total && <div className="task-error" role="status">This legacy review card has unchecked requirements or acceptance criteria. Verify its checklist before treating it as review-ready.</div>}
       {error && <div className="task-error" role="alert">{error}</div>}
@@ -4666,17 +4678,18 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
         ["Description", "description", description, (next: string) => { setDescription(next); onPatch({ description: next }); }, "Background and context — what is this, and what is the situation?"],
         ["Goal", "goal", goal, (next: string) => { setGoal(next); onPatch({ goal: next }); }, "The discrete outcome — what does done accomplish?"],
         ["Plan", "plan", plan, (next: string) => { setPlan(next); onPatch({ plan: next }); }, "How to get there — known steps or research shape"],
+        ["Outcome", "outcome", completionSummary, (next: string) => { setCompletionSummary(next); onPatch({ completionSummary: next }); }, "What shipped, changed, or was learned?"],
       ] as [string, string, string, (next: string) => void, string][])
         .filter(([, key, value]) => value.trim() || addedSections.includes(key))
         .map(([label, key, value, save, placeholder]) => (
           <WbSection key={key} label={label} value={value} placeholder={placeholder} onSave={save} autoEdit={addedSections.includes(key) && !value.trim()} />
         ))}
-      {([["description", description], ["goal", goal], ["plan", plan]] as [string, string][])
+      {([["description", description], ["goal", goal], ["plan", plan], ["outcome", completionSummary]] as [string, string][])
         .filter(([key, value]) => !value.trim() && !addedSections.includes(key)).length > 0 && (
         <div className="wb-sec wb-addsection">
           <div className="wb-sec-h">Add section</div>
           <div className="wb-addsection-row">
-            {([["description", description], ["goal", goal], ["plan", plan]] as [string, string][])
+            {([["description", description], ["goal", goal], ["plan", plan], ["outcome", completionSummary]] as [string, string][])
               .filter(([key, value]) => !value.trim() && !addedSections.includes(key))
               .map(([key]) => (
                 <button type="button" key={key} className="wb-sec-add" onClick={() => setAddedSections((current) => [...current, key])}>+ {key}</button>
@@ -4690,19 +4703,17 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
           <label className="field-wide"><span>Blocked by task IDs</span><input value={blockedBy} onChange={(event) => setBlockedBy(event.target.value)} placeholder="W-0001" /></label>
           <label className="field-wide"><span>Blocker explanation</span><textarea value={blockedReason} onChange={(event) => setBlockedReason(event.target.value)} /></label>
           <label className="field-wide"><span>Notes</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
-          <label className="field-wide"><span>Completion summary</span><textarea value={completionSummary} onChange={(event) => setCompletionSummary(event.target.value)} placeholder="What shipped, changed, or was learned?" /></label>
           <button type="submit" className="primary-action" disabled={saving}>{saving ? "Saving…" : "Save details"}</button>
         </TaskMoreFields>
       </form>
 
       <TaskChecklist title="Requirements" items={task.requirements} onToggle={(index, state) => onToggle("requirements", index, state)} />
       <form className="add-check" onSubmit={(event) => { event.preventDefault(); if (!newRequirement.trim()) return; onPatch({ requirements: [...task.requirements, { checked: false, text: newRequirement.trim() }] }); setNewRequirement(""); }}><input value={newRequirement} onChange={(event) => setNewRequirement(event.target.value)} placeholder="Add requirement…" /><button type="submit">Add</button></form>
-      <TaskChecklist title="Acceptance criteria" items={task.acceptanceCriteria} onToggle={(index, state) => onToggle("acceptance", index, state)} />
-      <form className="add-check" onSubmit={(event) => { event.preventDefault(); if (!newAcceptance.trim()) return; onPatch({ acceptanceCriteria: [...task.acceptanceCriteria, { checked: false, text: newAcceptance.trim() }] }); setNewAcceptance(""); }}><input value={newAcceptance} onChange={(event) => setNewAcceptance(event.target.value)} placeholder="Add acceptance criterion…" /><button type="submit">Add</button></form>
+      <TaskChecklist title="Acceptance" items={task.acceptanceCriteria} onToggle={(index, state) => onToggle("acceptance", index, state)} />
+      <form className="add-check" onSubmit={(event) => { event.preventDefault(); if (!newAcceptance.trim()) return; onPatch({ acceptanceCriteria: [...task.acceptanceCriteria, { checked: false, text: newAcceptance.trim() }] }); setNewAcceptance(""); }}><input value={newAcceptance} onChange={(event) => setNewAcceptance(event.target.value)} placeholder="Add criterion…" /><button type="submit">Add</button></form>
 
       {childTasks.length > 0 && <section className="task-subsection"><h3>Child work</h3><ul>{childTasks.map((child) => <li key={child.id}><strong>{child.id}</strong> {child.title} <span>{statusLabel(child.status)}</span></li>)}</ul></section>}
-      <section className="task-subsection task-lifecycle"><h3>Lifecycle</h3><ul><li>Created: {new Date(task.createdAt).toLocaleString()}</li>{task.startedAt && <li>Started: {new Date(task.startedAt).toLocaleString()}</li>}{task.completedAt && <li>Completed: {new Date(task.completedAt).toLocaleString()}</li>}{task.cancelledAt && <li>Cancelled: {new Date(task.cancelledAt).toLocaleString()}</li>}{task.dueAt && <li>Due: {new Date(task.dueAt).toLocaleDateString()}</li>}{task.source && <li>Source: {task.source}</li>}</ul></section>
-      <section className="task-subsection"><h3>Progress log</h3>{task.log.length === 0 ? <p>No entries yet.</p> : <ol className="task-log">{[...task.log].reverse().map((entry, index) => <li key={`${entry.at}-${index}`}><time dateTime={entry.at}>{new Date(entry.at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time><span>{entry.message}</span></li>)}</ol>}</section>
+      <section className="task-subsection"><h3>Log</h3>{task.log.length === 0 ? <p>No entries yet.</p> : <ol className="task-log">{[...task.log].reverse().map((entry, index) => <li key={`${entry.at}-${index}`}><time dateTime={entry.at}>{new Date(entry.at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time><span>{entry.message}</span></li>)}</ol>}</section>
       <form className="add-log" onSubmit={(event) => { event.preventDefault(); if (!logMessage.trim()) return; void onLog(logMessage.trim()).then(() => setLogMessage("")); }}><label><span>Add progress</span><textarea value={logMessage} onChange={(event) => setLogMessage(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); if (logMessage.trim()) void onLog(logMessage.trim()).then(() => setLogMessage("")); } }} placeholder="Add progress… (Enter)" /></label><button type="submit" className="primary-action" disabled={!logMessage.trim()}>Append to log</button></form>
     </aside>
   );
@@ -4714,7 +4725,7 @@ function TaskChecklist({ title, items, onToggle }: { title: string; items: Check
     if (reason && reason.trim()) onToggle(index, { declined: true, reason: reason.trim() });
   }
   return (
-    <section className="task-subsection"><h3>{title}</h3>{items.length === 0 ? <p>None recorded.</p> : <ul className="task-checklist">{items.map((item, index) => (
+    <section className="task-subsection"><h3>{title}</h3>{items.length === 0 ? null : <ul className="task-checklist">{items.map((item, index) => (
       <li key={`${item.text}-${index}`} className={item.declined ? "declined" : undefined}>
         <label><input type="checkbox" checked={item.checked} onChange={(event) => onToggle(index, { checked: event.target.checked })} /><span>{item.text}</span></label>
         {item.declined
