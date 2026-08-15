@@ -1595,3 +1595,5 @@ html[data-theme="dark"] .kanban-card { border-color: var(--line); box-shadow: no
 .wb-today.wb-dangerzone.project-delete-panel { max-width: 900px; width: auto; margin: -30px auto 0; padding: 0 20px 40px; border: 0; border-radius: 0; background: none; box-shadow: none; }
 .wb-dangerzone .wb-danger-stack .danger-zone-button { background: none; border: 1px solid var(--danger-line); color: var(--danger); box-shadow: none; }
 .wb-dangerzone .wb-danger-stack .danger-zone-button:hover { background: var(--danger-soft); }
+.wb-tags-inline .project-tag-suggestions { flex-basis: 100%; margin: 2px 0 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.wb-tags-inline .project-tag-suggestions .tag-chip { font-size: 11px; padding: 1px 8px; min-height: 22px; }

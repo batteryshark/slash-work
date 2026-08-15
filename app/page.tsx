@@ -2801,7 +2801,7 @@ function ProjectTagEditor({ project, suggestions, onUpdateProfile }: {
           aria-label="Add a tag"
           placeholder="+ tag"
         />
-        {(matches.length > 0 || isNew) && (
+        {query.length > 0 && (matches.length > 0 || isNew) && (
           <div className="project-tag-suggestions" role="group" aria-label="Tag suggestions">
             {matches.map((tag) => (
               <button
