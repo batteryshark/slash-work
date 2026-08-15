@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.1 - 2026-08-15
+
+### Fixed
+
+- Attachments for project records were written to the workspace root's
+  `.work` while the record's `../attachments/…` reference pointed at the
+  project's own `.work`. Files now land beside their record; the byte route
+  still serves legacy locations.
+- Issue and note payloads carry an `attachments` array of `{name, path}`
+  with each image's absolute path, so agents read the field instead of
+  reconstructing directories from markdown.
+- Promoting an inbox capture to a task or note now removes the capture; it
+  previously stayed in the inbox and invited duplicate triage.
+
 ## 1.0.0 - 2026-08-15
 
 ### Breaking
@@ -26,4 +40,5 @@
 - A duplicate project id degrades to a warning instead of killing boot.
 - Workspace snapshots never reference an unlisted project.
 
+[1.0.1]: https://github.com/batteryshark/slash-work/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/batteryshark/slash-work/compare/v0.2.22...v1.0.0
