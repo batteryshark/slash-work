@@ -217,7 +217,7 @@ type ScheduledItem = {
   detail: string;
 };
 
-type AppView = "home" | "board" | "issues" | "notes" | "files" | "activity";
+type AppView = "today" | "work" | "issues" | "notes" | "files" | "activity";
 type ThemePreference = "system" | "light" | "dark";
 
 type WorkspacePayload = {
@@ -699,7 +699,7 @@ export default function Home() {
   const [data, setData] = useState<WorkspacePayload | null>(null);
   const [workspaceDirectory, setWorkspaceDirectory] = useState<WorkspaceDirectory | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [view, setView] = useState<AppView>("home");
+  const [view, setView] = useState<AppView>("today");
   const [pendingHomeSection, setPendingHomeSection] = useState<"inbox" | "needs-you" | null>(null);
   const [theme, setTheme] = useState<ThemePreference>(() => {
     if (typeof window === "undefined") return "system";
@@ -834,7 +834,7 @@ export default function Home() {
     setSelectedIssueId(null);
     setSelectedTaskId(null);
     setScopePath(".");
-    setView("home");
+    setView("today");
     setData(null);
     await loadWorkspace();
   }
@@ -876,7 +876,7 @@ export default function Home() {
     );
     setSelectedTaskId(null);
     setScopePath(".");
-    setView("home");
+    setView("today");
     await loadWorkspace();
   }
 
@@ -909,7 +909,7 @@ export default function Home() {
       setSelectedIssueId(null);
       setSelectedTaskId(null);
       setScopePath(".");
-      setView("home");
+      setView("today");
       setData(null);
       await loadWorkspace();
     } catch (error) {
@@ -1122,7 +1122,7 @@ export default function Home() {
   }, [command]);
 
   useEffect(() => {
-    if (view !== "home" || !pendingHomeSection) return;
+    if (view !== "today" || !pendingHomeSection) return;
     const sectionId = pendingHomeSection;
     const frame = window.requestAnimationFrame(() => {
       document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1232,6 +1232,41 @@ export default function Home() {
       .filter((decision) => scopePath === "." || pathContains(decision.projectPath, scopePath))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [data, scopePath]);
+  // ---- workbench shell state ----
+  const [railOpen, setRailOpen] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return localStorage.getItem("work.rail") !== "closed";
+  });
+  const [workMode, setWorkMode] = useState<"list" | "board" | "overview">("list");
+  const [decidedOpen, setDecidedOpen] = useState(false);
+  const openCountByProject = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const task of data?.tasks ?? []) {
+      if (["done", "cancelled", "archived"].includes(task.status)) continue;
+      const path = task.projectPath ?? ".";
+      counts.set(path, (counts.get(path) ?? 0) + 1);
+    }
+    return counts;
+  }, [data]);
+  const decidedDecisions = useMemo(() => {
+    return (data?.decisions ?? [])
+      .filter((decision) => !decisionIsActive(decision))
+      .filter((decision) => scopePath === "." || pathContains(decision.projectPath, scopePath))
+      .sort((a, b) => (b.updatedAt ?? b.createdAt).localeCompare(a.updatedAt ?? a.createdAt));
+  }, [data, scopePath]);
+  function toggleRail() {
+    setRailOpen((open) => {
+      localStorage.setItem("work.rail", open ? "closed" : "open");
+      return !open;
+    });
+  }
+  function openScope(path: string) {
+    setScopePath(path);
+    if (path !== ".") rememberRecentProject(path);
+    if (path === "." && (view === "issues" || view === "files")) setView("work");
+    if (path !== "." && workMode === "overview") setWorkMode("list");
+    setProjectMenuOpen(false);
+  }
   const humanIssues = scopedIssues.filter((issue) => issue.state === "needs_human");
   const blockedTasks = scopedTasks.filter((task) => task.status === "blocked");
   const visibleHumanIssues = humanIssues.slice(0, 3);
@@ -1345,7 +1380,7 @@ export default function Home() {
   }
 
   function openHomeSection(section: "inbox" | "needs-you") {
-    setView("home");
+    setView("today");
     setPendingHomeSection(section);
   }
 
@@ -1417,6 +1452,17 @@ export default function Home() {
     }, { saving: setSavingIssue, error: setIssueError, fallback: "The delegation flag could not be changed." });
   }
 
+  function deleteWorkIssue(issueId: string) {
+    return run(async () => {
+      await requestJson<null>(`/api/issues/${encodeURIComponent(issueId)}`, { method: "DELETE" });
+      setData((current) => current ? {
+        ...current,
+        issues: (current.issues ?? []).filter((issue) => issue.id !== issueId),
+      } : current);
+      setSelectedIssueId(null);
+    }, { saving: setSavingIssue, error: setIssueError, fallback: "The issue could not be deleted." });
+  }
+
   function createProjectNote(input: { title?: string; text?: string } = {}) {
     return run(async () => {
       const note = await requestJson<ProjectNote>("/api/notes", {
@@ -1466,7 +1512,7 @@ export default function Home() {
       replaceIn("tasks", task);
       setCreatingTask(false);
       if (open) {
-        setView("board");
+        setView("work");
         setSelectedTaskId(task.id);
       }
       return task;
@@ -1586,7 +1632,8 @@ export default function Home() {
     setCaptureError(null);
     setCaptureNotice(null);
     try {
-      const toProject = captureToProject && selectedProject ? selectedProject.path : null;
+      // The dock files into the scope you are standing in; root otherwise.
+      const toProject = selectedProject ? selectedProject.path : null;
       const response = await requestJson<Capture | { capture: Capture }>("/api/captures", {
         method: "POST",
         body: JSON.stringify({
@@ -1768,795 +1815,617 @@ export default function Home() {
   const rootProject = data.projects.find((project) => project.path === ".");
   const workspaceLocationLabel = data.workspace.root;
 
-  return (
-    <div className={`app-shell ${captureDockCollapsed ? "capture-collapsed" : ""}`}>
-      <a className="skip-link" href="#main-content">Skip to this scope</a>
+  const expandedDecisionObj = expandedDecision
+    ? (data.decisions ?? []).find((decision) => decision.id === expandedDecision) ?? null
+    : null;
+  const panelOpen = creatingTask || !!selectedTask || !!expandedDecisionObj;
+  const projectScoped = scopeKind === "project";
+  const openTaskTotal = scopedTasks.filter((task) => !["done", "cancelled", "archived"].includes(task.status)).length;
+  const queuedIssueCount = scopedIssues.filter((issue) => issue.state === "queued").length;
+  const railProjects = data.projects.filter((project) => project.path !== ".");
+  const railGroups = groupByFirstSegment(railProjects, (project) => project.path);
 
-      <header className="topbar">
-        <div className="brand-group">
+  return (
+    <div className="wb-frame">
+      <a className="skip-link" href="#main-content">Skip to content</a>
+
+      <nav className={`wb-rail${railOpen ? "" : " wb-rail-closed"}`} aria-label="Roots and projects">
+        <div className="wb-rail-scroll">
           <button
-            className="brand-system"
             type="button"
-            onClick={() => {
-              setSystemMenuOpen((open) => !open);
-              setWorkspaceMenuOpen(false);
-              setProjectMenuOpen(false);
-            }}
-            aria-label="Open Work system menu"
-            aria-expanded={systemMenuOpen}
-            aria-haspopup="menu"
-          >
-            <span className="brand-mark" aria-hidden="true">/</span>
-            {updateStatus?.updateAvailable && <span className="update-available-dot" aria-label={`Work ${updateStatus.latestVersion} is available`} title={`Work ${updateStatus.latestVersion} is available`} />}
-          </button>
-          <button className="brand-word" type="button" onClick={() => navigate(".")} aria-label={`Go to all in ${data.workspace.name}`}>work</button>
-          <button
-            className="root-switch"
-            type="button"
-            onClick={() => {
-              setWorkspaceMenuOpen((open) => !open);
-              setSystemMenuOpen(false);
-              setProjectMenuOpen(false);
-            }}
+            className="wb-rootbtn"
+            onClick={() => { setWorkspaceMenuOpen((open) => !open); setSystemMenuOpen(false); }}
             aria-expanded={workspaceMenuOpen}
             aria-haspopup="menu"
-            aria-label={`Select workspace root. Current: ${data.workspace.name}`}
-            title={`${data.workspace.name} · Switch workspace root`}
           >
-            <span className="workspace-current-name">{data.workspace.name}</span>
-            <span aria-hidden="true">⌄</span>
-          </button>
-        </div>
-
-        <nav className="breadcrumbs" aria-label="Current directory scope">
-          <button type="button" onClick={() => navigate(".")} aria-current={scopePath === "." ? "page" : undefined}>
-            {data.workspace.name}
-          </button>
-          {pathParts(scopePath).map((part, index, parts) => {
-            const path = parts.slice(0, index + 1).join("/");
-            return (
-              <span className="breadcrumb-part" key={path}>
-                <span aria-hidden="true">›</span>
-                <button type="button" onClick={() => navigate(path)} aria-current={path === scopePath ? "page" : undefined}>
-                  {data.projects.find((project) => project.path === path)?.name ?? displaySegment(part)}
-                </button>
-              </span>
-            );
-          })}
-        </nav>
-
-        <nav className="view-tabs" aria-label="Workspace views">
-          <button type="button" className={view === "home" ? "selected" : ""} onClick={() => setView("home")}>Home</button>
-          <button type="button" className={view === "board" ? "selected" : ""} onClick={() => setView("board")}>Board</button>
-          <button type="button" className={view === "issues" ? "selected" : ""} onClick={() => setView("issues")}>Issues</button>
-          <button type="button" className={view === "notes" ? "selected" : ""} onClick={() => setView("notes")}>Notes</button>
-          <button type="button" className={view === "files" ? "selected" : ""} onClick={() => setView("files")}>Files</button>
-          <button type="button" className={view === "activity" ? "selected" : ""} onClick={() => setView("activity")}>Activity</button>
-        </nav>
-
-        <label className="theme-picker">
-          <span className="sr-only">Color theme</span>
-          <span aria-hidden="true">◐</span>
-          <select value={theme} onChange={(event) => setTheme(event.target.value as ThemePreference)} aria-label="Color theme">
-            <option value="system">System</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </select>
-        </label>
-
-        <div className="header-actions">
-          <button className="project-switch" type="button" onClick={() => {
-            setProjectMenuOpen((open) => !open);
-            setSystemMenuOpen(false);
-            setWorkspaceMenuOpen(false);
-          }} aria-expanded={projectMenuOpen}>
-            <span>
-              {projectInventory.logicalProjects} projects
-              {projectInventory.linkedWorktrees > 0 && ` · ${projectInventory.linkedWorktrees} worktrees`}
+            <span className="wb-root-text">
+              <strong>{data.workspace.name}</strong>
+              <small>{workspaceLocationLabel}</small>
             </span>
-            <span aria-hidden="true">⌄</span>
+            <span className="wb-chev" aria-hidden="true">{workspaceMenuOpen ? "▴" : "▾"}</span>
           </button>
-        </div>
-
-        {projectMenuOpen && (
-          <div className="project-menu" aria-label="Choose a project in this root">
-            <div className="project-menu-heading">
-              <div><p className="eyebrow">Only this root</p><strong>{data.workspace.name}</strong><small>{workspaceLocationLabel}</small></div>
-              <button type="button" onClick={() => setProjectMenuOpen(false)} aria-label="Close project picker">×</button>
-            </div>
-            {/* Roots sit inside the picker rather than behind a second control:
-                crossing between them was a two-step hunt through two menus. */}
-            {workspaceDirectory && workspaceDirectory.workspaces.length > 1 && (
-              <div className="project-menu-roots" role="group" aria-label="Workspace root">
-                {workspaceDirectory.workspaces.map((workspace) => (
+          {workspaceMenuOpen && (
+            <div className="wb-menu" role="menu" aria-label="Workspace roots">
+              {(workspaceDirectory?.workspaces ?? []).map((workspace) => (
+                <div className="wb-menu-row" key={workspace.id}>
                   <button
-                    key={workspace.id}
                     type="button"
-                    className={workspace.id === data.workspace.id ? "selected" : ""}
-                    aria-pressed={workspace.id === data.workspace.id}
-                    title={workspace.root}
-                    onClick={() => { if (workspace.id !== data.workspace.id) void switchWorkspace(workspace.id); }}
+                    className={workspace.id === data.workspace.id ? "on" : ""}
+                    onClick={() => void switchWorkspace(workspace.id)}
                   >
-                    {workspace.name}
+                    <span>{workspace.name}</span>
+                    <small>{workspace.root}</small>
                   </button>
-                ))}
-              </div>
-            )}
-            <p className="project-menu-note">Logical projects are listed once. Linked Git worktrees are grouped with their repository.</p>
-            <input
-              className="project-search"
-              type="search"
-              value={projectSearch}
-              onChange={(event) => setProjectSearch(event.target.value)}
-              placeholder="Find a project…"
-              aria-label="Find a project in this root"
-              autoFocus
-            />
-            {/* Tags cut across the folder groups below: the grouping never
-                changes, it just shows fewer entries. An untagged workspace
-                renders no row at all. */}
-            {projectTagVocabulary.length > 0 && (
-              <div className="project-menu-tags" role="group" aria-label="Filter projects by tag">
-                {projectTagVocabulary.map((tag) => {
-                  const selected = projectTagFilter === tag;
-                  return (
+                  {workspace.id !== data.workspace.id && (
                     <button
-                      key={tag}
                       type="button"
-                      className={`tag-chip tag-chip-button${selected ? " selected" : ""}`}
-                      style={{ "--tag-h": tagHueAngle(tag) } as CSSProperties}
-                      aria-pressed={selected}
-                      onClick={() => setProjectTagFilter(selected ? null : tag)}
-                    >
-                      {tag}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            {recentProjects.length > 0 && !projectSearch.trim() && !projectTagFilter && (
-              <section className="project-menu-recent" aria-label="Recently opened projects">
-                <p className="project-menu-group-title">Recent</p>
-                <div className="project-menu-grid">{recentProjects.map(projectMenuButton)}</div>
-              </section>
-            )}
-            {projectSearch.trim() ? (
-              <div className="project-menu-grid">{filteredProjectMenu.map(projectMenuButton)}</div>
-            ) : (
-              <div className="project-menu-groups">
-                {projectMenuGroups.map((group) => {
-                  const expanded = expandedGroups.includes(group.key);
-                  return (
-                    <section className="project-menu-group" key={group.key || "root"}>
-                      <button
-                        type="button"
-                        className="project-menu-group-header"
-                        aria-expanded={expanded}
-                        onClick={() => toggleProjectGroup(group.key)}
-                      >
-                        <span className="group-caret" aria-hidden="true">{expanded ? "⌄" : "›"}</span>
-                        <strong>{group.label}</strong>
-                        <span className="count-badge">{group.items.length}</span>
-                      </button>
-                      {expanded && <div className="project-menu-grid">{group.items.map(projectMenuButton)}</div>}
-                    </section>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {systemMenuOpen && (
-          <div className="system-menu" role="menu" aria-label="Work system controls">
-            <div className="project-menu-heading">
-              <div>
-                <p className="eyebrow">Work system</p>
-                <strong>Service and updates</strong>
-                <small>Maintain this local Work installation.</small>
-              </div>
-              <button type="button" onClick={() => setSystemMenuOpen(false)} aria-label="Close Work system menu">×</button>
+                      className="wb-menu-x"
+                      aria-label={`Forget the root ${workspace.name}`}
+                      disabled={removingWorkspace === workspace.id}
+                      onClick={() => void removeWorkspace(workspace.id)}
+                    >×</button>
+                  )}
+                </div>
+              ))}
+              <button type="button" className="wb-menu-add" disabled={pickingWorkspace} onClick={() => void pickWorkspace()}>
+                {pickingWorkspace ? "Opening the folder picker…" : "+ Open another root…"}
+              </button>
+              {workspacePickerError && <small className="wb-menu-error" role="alert">{workspacePickerError}</small>}
             </div>
-            <section className="update-control" aria-label="Work updates">
-              <div>
-                <strong>Updates {updateStatus?.updateAvailable && <span className="update-badge">Available</span>}</strong>
-                <small>{updateStatus
-                  ? updateStatus.updateAvailable
-                    ? `Version ${updateStatus.currentVersion} · ${updateStatus.latestVersion} is available${updateStatus.installable ? "" : " · Source checkout"}`
-                    : `Version ${updateStatus.currentVersion} · Up to date`
-                  : "Checks npm quietly every six hours while Work is open."}</small>
-              </div>
-              <div className="update-actions">
-                <button type="button" onClick={() => void checkForUpdates(false, true)} disabled={checkingUpdate || installingUpdate}>{checkingUpdate ? "Checking…" : "Check now"}</button>
-                {updateStatus?.updateAvailable && updateStatus.installable && (
-                  <ConfirmAction
-                    label="Install & restart"
-                    triggerClassName="update-install"
-                    confirmLabel={`Install ${updateStatus.latestVersion}`}
-                    busyLabel="Installing…"
-                    busy={installingUpdate}
-                    disabled={installingUpdate}
-                    confirmClassName="update-confirm"
-                    confirmButtonClassName="primary-action"
-                    onConfirm={() => void installServiceUpdate()}
-                  />
+          )}
+
+          <p className="wb-rail-label" id="wb-projects-label">Projects</p>
+          <div className="wb-tree" role="list" aria-labelledby="wb-projects-label">
+            <button type="button" className={`wb-proj${scopePath === "." ? " on" : ""}`} onClick={() => openScope(".")}>
+              <span>All projects</span>
+              <span className="wb-count">{(data.tasks ?? []).filter((task) => !["done", "cancelled", "archived"].includes(task.status)).length || ""}</span>
+            </button>
+            {railGroups.map((group) => group.key === "" ? (
+              group.items.map((project) => (
+                <button type="button" key={project.path} className={`wb-proj${scopePath === project.path ? " on" : ""}`} onClick={() => openScope(project.path)}>
+                  <span>{project.name}</span>
+                  <span className="wb-count">{openCountByProject.get(project.path) || ""}</span>
+                </button>
+              ))
+            ) : (
+              <div key={group.key} className="wb-group">
+                <button
+                  type="button"
+                  className={`wb-grouphead${expandedGroups.includes(group.key) ? " open" : ""}`}
+                  aria-expanded={expandedGroups.includes(group.key)}
+                  onClick={() => toggleProjectGroup(group.key)}
+                >
+                  <span className="wb-tw" aria-hidden="true">▸</span>
+                  <span>{group.label}</span>
+                  <span className="wb-count">{group.items.reduce((total, project) => total + (openCountByProject.get(project.path) ?? 0), 0) || ""}</span>
+                </button>
+                {expandedGroups.includes(group.key) && (
+                  <div className="wb-kids">
+                    {group.items.map((project) => (
+                      <button type="button" key={project.path} className={`wb-proj${scopePath === project.path ? " on" : ""}`} onClick={() => openScope(project.path)}>
+                        <span>{project.name}</span>
+                        <span className="wb-count">{openCountByProject.get(project.path) || ""}</span>
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
-              {updateStatus?.updateAvailable && !updateStatus.installable && <small className="update-source-note">This copy is running from source; update its Git checkout instead.</small>}
-              {updateError && <small className="update-error" role="alert">{updateError}</small>}
-            </section>
-            <section className="service-control" aria-label="Local Work service">
-              <div>
-                <strong>Local service</strong>
-                <small>Reload the Work API and interface without changing project files.</small>
-              </div>
-              <ConfirmAction
-                label="Restart Work"
-                message="Restart now?"
-                confirmLabel="Confirm restart"
-                busyLabel="Restarting…"
-                busy={restartingService}
-                confirmClassName="service-restart-confirm"
-                onArm={() => setServiceRestartError(null)}
-                onConfirm={() => void restartLocalService()}
-              />
-              {serviceRestartError && <small className="service-restart-error" role="alert">{serviceRestartError}</small>}
-            </section>
+            ))}
+            <InlineProjectCreate parentPath={projectScoped ? parentPath(scopePath) || "." : scopePath} onCreated={(project) => { rememberProject(project); openScope(project.path); }} />
           </div>
-        )}
+        </div>
 
-        {workspaceMenuOpen && workspaceDirectory && (
-          <div className="workspace-menu" role="menu" aria-label="Choose a workspace root">
-            <div className="project-menu-heading">
-              <div>
-                <p className="eyebrow">Workspace roots</p>
-                <strong>Where do you want to work?</strong>
-                <small>Choose a recent root or open any folder on this computer.</small>
-              </div>
-              <button type="button" onClick={() => setWorkspaceMenuOpen(false)} aria-label="Close workspace picker">×</button>
-            </div>
-            <div className="workspace-menu-list">
-              {workspaceDirectory.workspaces.map((workspace) => {
-                const current = workspace.id === data.workspace.id;
-                return (
-                  <div className={`workspace-menu-item${current ? " selected" : ""}`} role="group" key={workspace.id}>
-                    <button
-                      className="workspace-select"
-                      type="button"
-                      role="menuitemradio"
-                      aria-checked={current}
-                      onClick={() => void switchWorkspace(workspace.id)}
-                    >
-                      <span className="workspace-icon" aria-hidden="true">{workspace.name.slice(0, 1).toUpperCase()}</span>
-                      <span><strong>{workspace.name}</strong><small>{workspace.root}</small></span>
-                      {current && <span className="current-root">Current</span>}
-                    </button>
-                    {!current && (
-                      <ConfirmAction
-                        label="Remove"
-                        triggerClassName="workspace-remove"
-                        triggerAriaLabel={`Remove ${workspace.name} from the workspace list`}
-                        message="Remove from list? Files stay untouched."
-                        confirmLabel="Confirm"
-                        busyLabel="Removing…"
-                        busy={removingWorkspace === workspace.id}
-                        confirmClassName="workspace-remove-confirm"
-                        alert
-                        onArm={() => setWorkspacePickerError(null)}
-                        onConfirm={() => void removeWorkspace(workspace.id)}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            <section className="workspace-folder-action" aria-label="Open another workspace root">
-              <div>
-                <strong>Open another folder</strong>
-                <small>If it is not already a Work root, its `.work` storage will be created automatically.</small>
-              </div>
-              <button type="button" onClick={() => void pickWorkspace()} disabled={pickingWorkspace}>
-                {pickingWorkspace ? "Opening…" : "Choose folder…"}
+        <div className="wb-railfoot">
+          {systemMenuOpen && (
+            <div className="wb-menu wb-setmenu" role="menu" aria-label="Work settings">
+              <button type="button" disabled={restartingService} onClick={() => void restartLocalService()}>
+                ↻ {restartingService ? "Restarting…" : "Restart service"}
               </button>
-              {workspacePickerError && <small className="workspace-picker-error" role="alert">{workspacePickerError}</small>}
-            </section>
-          </div>
-        )}
-      </header>
-
-      {data.staleBuild && (
-        <div className="stale-build" role="status">
-          <span><strong>Work was updated on disk.</strong> This service is still running the older build.</span>
-          <button type="button" className="stale-build-action" disabled={restartingService}
-                  onClick={() => void restartLocalService()}>
-            {restartingService ? "Restarting…" : "Restart to load it"}
+              <button type="button" disabled={checkingUpdate} onClick={() => void checkForUpdates(false, true)}>
+                ⬆ {checkingUpdate ? "Checking…" : "Check for updates"}
+                <span className="wb-menu-sub">{updateStatus?.updateAvailable ? `${updateStatus.latestVersion} available` : `v${updateStatus?.currentVersion ?? data.version ?? ""}`}</span>
+              </button>
+              {updateStatus?.updateAvailable && updateStatus.installable && (
+                <button type="button" disabled={installingUpdate} onClick={() => void installServiceUpdate()}>
+                  {installingUpdate ? "Installing…" : `Install ${updateStatus.latestVersion} and restart`}
+                </button>
+              )}
+              <div className="wb-menu-theme" role="group" aria-label="Theme">
+                {(["system", "light", "dark"] as const).map((option) => (
+                  <button type="button" key={option} className={theme === option ? "on" : ""} onClick={() => setTheme(option)}>{option}</button>
+                ))}
+              </div>
+              {(serviceRestartError || updateError) && <small className="wb-menu-error" role="alert">{serviceRestartError ?? updateError}</small>}
+            </div>
+          )}
+          <button type="button" className="wb-settings" aria-expanded={systemMenuOpen} aria-haspopup="menu"
+                  onClick={() => { setSystemMenuOpen((open) => !open); setWorkspaceMenuOpen(false); }}>
+            ⚙ <span>Settings</span>
+            {updateStatus?.updateAvailable && <span className="update-available-dot" aria-hidden="true" />}
           </button>
         </div>
-      )}
+      </nav>
 
-      <main id="main-content" className="main-content">
-        {view === "board" ? (
-          selectedProject?.view === "list" ? (
-            <TaskListView
+      <div className="wb-center">
+        <div className="wb-subbar">
+          <span className="wb-mark" aria-hidden="true">/</span>
+          <button type="button" className="wb-railtoggle" aria-label={railOpen ? "Hide the sidebar" : "Show the sidebar"} onClick={toggleRail}>☰</button>
+          <button type="button" className={`wb-tab${view === "today" ? " on" : ""}`} onClick={() => setView("today")}>
+            Today{attentionCount > 0 && <span className="wb-badge">{attentionCount}</span>}
+          </button>
+          <button type="button" className={`wb-tab${view === "work" ? " on" : ""}`} onClick={() => setView("work")}>
+            Work<span className="wb-badge">{openTaskTotal}</span>
+          </button>
+          <button
+            type="button"
+            className={`wb-tab${view === "issues" ? " on" : ""}${projectScoped ? "" : " stub"}`}
+            title={projectScoped ? undefined : "Pick a project — issues live on a project, not the whole root"}
+            onClick={() => { if (projectScoped) setView("issues"); }}
+          >
+            Issues{projectScoped && queuedIssueCount > 0 && <span className="wb-badge">{queuedIssueCount}</span>}
+          </button>
+          <button type="button" className={`wb-tab${view === "notes" ? " on" : ""}`} onClick={() => setView("notes")}>
+            Notes{scopedNotes.length > 0 && <span className="wb-badge">{scopedNotes.length}</span>}
+          </button>
+          <button
+            type="button"
+            className={`wb-tab${view === "files" ? " on" : ""}${projectScoped ? "" : " stub"}`}
+            title={projectScoped ? undefined : "Pick a project to browse its files"}
+            onClick={() => { if (projectScoped) setView("files"); }}
+          >Files</button>
+          <button type="button" className={`wb-tab${view === "activity" ? " on" : ""}`} onClick={() => setView("activity")}>Activity</button>
+          <span className="wb-spacer" />
+          {view === "work" && (
+            <>
+              <div className="wb-modetoggle" role="group" aria-label="Work layout">
+                <button type="button" className={workMode === "list" ? "on" : ""} onClick={() => setWorkMode("list")}>List</button>
+                <button type="button" className={workMode === "board" ? "on" : ""} onClick={() => setWorkMode("board")}>Board</button>
+                {scopePath === "." && (
+                  <button type="button" className={workMode === "overview" ? "on" : ""} onClick={() => setWorkMode("overview")}>Projects</button>
+                )}
+              </div>
+              <button type="button" className="wb-newbtn" onClick={() => setCreatingTask(true)}>New item</button>
+            </>
+          )}
+          {data.staleBuild && (
+            <button type="button" className="wb-stale" disabled={restartingService} onClick={() => void restartLocalService()}>
+              {restartingService ? "Restarting…" : "New build on disk — restart"}
+            </button>
+          )}
+          <span className={`wb-sync${loadError ? " off" : ""}`} title={lastSyncedAt ? `Synced ${shortTime(lastSyncedAt.toISOString())}` : "Connecting…"} />
+        </div>
+
+        {projectScoped && selectedProject && (
+          <div className="wb-projheader">
+            <strong>{selectedProject.name}</strong>
+            <ProjectTagEditor project={selectedProject} suggestions={projectTagVocabulary} onUpdateProfile={updateProjectProfile} />
+            <div className="wb-projheader-danger project-delete-panel">
+              {confirmingProjectDelete ? (
+                <>
+                  <span>Delete {selectedProject.name}? Records under it are removed from Work.</span>
+                  <button type="button" className="danger-zone-button" disabled={deletingProject} onClick={() => void confirmProjectDelete()}>
+                    {deletingProject ? "Deleting…" : "Really delete"}
+                  </button>
+                  <button type="button" onClick={() => setConfirmingProjectDelete(false)}>Keep it</button>
+                  {projectDeleteError && <small role="alert">{projectDeleteError}</small>}
+                </>
+              ) : (
+                <button type="button" className="danger-zone-button" onClick={() => setConfirmingProjectDelete(true)}>Delete project…</button>
+              )}
+            </div>
+          </div>
+        )}
+
+        <main id="main-content" className="wb-view">
+          {view === "today" ? (
+            <WbToday
+              scopeLabel={scopeLabel}
+              projects={data.projects}
+              decisions={activeDecisions}
+              decided={decidedDecisions}
+              decidedOpen={decidedOpen}
+              humanIssues={humanIssues}
+              blockedTasks={blockedTasks}
+              tasks={scopedTasks}
+              captures={scopedCaptures}
+              savingDecision={savingDecision}
+              onToggleDecided={() => setDecidedOpen((open) => !open)}
+              onOpenDecision={(decisionId) => setExpandedDecision(decisionId)}
+              onReopenDecision={(decisionId) => void reopenDecision(decisionId)}
+              onOpenIssue={(issue) => { if (issue.projectPath) openScope(issue.projectPath); setSelectedIssueId(issue.id); setView("issues"); }}
+              onOpenTask={setSelectedTaskId}
+              onPromoteTask={(capture) => void promoteCaptureToTask(capture)}
+              onPromoteNote={(capture) => void promoteCaptureToNote(capture)}
+              onDropCapture={(captureId) => void deleteCapture(captureId)}
+            />
+          ) : view === "work" ? (
+            workMode === "overview" && scopePath === "." ? (
+              <WbProjectsOverview
+                projects={railProjects}
+                tasks={data.tasks ?? []}
+                openCounts={openCountByProject}
+                tagFilter={projectTagFilter}
+                onTagFilter={setProjectTagFilter}
+                onOpen={openScope}
+              />
+            ) : workMode === "board" ? (
+              <KanbanBoard
+                scopeLabel={scopeLabel}
+                tasks={scopedTasks}
+                statuses={data.workspace.statuses ?? ["backlog", "ready", "in_progress", "blocked", "review", "done"]}
+                projects={data.projects}
+                decisions={data.decisions}
+                search={taskSearch}
+                onSearch={setTaskSearch}
+                showTerminal={showTerminalTasks}
+                onToggleTerminal={() => setShowTerminalTasks((shown) => !shown)}
+                draggingTaskId={draggingTaskId}
+                onDragStart={setDraggingTaskId}
+                onDragEnd={() => setDraggingTaskId(null)}
+                onMove={(taskId, status) => void moveWorkTask(taskId, status).catch(() => {})}
+                onOpenTask={setSelectedTaskId}
+                onCreate={() => setCreatingTask(true)}
+                onQuickAdd={quickAddTask}
+                error={taskError}
+              />
+            ) : (
+              <TaskListView
+                scopeLabel={scopeLabel}
+                tasks={scopedTasks}
+                statuses={data.workspace.statuses ?? ["backlog", "ready", "in_progress", "blocked", "review", "done"]}
+                showTerminal={showTerminalTasks}
+                onToggleTerminal={() => setShowTerminalTasks((shown) => !shown)}
+                onMove={(taskId, status) => void moveWorkTask(taskId, status).catch(() => {})}
+                onOpenTask={setSelectedTaskId}
+                onCreate={() => setCreatingTask(true)}
+                onQuickAdd={quickAddTask}
+                error={taskError}
+              />
+            )
+          ) : view === "issues" ? (
+            <IssuesView
+              scopeLabel={scopeLabel}
+              scopePath={scopePath}
+              scopeKind={scopeKind}
+              issues={scopedIssues}
+              projects={data.projects}
+              selectedIssueId={selectedIssueId}
+              saving={savingIssue}
+              error={issueError}
+              onSelect={setSelectedIssueId}
+              onCreate={createIssue}
+              onReply={replyToIssue}
+              onSetState={setIssueState}
+              onSetDelegated={setIssueDelegated}
+              onDelete={(issueId) => void deleteWorkIssue(issueId).catch(() => {})}
+            />
+          ) : view === "notes" ? (
+            <NotesView
+              scopeLabel={scopeLabel}
+              scopeKind={scopeKind}
+              notes={scopedNotes}
+              projects={data.projects}
+              selectedNoteId={selectedNoteId}
+              creating={creatingNote}
+              error={noteError}
+              onSelect={setSelectedNoteId}
+              onCreate={createProjectNote}
+              onUpdate={updateProjectNote}
+              onDelete={deleteProjectNote}
+            />
+          ) : view === "files" ? (
+            <FilesView
+              key={scopePath}
+              scopeLabel={scopeLabel}
+              scopePath={scopePath}
+              project={selectedProject}
+              onProjectCreated={rememberProject}
+            />
+          ) : (
+            <ActivityView
               scopeLabel={scopeLabel}
               tasks={scopedTasks}
-              statuses={data.workspace.statuses ?? ["backlog", "ready", "in_progress", "blocked", "review", "done"]}
-              showTerminal={showTerminalTasks}
-              onToggleTerminal={() => setShowTerminalTasks((shown) => !shown)}
-              onMove={(taskId, status) => void moveWorkTask(taskId, status).catch(() => {})}
+              projects={data.projects}
               onOpenTask={setSelectedTaskId}
-              onCreate={() => setCreatingTask(true)}
-              onQuickAdd={quickAddTask}
-              error={taskError}
             />
-          ) : (
-          <KanbanBoard
-            scopeLabel={scopeLabel}
-            tasks={scopedTasks}
-            statuses={data.workspace.statuses ?? ["backlog", "ready", "in_progress", "blocked", "review", "done"]}
+          )}
+        </main>
+      </div>
+
+      <aside className={`wb-panel${panelOpen ? " open" : ""}`} aria-label="Detail panel">
+        {creatingTask ? (
+          <CreateTaskPanel
             projects={data.projects}
-            decisions={data.decisions}
-            search={taskSearch}
-            onSearch={setTaskSearch}
-            showTerminal={showTerminalTasks}
-            onToggleTerminal={() => setShowTerminalTasks((shown) => !shown)}
-            draggingTaskId={draggingTaskId}
-            onDragStart={setDraggingTaskId}
-            onDragEnd={() => setDraggingTaskId(null)}
-            onMove={(taskId, status) => void moveWorkTask(taskId, status).catch(() => {})}
-            onOpenTask={setSelectedTaskId}
-            onCreate={() => setCreatingTask(true)}
-            onQuickAdd={quickAddTask}
+            statuses={data.workspace.statuses}
+            defaultProjectPath={selectedProject?.path ?? null}
+            saving={savingTask}
             error={taskError}
+            onClose={() => { setCreatingTask(false); setTaskError(null); }}
+            onCreate={(input) => void createWorkTask(input).catch(() => {})}
           />
-          )
-        ) : view === "issues" ? (
-          <IssuesView
-            scopeLabel={scopeLabel}
-            scopePath={scopePath}
-            scopeKind={scopeKind}
-            issues={scopedIssues}
-            projects={data.projects}
-            selectedIssueId={selectedIssueId}
-            saving={savingIssue}
-            error={issueError}
-            onSelect={setSelectedIssueId}
-            onCreate={createIssue}
-            onReply={replyToIssue}
-            onSetState={setIssueState}
-            onSetDelegated={setIssueDelegated}
-          />
-        ) : view === "notes" ? (
-          <NotesView
-            scopeLabel={scopeLabel}
-            scopeKind={scopeKind}
-            notes={scopedNotes}
-            projects={data.projects}
-            selectedNoteId={selectedNoteId}
-            creating={creatingNote}
-            error={noteError}
-            onSelect={setSelectedNoteId}
-            onCreate={createProjectNote}
-            onUpdate={updateProjectNote}
-            onDelete={deleteProjectNote}
-          />
-        ) : view === "files" ? (
-          <FilesView
-            key={scopePath}
-            scopeLabel={scopeLabel}
-            scopePath={scopePath}
-            project={selectedProject}
-            onProjectCreated={rememberProject}
-          />
-        ) : view === "activity" ? (
-          <ActivityView
-            scopeLabel={scopeLabel}
-            tasks={scopedTasks}
-            projects={data.projects}
-            onOpenTask={setSelectedTaskId}
-          />
-        ) : (
-          <>
-        <section id="continue" className="continue-section" aria-label={`${scopeLabel} current scope`}>
-          {scopeKind === "project" && selectedProject ? (
-            <ProjectFocus
-              project={selectedProject}
-              captures={scopedCaptures.filter((capture) => capture.projectPath === selectedProject.path)}
-              tasks={scopedTasks.filter((task) => task.projectPath === selectedProject.path)}
-              tagSuggestions={projectTagVocabulary}
-              onOpenBoard={() => setView("board")}
-              onOpenTask={(taskId) => { setView("board"); setSelectedTaskId(taskId); }}
-              onUpdateProfile={updateProjectProfile}
-            />
-          ) : (
-            <div className="portfolio-intro">
-              <p className="continue-label"><span aria-hidden="true" /> {scopeKind === "root" ? "One root" : "Folder scope"}</p>
-              <h1>{scopeKind === "root" ? `All in ${data.workspace.name}` : scopeLabel}</h1>
-              <p>See the shape of this directory without pulling in unrelated work. Everything here stays under one filesystem boundary.</p>
-              <p className="scope-path" title={scopeKind === "root" ? workspaceLocationLabel : `${workspaceLocationLabel}/${scopePath}`}>{scopeKind === "root" ? workspaceLocationLabel : scopePath}</p>
-              <div className="portfolio-stats" aria-label="Scope summary">
-                <span><strong>{visibleProjects.length + (scopePath === "." && rootProject ? 1 : 0)}</strong> projects</span>
-                <span><strong>{scopedTasks.length}</strong> work items</span>
-                <span><strong>{scopedTasks.filter((task) => ["in_progress", "blocked", "review"].includes(task.status)).length}</strong> in flight</span>
-                <span><strong>{scopedTasks.filter((task) => task.status === "done").length}</strong> completed</span>
-                <span><strong>{scopedCaptures.length}</strong> captured</span>
-                <span><strong>{activeDecisions.length}</strong> need you</span>
-              </div>
-            </div>
-          )}
-
-          {(scopeKind !== "project" || childGroups.length > 0 || directProjects.length > 0) && (
-            <div className="scope-grid-section">
-              <div className="section-heading compact">
-                <div><p className="eyebrow">Zoom in without leaving this root</p><h2 id="scope-heading">Projects and folders</h2></div>
-                <span className="count-badge">{visibleProjects.length}</span>
-              </div>
-              {childGroups.length === 0 && directProjects.length === 0 ? (
-                <div className="empty-panel project-create-panel">
-                  <strong>No projects here yet.</strong>
-                  <span>Name your first project. Work creates the folder and its marker for you.</span>
-                  <InlineProjectCreate parentPath={scopePath} onCreated={(project) => { rememberProject(project); navigate(project.path); }} />
-                </div>
-              ) : (
-                <div className="project-grid">
-                  {childGroups.map((group) => (
-                    <button type="button" className="project-card group-card" key={group.path} onClick={() => navigate(group.path)}>
-                      <span className="project-card-code" aria-hidden="true">⌁</span>
-                      <span className="project-card-copy"><small>Folder scope</small><strong>{group.name}</strong><span>{group.path}</span></span>
-                      <span className="project-card-meta">{group.projects} projects<span aria-hidden="true">→</span></span>
-                    </button>
-                  ))}
-                  {directProjects.map((project) => (
-                    <button type="button" className="project-card" key={project.id} onClick={() => navigate(project.path)}>
-                      <span className="project-card-code" aria-hidden="true">{project.name.slice(0, 2).toUpperCase()}</span>
-                      <span className="project-card-copy">
-                        <small>Project · {project.path}</small>
-                        <strong>{project.name}</strong>
-                        <span>{project.description || "Add a purpose description"}</span>
-                        {project.tags.length > 0 && (
-                          <span className="project-card-tags">{project.tags.map((tag) => <TagChip key={tag} tag={tag} />)}</span>
-                        )}
-                      </span>
-                      <span className="project-card-meta">Open<span aria-hidden="true">→</span></span>
-                    </button>
-                  ))}
-                  <div className="project-card new-project-card">
-                    <span className="project-card-code" aria-hidden="true">＋</span>
-                    <span className="project-card-copy">
-                      <small>+ New project</small>
-                      <InlineProjectCreate parentPath={scopePath} onCreated={rememberProject} />
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </section>
-
-        <UpcomingSchedule
-          items={scheduledItems}
-          projects={data.projects}
-          onOpenTask={(taskId) => { setView("board"); setSelectedTaskId(taskId); }}
-        />
-
-        <div className="home-support-grid">
-        <section id="needs-you" className="attention-section" aria-labelledby="needs-you-heading">
-          <div className="section-heading">
-            <div><p className="eyebrow">Choices, not dismissals</p><h2 id="needs-you-heading">Needs you</h2></div>
-            <span className="count-badge" aria-label={`${attentionCount} items need you`}>{attentionCount}</span>
-          </div>
-
-          {decisionReceipt && (
-            <div className="decision-receipt" role="status">
-              <span><strong>Recorded.</strong> {decisionReceipt.message}</span>
-              <button type="button" onClick={() => void reopenDecision(decisionReceipt.decisionId)}>Undo</button>
-            </div>
-          )}
-
-          {attentionCount === 0 ? (
-            <div className="empty-panel"><strong>Nothing needs a decision in this scope.</strong><span>Ordinary work stays out of this list.</span></div>
-          ) : (
-            <div className="attention-list">
-              {[
-                ...visibleHumanIssues.map((issue) => ({
-                  key: `issue-${issue.id}`,
-                  icon: "↩",
-                  kind: "Issue",
-                  title: issue.title,
-                  projectPath: issue.projectPath,
-                  action: "Reply",
-                  open: () => { setSelectedIssueId(issue.id); setView("issues"); },
-                })),
-                ...visibleBlockedTasks.map((task) => ({
-                  key: `task-${task.id}`,
-                  icon: "■",
-                  kind: "Blocked task",
-                  title: task.title,
-                  projectPath: task.projectPath,
-                  action: "Unblock",
-                  open: () => { setSelectedTaskId(task.id); setView("board"); },
-                })),
-              ].map((item) => (
-                <article className="attention-item issue-attention-item" key={item.key}>
-                  <button type="button" className="attention-summary" onClick={item.open}>
-                    <span className="attention-check" aria-hidden="true">{item.icon}</span>
-                    <span className="attention-copy">
-                      <small>{item.kind} · {scopeLabelFor(data.projects, item.projectPath, `${data.workspace.name} · Unassigned`)}</small>
-                      <strong>{item.title}</strong>
-                    </span>
-                    <span className="review-label">{item.action}</span>
-                  </button>
-                </article>
-              ))}
-              {visibleDecisions.map((decision) => {
-                const open = expandedDecision === decision.id;
-                return (
-                  <article className={`attention-item ${open ? "open" : ""}`} key={decision.id}>
-                    <button type="button" className="attention-summary" onClick={() => setExpandedDecision(open ? null : decision.id)} aria-expanded={open}>
-                      <span className="attention-check" aria-hidden="true">?</span>
-                      <span className="attention-copy">
-                        <small>{scopeLabelFor(data.projects, decision.projectPath, `${data.workspace.name} · Unassigned`)}</small>
-                        <strong>{decision.title}</strong>
-                      </span>
-                      <span className="review-label">{open ? "Close" : "Choose"}</span>
-                    </button>
-
-                    {open && (
-                      <DecisionPanel
-                        decision={decision}
-                        draft={draftFor(decision.id)}
-                        projects={data.projects}
-                        saving={savingDecision === decision.id}
-                        autoFocusResponse
-                        onDraft={updateDraft}
-                        onConfirm={() => void confirmDecision(decision)}
-                        onClose={() => setExpandedDecision(null)}
-                      />
-                    )}
+        ) : selectedTask ? (
+          <TaskDetailPanel
+            task={selectedTask}
+            tasks={data.tasks ?? []}
+            statuses={data.workspace.statuses}
+            saving={savingTask}
+            error={taskError}
+            openQuestions={selectedTaskQuestions.length > 0 ? (
+              <section className="task-subsection task-open-questions" aria-label="Open questions">
+                <h3>Open questions</h3>
+                <p>Answering records the choice on this card’s log. The status stays yours to change.</p>
+                {selectedTaskQuestions.map((decision) => (
+                  <article className="task-open-question" key={decision.id}>
+                    <h4>{decision.title}</h4>
+                    <DecisionPanel
+                      decision={decision}
+                      draft={draftFor(decision.id)}
+                      projects={data.projects}
+                      saving={savingDecision === decision.id}
+                      onDraft={updateDraft}
+                      onConfirm={() => void confirmDecision(decision)}
+                    />
                   </article>
-                );
-              })}
-              {attentionCount > visibleHumanIssues.length + visibleBlockedTasks.length + visibleDecisions.length && (
-                <p className="more-decisions">{attentionCount - visibleHumanIssues.length - visibleBlockedTasks.length - visibleDecisions.length} more waiting safely in this scope. Reply, finish, or defer one to bring the next forward.</p>
-              )}
-            </div>
-          )}
-        </section>
-
-        <section id="inbox" className="captured-section" aria-labelledby="inbox-heading">
-          <div className="section-heading">
-            <div><p className="eyebrow">Visible immediately</p><h2 id="inbox-heading">Inbox</h2><small className="inbox-destination">{destinationForCurrentScope()}</small></div>
-            <span className="count-badge" aria-label={`${scopedCaptures.length} captures in this scope`}>{scopedCaptures.length}</span>
+                ))}
+              </section>
+            ) : null}
+            onClose={() => setSelectedTaskId(null)}
+            onMove={(status, note) => void moveWorkTask(selectedTask.id, status, note).catch(() => {})}
+            onPatch={(patch) => patchWorkTask(selectedTask.id, patch)}
+            onToggle={(section, index, state) => void toggleWorkChecklist(selectedTask.id, section, index, state)}
+            onLog={(message) => logWorkProgress(selectedTask.id, message)}
+          />
+        ) : expandedDecisionObj ? (
+          <div className="wb-decision-panel">
+            <DecisionPanel
+              decision={expandedDecisionObj}
+              draft={draftFor(expandedDecisionObj.id)}
+              projects={data.projects}
+              saving={savingDecision === expandedDecisionObj.id}
+              autoFocusResponse
+              onDraft={updateDraft}
+              onConfirm={() => void confirmDecision(expandedDecisionObj)}
+              onClose={() => setExpandedDecision(null)}
+            />
           </div>
-          {scopedCaptures.length === 0 ? (
-            <div className="empty-panel"><strong>Nothing captured in this scope yet.</strong><span>Use the bar below. It saves the exact thought before asking you to organize it.</span></div>
-          ) : (
-            <ul className="capture-list">
-              {scopedCaptures.map((capture) => {
-                const destinationLabel = destinationForCapture(capture);
-                return (
-                  <li key={capture.id} className={captureReceipt?.capture.id === capture.id ? "new-capture" : ""}>
-                    <span className={`capture-kind kind-${capture.kind}`}>{capture.kind}</span>
-                    <div><strong>{capture.text}</strong><small>{destinationLabel} · {shortTime(capture.createdAt)}</small></div>
-                    <div className="capture-row-actions">
-                      <button type="button" className="capture-icon-action" title="Move to another inbox" onClick={() => { setCaptureToMove(capture); setCaptureMoveSearch(""); }} aria-label={`Move thought to another inbox: ${capture.text}`}><span aria-hidden="true">↗</span></button>
-                      <button type="button" className="capture-icon-action promote-note" title="Keep this as a note" onClick={() => void promoteCaptureToNote(capture).catch(() => {})} aria-label={`Make note from thought: ${capture.text}`}><span aria-hidden="true">◇</span></button>
-                      <button type="button" className="capture-icon-action promote-capture" title="Make this a task" onClick={() => void promoteCaptureToTask(capture).catch(() => {})} aria-label={`Make task from thought: ${capture.text}`}><span aria-hidden="true">＋</span></button>
-                      <button type="button" className="capture-icon-action remove-capture" title="Remove this thought" onClick={() => void deleteCapture(capture.id)} aria-label={`Remove capture: ${capture.text}`}><span aria-hidden="true">×</span></button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-        </div>
-
-        {scopeKind === "project" && selectedProject && (
-          <section className="danger-zone" aria-label="Danger zone">
-            <button type="button" className="danger-zone-button" onClick={() => { setProjectDeleteError(null); setConfirmingProjectDelete(true); }}>
-              {TRASH_GLYPH} Delete project
-            </button>
-          </section>
-        )}
-          </>
-        )}
-      </main>
-
-      {confirmingProjectDelete && selectedProject && (
-        <div className="capture-move-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !deletingProject) setConfirmingProjectDelete(false); }}>
-          <section className="project-delete-panel" role="dialog" aria-modal="true" aria-labelledby="project-delete-heading">
-            <div className="capture-move-heading">
-              <div><p className="eyebrow">Danger zone</p><h2 id="project-delete-heading">Delete {selectedProject.name}?</h2></div>
-              <button type="button" onClick={() => setConfirmingProjectDelete(false)} aria-label="Close delete confirmation" disabled={deletingProject}>×</button>
-            </div>
-            <p className="project-delete-copy">Removes the project and its Work records. Your files stay unless the folder is empty.</p>
-            {projectDeleteError && <p className="field-error" role="alert">{projectDeleteError}</p>}
-            <div className="project-delete-actions">
-              <button type="button" onClick={() => setConfirmingProjectDelete(false)} disabled={deletingProject}>Cancel</button>
-              <button type="button" className="danger-zone-button" disabled={deletingProject} onClick={() => void confirmProjectDelete()}>
-                {TRASH_GLYPH} {deletingProject ? "Deleting…" : "Delete project"}
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
-
-      {captureToMove && (
-        <div className="capture-move-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setCaptureToMove(null); }}>
-          <section className="capture-move-panel" role="dialog" aria-modal="true" aria-labelledby="capture-move-heading">
-            <div className="capture-move-heading"><div><p className="eyebrow">Reassign thought</p><h2 id="capture-move-heading">Move to an inbox</h2></div><button type="button" onClick={() => setCaptureToMove(null)} aria-label="Close destination picker">×</button></div>
-            <p className="capture-move-preview">“{captureToMove.text}”</p>
-            <label className="field-wide"><span className="sr-only">Find a destination</span><input type="search" value={captureMoveSearch} onChange={(event) => setCaptureMoveSearch(event.target.value)} placeholder="Find a project or folder…" autoFocus /></label>
-            <div className="capture-destination-list">
-              {(() => {
-                const query = captureMoveSearch.trim().toLowerCase();
-                const scopeEntries = [
-                  { value: "scope:.", path: ".", title: "Root inbox", detail: `${data.workspace.name} · Unassigned` },
-                  ...inboxFolderScopes.map((path) => ({ value: `scope:${path}`, path, title: displaySegment(pathParts(path).at(-1) ?? path), detail: `Folder inbox · ${path}` })),
-                ];
-                const projectEntries = data.projects.filter((project) => project.path !== ".").map((project) => ({ value: `project:${project.path}`, path: project.path, title: project.name, detail: `Project inbox · ${project.path}` }));
-                const destinationButton = (item: { value: string; title: string; detail: string }) => (
-                  <button type="button" key={item.value} disabled={movingCaptureId === captureToMove.id} onClick={() => void moveCapture(captureToMove, item.value)}><span><strong>{item.title}</strong><small>{item.detail}</small></span><span aria-hidden="true">→</span></button>
-                );
-                if (query) {
-                  return [...scopeEntries, ...projectEntries]
-                    .filter((item) => `${item.title} ${item.detail}`.toLowerCase().includes(query))
-                    .map(destinationButton);
-                }
-                return (
-                  <>
-                    {scopeEntries.map(destinationButton)}
-                    {groupByFirstSegment(projectEntries, (entry) => entry.path).map((group) => {
-                      const expanded = expandedGroups.includes(group.key);
-                      return (
-                        <section className="project-menu-group" key={group.key || "root"}>
-                          <button
-                            type="button"
-                            className="project-menu-group-header"
-                            aria-expanded={expanded}
-                            onClick={() => toggleProjectGroup(group.key)}
-                          >
-                            <span className="group-caret" aria-hidden="true">{expanded ? "⌄" : "›"}</span>
-                            <strong>{group.label}</strong>
-                            <span className="count-badge">{group.items.length}</span>
-                          </button>
-                          {expanded && group.items.map(destinationButton)}
-                        </section>
-                      );
-                    })}
-                  </>
-                );
-              })()}
-            </div>
-          </section>
-        </div>
-      )}
-
-      {creatingTask && (
-        <CreateTaskPanel
-          projects={data.projects}
-          statuses={data.workspace.statuses}
-          defaultProjectPath={selectedProject?.path ?? null}
-          saving={savingTask}
-          error={taskError}
-          onClose={() => { setCreatingTask(false); setTaskError(null); }}
-          onCreate={(input) => void createWorkTask(input).catch(() => {})}
-        />
-      )}
-
-      {selectedTask && (
-        <TaskDetailPanel
-          task={selectedTask}
-          tasks={data.tasks ?? []}
-          statuses={data.workspace.statuses}
-          saving={savingTask}
-          error={taskError}
-          openQuestions={selectedTaskQuestions.length > 0 ? (
-            <section className="task-subsection task-open-questions" aria-label="Open questions">
-              <h3>Open questions</h3>
-              <p>Answering records the choice on this card’s log. The status stays yours to change.</p>
-              {selectedTaskQuestions.map((decision) => (
-                <article className="task-open-question" key={decision.id}>
-                  <h4>{decision.title}</h4>
-                  <DecisionPanel
-                    decision={decision}
-                    draft={draftFor(decision.id)}
-                    projects={data.projects}
-                    saving={savingDecision === decision.id}
-                    onDraft={updateDraft}
-                    onConfirm={() => void confirmDecision(decision)}
-                  />
-                </article>
-              ))}
-            </section>
-          ) : null}
-          onClose={() => { setSelectedTaskId(null); setTaskError(null); }}
-          onMove={(status, note) => void moveWorkTask(selectedTask.id, status, note).catch(() => {})}
-          onPatch={(patch) => void patchWorkTask(selectedTask.id, patch).catch(() => {})}
-          onToggle={(section, index, state) => void toggleWorkChecklist(selectedTask.id, section, index, state)}
-          onLog={(message) => logWorkProgress(selectedTask.id, message)}
-        />
-      )}
+        ) : null}
+      </aside>
 
       {captureDockCollapsed ? (
-        <button
-          type="button"
-          className="capture-dock-restore"
-          aria-label="Show capture box"
-          onClick={() => setCaptureDockCollapsedPersisted(false, true)}
-        >
-          <span aria-hidden="true">⌃</span><strong>Capture</strong>
+        <button type="button" className="wb-cap-pill" onClick={() => setCaptureDockCollapsedPersisted(false, true)}>
+          / <span>Capture</span> <kbd>/</kbd>
         </button>
-      ) : <div className="capture-dock" id="capture-dock">
-        <button
-          type="button"
-          className="capture-dock-collapse"
-          aria-label="Hide capture box"
-          aria-controls="capture-dock"
-          aria-expanded="true"
-          onClick={() => setCaptureDockCollapsedPersisted(true)}
-        ><span aria-hidden="true">⌄</span></button>
-        {captureReceipt && (
-          <div className="capture-receipt" role="status" aria-live="polite">
-            <span className="receipt-check" aria-hidden="true">✓</span>
-            <div><strong>Saved: “{captureReceipt.capture.text}”</strong><small>{captureReceipt.destination} · Waiting in your inbox</small></div>
-            <div className="receipt-actions">
-              <button type="button" onClick={() => void promoteCaptureToNote(captureReceipt.capture).catch(() => {})}>Make note</button>
-              <button type="button" onClick={() => void promoteCaptureToTask(captureReceipt.capture).catch(() => {})}>Make task</button>
-              <button type="button" onClick={() => void deleteCapture(captureReceipt.capture.id)}>Undo</button>
-              <button type="button" onClick={() => openHomeSection("inbox")}>Open inbox</button>
-              <button type="button" onClick={() => setCaptureReceipt(null)} aria-label="Dismiss saved receipt">×</button>
-            </div>
-          </div>
-        )}
-        <form onSubmit={handleCommandSubmit} aria-label="Universal work command">
-          <div className="capture-context">
-            <span className="capture-symbol" aria-hidden="true">/</span>
-            <div>
-              <strong>Capture anything</strong>
-              <button
-                type="button"
-                className={`capture-destination-toggle ${captureDestinationProject ? "to-project" : ""}`}
-                onClick={() => setCaptureToProject((current) => !current)}
-                disabled={!selectedProject}
-                aria-pressed={Boolean(captureDestinationProject)}
-                title={selectedProject
-                  ? `Capture into ${captureDestinationProject ? "the root Inbox instead" : selectedProject.name} `
-                  : "Open a project to capture into it instead of the Inbox"}
-              >
-                Going to {captureDestinationProject ? captureDestinationProject.name : "Inbox"}{selectedProject ? " · switch" : ""}
-              </button>
-            </div>
-          </div>
-          <label className="sr-only" htmlFor="work-command">Tell Work anything you want remembered</label>
+      ) : (
+        <form className="wb-capbar capture-dock" onSubmit={handleCommandSubmit}>
           <textarea
             ref={inputRef}
-            id="work-command"
+            rows={1}
             value={command}
             onChange={(event) => setCommand(event.target.value)}
             onKeyDown={handleCommandKeyDown}
-            placeholder="Tell /work anything…"
-            autoComplete="off"
-            rows={1}
+            placeholder={selectedProject ? `Capture to ${selectedProject.name}…` : `Capture to the ${data.workspace.name} inbox…`}
+            aria-label="Capture anything"
           />
-          <button className="remember-button" type="submit" disabled={savingCapture}>
-            {savingCapture ? "Saving…" : "Save thought"}<span aria-hidden="true">↵</span>
-          </button>
-        </form>
-        <div className="capture-meta">
-          <span className={captureError ? "capture-error" : ""} aria-live="polite">
-            {captureError ?? captureNotice ?? `Exact destination: ${captureDestination}. Project names in the thought never reroute it.`}
-          </span>
-          <div>
-            <button type="button" onClick={() => openHomeSection("inbox")}>{scopedCaptures.length} in {selectedProject ? `${selectedProject.name} inbox` : scopePath === "." ? "root inbox" : `${scopeLabel} inbox`}</button>
-            <span className="shortcut-hint"><kbd>/</kbd> focus</span>
-            <span className="task-prefix-hint">Start a line <kbd>task:</kbd> to make a task instead — one per pasted line</span>
-            <span className="multiline-hint"><kbd>Shift</kbd> + <kbd>Enter</kbd> new line</span>
-            <span>{lastSyncedAt ? `Synced ${shortTime(lastSyncedAt.toISOString())}` : "Connecting…"}</span>
+          <div className="wb-cap-hintrow">
+            <span className={captureError ? "wb-cap-error" : ""} role={captureError ? "alert" : undefined}>
+              {captureError ?? captureNotice ?? captureReceipt?.destination ?? <span className="task-prefix-hint">Start a line <kbd>task:</kbd> to file a task instead — one per pasted line</span>}
+            </span>
+            <span className="wb-cap-keys">
+              <kbd>Enter</kbd> save · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line
+              <button type="submit" className="wb-newbtn" disabled={savingCapture}>{savingCapture ? "Saving…" : "Save thought"}</button>
+              <button type="button" className="wb-cap-collapse" aria-label="Collapse the capture dock" onClick={() => setCaptureDockCollapsedPersisted(true)}>▾</button>
+            </span>
           </div>
-        </div>
-      </div>}
+        </form>
+      )}
+    </div>
+  );
+
+}
+
+function WbToday({
+  scopeLabel,
+  projects,
+  decisions,
+  decided,
+  decidedOpen,
+  humanIssues,
+  blockedTasks,
+  tasks,
+  captures,
+  savingDecision,
+  onToggleDecided,
+  onOpenDecision,
+  onReopenDecision,
+  onOpenIssue,
+  onOpenTask,
+  onPromoteTask,
+  onPromoteNote,
+  onDropCapture,
+}: {
+  scopeLabel: string;
+  projects: Project[];
+  decisions: Decision[];
+  decided: Decision[];
+  decidedOpen: boolean;
+  humanIssues: Issue[];
+  blockedTasks: WorkTask[];
+  tasks: WorkTask[];
+  captures: Capture[];
+  savingDecision: string | null;
+  onToggleDecided: () => void;
+  onOpenDecision: (decisionId: string) => void;
+  onReopenDecision: (decisionId: string) => void;
+  onOpenIssue: (issue: Issue) => void;
+  onOpenTask: (taskId: string) => void;
+  onPromoteTask: (capture: Capture) => void;
+  onPromoteNote: (capture: Capture) => void;
+  onDropCapture: (captureId: string) => void;
+}) {
+  const projectName = (path: string | null) => projects.find((project) => project.path === path)?.name ?? (path ? displaySegment(pathParts(path).at(-1) ?? path) : "root");
+  const today = new Date();
+  const dueState = (task: WorkTask) => {
+    if (!task.dueAt || ["done", "cancelled", "archived"].includes(task.status)) return null;
+    const due = calendarDate(task.dueAt);
+    const difference = startOfDay(due).getTime() - startOfDay(today).getTime();
+    if (difference < 0) return "overdue";
+    if (difference === 0) return "due";
+    return null;
+  };
+  const due = tasks.filter((task) => dueState(task));
+  const active = tasks.filter((task) => ["in_progress", "review"].includes(task.status) && !due.includes(task));
+  const needsCount = decisions.length + humanIssues.length + blockedTasks.length;
+
+  const taskRow = (task: WorkTask) => {
+    const tone = dueState(task);
+    const progress = checklistProgress(task);
+    return (
+      <button type="button" className="wb-trow" key={task.id} onClick={() => onOpenTask(task.id)}>
+        <span className={`wb-dot status-${task.status}`} aria-hidden="true" />
+        <span className="wb-trow-title">{task.title}</span>
+        {task.delegated && <span className="wb-chip agent">agent</span>}
+        {task.status === "blocked" && <span className="wb-chip overdue">blocked</span>}
+        {tone && <span className={`wb-chip ${tone}`}>{tone === "overdue" ? "overdue" : "due today"}</span>}
+        {progress.total > 0 && <span className="wb-meta">{progress.complete}/{progress.total}</span>}
+        <span className="wb-meta">{projectName(task.projectPath)}</span>
+      </button>
+    );
+  };
+
+  return (
+    <div className="wb-today">
+      <h2 className="wb-h2">Needs you <span className="wb-n">{needsCount}</span></h2>
+      <div className="wb-stack" id="needs-you" role="list" aria-label={`Needs you in ${scopeLabel}`}>
+        {decisions.map((decision) => (
+          <button type="button" className="wb-trow" key={decision.id} onClick={() => onOpenDecision(decision.id)}>
+            <span className="wb-what">decision</span>
+            <span className="wb-trow-title">{decision.title}</span>
+            <span className="wb-meta">{savingDecision === decision.id ? "Saving…" : projectName(decision.projectPath)}</span>
+          </button>
+        ))}
+        {humanIssues.map((issue) => (
+          <button type="button" className="wb-trow" key={issue.id} onClick={() => onOpenIssue(issue)}>
+            <span className="wb-what">issue</span>
+            <span className="wb-trow-title">{issue.title}</span>
+            <span className="wb-meta">{projectName(issue.projectPath)}</span>
+          </button>
+        ))}
+        {blockedTasks.map((task) => (
+          <button type="button" className="wb-trow" key={task.id} onClick={() => onOpenTask(task.id)}>
+            <span className="wb-what">blocked</span>
+            <span className="wb-trow-title">{task.title}</span>
+            <span className="wb-meta">{projectName(task.projectPath)}</span>
+          </button>
+        ))}
+        {needsCount === 0 && <p className="wb-empty">Nothing needs you.</p>}
+      </div>
+
+      {decided.length > 0 && (
+        <>
+          <button type="button" className="wb-h2 wb-h2-fold" onClick={onToggleDecided} aria-expanded={decidedOpen}>
+            Decided <span className="wb-n">{decided.length} — {decidedOpen ? "hide" : "show"}</span>
+          </button>
+          {decidedOpen && (
+            <div className="wb-stack" role="list" aria-label="Recently decided">
+              {decided.slice(0, 12).map((decision) => (
+                <div className="wb-trow wb-trow-static" key={decision.id}>
+                  <span className={`wb-what state-${decision.status}`}>{decision.status}</span>
+                  <span className="wb-trow-title">{decision.title}</span>
+                  <span className="wb-meta">{typeof decision.resolution?.choice?.option === "string" ? decision.resolution.choice.option : ""}</span>
+                  <button type="button" className="wb-linkbtn" onClick={() => onReopenDecision(decision.id)}>↩ Reopen</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      <h2 className="wb-h2">On deck <span className="wb-n">{due.length + active.length}</span></h2>
+      <div className="wb-stack" role="list" aria-label={`On deck in ${scopeLabel}`}>
+        {due.map(taskRow)}
+        {active.map(taskRow)}
+        {due.length + active.length === 0 && <p className="wb-empty">Nothing due, nothing in flight.</p>}
+      </div>
+
+      <h2 className="wb-h2" id="inbox">Inbox <span className="wb-n">{captures.length}</span></h2>
+      <div className="wb-stack" role="list" aria-label={`Inbox in ${scopeLabel}`}>
+        {captures.slice(0, 10).map((capture) => (
+          <div className="wb-trow wb-trow-static" key={capture.id}>
+            <span className="wb-what">note</span>
+            <span className="wb-trow-title">{capture.text}</span>
+            {capture.projectPath && <span className="wb-chip">{projectName(capture.projectPath)}</span>}
+            <span className="wb-triage">
+              <button type="button" onClick={() => onPromoteTask(capture)}>→ Task</button>
+              <button type="button" onClick={() => onPromoteNote(capture)}>→ Note</button>
+              <button type="button" className="wb-drop" onClick={() => onDropCapture(capture.id)}>Let it go</button>
+            </span>
+          </div>
+        ))}
+        {captures.length > 10 && <p className="wb-empty">{captures.length - 10} more in this inbox.</p>}
+        {captures.length === 0 && <p className="wb-empty">Inbox zero. Type <kbd>/</kbd> when a thought arrives.</p>}
+      </div>
+    </div>
+  );
+}
+
+function WbProjectsOverview({
+  projects,
+  tasks,
+  openCounts,
+  tagFilter,
+  onTagFilter,
+  onOpen,
+}: {
+  projects: Project[];
+  tasks: WorkTask[];
+  openCounts: Map<string, number>;
+  tagFilter: string | null;
+  onTagFilter: (tag: string | null) => void;
+  onOpen: (path: string) => void;
+}) {
+  const allTags = [...new Set(projects.flatMap((project) => project.tags ?? []))].sort();
+  const list = projects
+    .filter((project) => !tagFilter || (project.tags ?? []).includes(tagFilter))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const flags = (path: string) => {
+    let due = 0; let blocked = 0; let delegated = 0;
+    for (const task of tasks) {
+      if (!pathContains(task.projectPath, path) || ["done", "cancelled", "archived"].includes(task.status)) continue;
+      if (task.status === "blocked") blocked += 1;
+      if (task.delegated) delegated += 1;
+      if (task.dueAt && startOfDay(calendarDate(task.dueAt)).getTime() <= startOfDay(new Date()).getTime()) due += 1;
+    }
+    return { due, blocked, delegated };
+  };
+  return (
+    <div className="wb-today wb-overview">
+      <h2 className="wb-h2">
+        All projects <span className="wb-n">{list.length}</span>
+        {allTags.length > 0 && (
+          <select className="wb-tagfilter" value={tagFilter ?? ""} onChange={(event) => onTagFilter(event.target.value || null)} aria-label="Filter projects by tag">
+            <option value="">every tag</option>
+            {allTags.map((tag) => <option key={tag} value={tag}>#{tag}</option>)}
+          </select>
+        )}
+      </h2>
+      <div className="wb-stack" role="list" aria-label="All projects by tag">
+        {list.map((project) => {
+          const projectFlags = flags(project.path);
+          return (
+            <button type="button" className="wb-trow" key={project.path} onClick={() => onOpen(project.path)}>
+              <span className="wb-trow-title wb-trow-name">{project.name}</span>
+              {(project.tags ?? []).map((tag) => (
+                <TagChip key={tag} tag={tag} />
+              ))}
+              <span className="wb-spacer" />
+              {projectFlags.due > 0 && <span className="wb-chip due">{projectFlags.due} due</span>}
+              {projectFlags.blocked > 0 && <span className="wb-chip overdue">{projectFlags.blocked} blocked</span>}
+              {projectFlags.delegated > 0 && <span className="wb-chip agent">{projectFlags.delegated} with agents</span>}
+              <span className="wb-meta">{openCounts.get(project.path) ?? 0} open</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -2568,6 +2437,7 @@ function InlineProjectCreate({
   parentPath: string;
   onCreated: (project: Project) => void;
 }) {
+  const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2584,6 +2454,7 @@ function InlineProjectCreate({
         body: JSON.stringify({ name: trimmed, ...(parentPath === "." ? {} : { parentPath }) }),
       });
       setName("");
+      setOpen(false);
       onCreated(project);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "The project could not be created.");
@@ -2592,27 +2463,29 @@ function InlineProjectCreate({
     }
   }
 
+  if (!open) {
+    return (
+      <button type="button" className="wb-newproj" onClick={() => setOpen(true)}>+ New project</button>
+    );
+  }
   return (
-    <form className="project-create-form" onSubmit={create}>
+    <form className="wb-newproj-form" onSubmit={create}>
       <input
+        autoFocus
         value={name}
         onChange={(event) => setName(event.target.value)}
+        onKeyDown={(event) => { if (event.key === "Escape") { setOpen(false); setName(""); setError(null); } }}
         placeholder="Project name…"
         aria-label="New project name"
-        maxLength={120}
       />
-      <button type="submit" disabled={saving || !name.trim()}>{saving ? "Creating…" : "Create project"}</button>
-      {error && <span className="capture-error" role="alert">{error}</span>}
+      <div className="wb-newproj-actions">
+        <button type="submit" disabled={saving || !name.trim()}>{saving ? "Creating…" : "Create"}</button>
+        <button type="button" onClick={() => { setOpen(false); setName(""); setError(null); }}>Cancel</button>
+      </div>
+      {error && <small role="alert">{error}</small>}
     </form>
   );
 }
-
-const TRASH_GLYPH = (
-  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
-    <path d="M2.5 4.5h11m-8-2h5m-6.6 2 .7 8.3a1 1 0 0 0 1 .9h4.8a1 1 0 0 0 1-.9l.7-8.3M6.6 7v4.5M9.4 7v4.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
-
 function ConfirmAction({
   label,
   message,
@@ -3364,6 +3237,7 @@ function IssuesView({
   onReply,
   onSetState,
   onSetDelegated,
+  onDelete,
 }: {
   scopeLabel: string;
   scopePath: string;
@@ -3378,6 +3252,7 @@ function IssuesView({
   onReply: (issueId: string, body: string, attachments?: { name: string; contentType: string; data: string }[]) => Promise<Issue>;
   onSetState: (issueId: string, state: "queued" | "closed") => Promise<Issue>;
   onSetDelegated: (issueId: string, delegated: boolean) => Promise<Issue>;
+  onDelete: (issueId: string) => void;
 }) {
   const selectedIssue = issues.find((issue) => issue.id === selectedIssueId) ?? null;
   const stateNote = selectedIssue ? ISSUE_STATE_NOTES[selectedIssue.state] : undefined;
@@ -3555,6 +3430,17 @@ function IssuesView({
                       onConfirm={() => void onSetState(selectedIssue.id, "closed").catch(() => {})}
                     />
                   )}
+                  <ConfirmAction
+                    key={`delete-${selectedIssue.id}`}
+                    label="Delete…"
+                    triggerClassName="issue-delete-action"
+                    message="Delete this issue and its attachments? The conversation is not recoverable."
+                    confirmLabel="Really delete"
+                    busy={saving}
+                    disabled={saving}
+                    confirmClassName="issue-delete-confirm"
+                    onConfirm={() => onDelete(selectedIssue.id)}
+                  />
                 </div>
               </header>
 

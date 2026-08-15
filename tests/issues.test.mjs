@@ -439,8 +439,6 @@ test("persists issue conversations and keeps final closure under human control",
     assert.equal(reopened.response.status, 200);
     assert.equal(reopened.payload.state, "queued");
 
-    const deleteAttempt = await requestJson(first.origin, `/api/issues/${issueId}`, { method: "DELETE" });
-    assert.equal(deleteAttempt.response.status, 404);
   } finally {
     await closeLocalApi(first.server);
   }

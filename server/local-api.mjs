@@ -13,6 +13,7 @@ import {
   createProject,
   createTask,
   deleteCapture,
+  deleteIssue,
   deleteNote,
   deleteProject,
   discoverProjects,
@@ -610,6 +611,14 @@ const WORKSPACE_ROUTES = [
   }),
   route("GET", "/api/issues/{id}", async (c) => [200, await getIssue(c.workspace, c.id)]),
   route("PATCH", "/api/issues/{id}", async (c) => [200, await updateIssue(c.workspace, c.id, await c.body(), { agentName: optionalAgentName(c.request) })]),
+  route("DELETE", "/api/issues/{id}", async (c) => {
+    // The capability catalog says agents cannot delete issues.
+    if (optionalAgentName(c.request) != null) {
+      throw new WorkspaceError("Agents cannot delete issues.", { code: "agent_issue_delete_forbidden", status: 403 });
+    }
+    await deleteIssue(c.workspace, c.id);
+    sendEmpty(c.request, c.response);
+  }),
   route("GET", "/api/decisions", async (c) => [200, { decisions: await listDecisions(c.workspace) }]),
   route("POST", "/api/decisions", async (c) => [201, await createDecision(c.workspace, await c.body(), await c.projects())]),
   route("POST", "/api/decisions/{id}/actions", async (c) => [200, await applyDecisionAction(c.workspace, c.id, await c.body(), await c.projects())]),

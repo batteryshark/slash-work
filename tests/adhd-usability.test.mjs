@@ -69,21 +69,19 @@ test("keeps the ADHD usability gates present in the interface", async () => {
   assert.match(page, /task-open-questions/);
   assert.match(page, /card-questions/);
 
-  // The project pickers stay navigable past a hundred projects: entries group by
-  // their first path segment, groups collapse and remember what was expanded,
-  // and the last projects opened sit pinned above the groups.
+  // The rail replaced the dropdown pickers: the project tree is always visible,
+  // groups collapse by first path segment and remember what was expanded, and
+  // the roots live in one dropdown at the top of the same rail.
   assert.match(page, /function groupByFirstSegment/);
-  assert.match(page, /project-menu-group-header/);
-  assert.match(page, /aria-expanded=\{expanded\}/);
+  assert.match(page, /wb-grouphead/);
+  assert.match(page, /aria-expanded=\{expandedGroups\.includes\(group\.key\)\}/);
   assert.match(page, /work\.projectGroups\./);
-  assert.match(page, /project-menu-recent/);
   assert.match(page, /work\.recentProjects\./);
-  // Typing in the search box flattens the grouping back to plain matches.
-  assert.match(page, /projectSearch\.trim\(\) \? \(/);
-  assert.match(css, /\.project-menu-group-header \{/);
-  // Roots live inside the project picker: crossing between them used to mean
-  // hunting through a second, separate menu.
-  assert.match(page, /project-menu-roots/);
+  assert.match(css, /\.wb-grouphead \{/);
+  assert.match(page, /wb-rootbtn/);
+  // Scoped tabs gate what needs a project: issues and files ask for one.
+  assert.match(page, /Pick a project — issues live on a project/);
+  assert.match(page, /Pick a project to browse its files/);
 
   // Two windows can sit on two projects: where you are looking is per-window,
   // what you looked at last is shared so a new window opens where you left off.
@@ -96,24 +94,18 @@ test("keeps the ADHD usability gates present in the interface", async () => {
   assert.match(page, /sessionStorage\.setItem\(key, value\);\n  localStorage\.setItem\(key, value\)/);
   assert.match(css, /\.project-menu-roots button\.selected \{/);
 
-  // Project tags cut across the folder groups. The chip row sits above the
-  // groups and only renders when a project in the workspace actually has a
-  // tag, so an untagged workspace looks exactly as it did before tags existed.
-  assert.match(page, /projectTagVocabulary\.length > 0 && \(/);
-  assert.match(page, /project-menu-tags/);
-  assert.ok(
-    page.indexOf("project-menu-tags") < page.indexOf("project-menu-groups"),
-    "the tag chip row sits above the folder groups",
-  );
-  // The filter narrows the set and search runs inside it; grouping is untouched.
+  // Tags live in exactly three places: edited in the project header strip,
+  // browsed in the Projects overview with a tag filter, and shown as hue
+  // chips. The rail stays tag-free so it never grows taller than its tree.
+  assert.match(page, /function WbProjectsOverview/);
+  assert.match(page, /wb-tagfilter/);
   assert.match(page, /projectTagFilter/);
-  assert.match(page, /setProjectTagFilter\(selected \? null : tag\)/);
   // Chips carry their colour as a hue custom property, never as text colour
   // alone, and the tag name always shows.
   assert.match(css, /\.tag-chip \{/);
   assert.match(css, /--tag-h/);
   assert.match(page, /tagHueAngle\(tag\)/);
-  // Editing lives beside the name and purpose controls on the profile card.
+  // Editing lives in the project header strip, beside the project name.
   assert.match(page, /function ProjectTagEditor/);
   assert.match(page, /<ProjectTagEditor/);
   assert.match(page, /project-tag-suggestions/);
