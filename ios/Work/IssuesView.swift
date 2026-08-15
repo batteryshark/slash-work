@@ -8,51 +8,68 @@ struct IssuesView: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                if model.isShowingCachedData {
-                    Section { ConnectionBanner().listRowInsets(EdgeInsets()) }
-                        .listRowBackground(Color.clear)
-                }
-
-                if sortedIssues.isEmpty {
+            Group {
+                // Issues are project records; the web disables this tab at
+                // root scope, and the phone matches.
+                if model.selectedProjectPath == nil {
                     ContentUnavailableView(
-                        "No issues",
+                        "Issues are scoped to a project",
                         systemImage: "bubble.left.and.bubble.right",
-                        description: Text("File anything that needs an agent to investigate or answer.")
+                        description: Text("Choose a project from the scope button to view and file issues.")
                     )
-                    .listRowBackground(Color.clear)
+                    .background(WorkTheme.canvas)
                 } else {
-                    ForEach(sortedIssues) { issue in
-                        NavigationLink { IssueDetailView(issueID: issue.id) } label: {
-                            IssueRow(issue: issue)
-                        }
-                        .listRowBackground(WorkTheme.surface)
-                        .accessibilityLabel(
-                            "\(issue.title), \(issue.id), \(issue.state.title), \(issue.messages.count) replies"
-                        )
-                    }
+                    issueList
                 }
             }
-            .listStyle(.insetGrouped)
-            .environment(\.defaultMinListRowHeight, 34)
-            .scrollContentBackground(.hidden)
-            .background(WorkTheme.canvas)
             .navigationBarTitleDisplayMode(.inline)
             .workNavigation()
             .workCapture()
-            .refreshable { await model.refresh() }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { showingNewIssue = true } label: {
-                        Label("File issue", systemImage: "square.and.pencil")
+        }
+    }
+
+    private var issueList: some View {
+        List {
+            if model.isShowingCachedData {
+                Section { ConnectionBanner().listRowInsets(EdgeInsets()) }
+                    .listRowBackground(Color.clear)
+            }
+
+            if sortedIssues.isEmpty {
+                ContentUnavailableView(
+                    "No issues",
+                    systemImage: "bubble.left.and.bubble.right",
+                    description: Text("File anything that needs an agent to investigate or answer.")
+                )
+                .listRowBackground(Color.clear)
+            } else {
+                ForEach(sortedIssues) { issue in
+                    NavigationLink { IssueDetailView(issueID: issue.id) } label: {
+                        IssueRow(issue: issue)
                     }
-                    .disabled(model.isShowingCachedData || model.isMutating)
-                    .accessibilityHint("Opens a free-form issue composer")
+                    .listRowBackground(WorkTheme.surface)
+                    .accessibilityLabel(
+                        "\(issue.title), \(issue.id), \(issue.state.title), \(issue.messages.count) replies"
+                    )
                 }
             }
-            .sheet(isPresented: $showingNewIssue) {
-                NewIssueSheet().environmentObject(model)
+        }
+        .listStyle(.insetGrouped)
+        .environment(\.defaultMinListRowHeight, 34)
+        .scrollContentBackground(.hidden)
+        .background(WorkTheme.canvas)
+        .refreshable { await model.refresh() }
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button { showingNewIssue = true } label: {
+                    Label("File issue", systemImage: "square.and.pencil")
+                }
+                .disabled(model.isShowingCachedData || model.isMutating)
+                .accessibilityHint("Opens a free-form issue composer")
             }
+        }
+        .sheet(isPresented: $showingNewIssue) {
+            NewIssueSheet().environmentObject(model)
         }
     }
 
