@@ -1386,3 +1386,9 @@ html[data-theme="dark"] .tag-chip {
 .wb-deps-chips .wb-chip button:hover { opacity: 1; }
 .wb-deps-chips select { min-height: 28px; font-size: 12px; border: 1px dashed var(--line); border-radius: 99px; background: none; color: var(--soft); padding: 2px 8px; max-width: 180px; }
 .wb-deps-chips select:focus-visible { border-color: var(--accent); border-style: solid; }
+
+/* Log entries stack: timestamp above, message at full width. */
+.wb-panel .task-log li { display: flex; flex-direction: column; align-items: stretch; gap: 1px; padding: 5px 0; }
+.wb-panel .task-log li time { width: auto; font-size: 10.5px; color: var(--soft); }
+.wb-panel .task-log li span { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+.wb-panel .task-log li + li { border-top: 1px solid var(--line); }
