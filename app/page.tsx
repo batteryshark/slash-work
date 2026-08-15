@@ -4643,7 +4643,7 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
       <div className="task-state-strip">
         <label>
           <span className="sr-only">Status</span>
-          <select value={task.status} onChange={(event) => onMove(event.target.value)} disabled={saving}>{[...statuses, "cancelled", "archived"].map((status) => <option key={status} value={status} disabled={status === "review" && progress.complete < progress.total}>{status === "review" && progress.complete < progress.total ? "Review — complete checklist first" : statusLabel(status)}</option>)}</select>
+          <select value={task.status} onChange={(event) => onMove(event.target.value)} disabled={saving} title={progress.complete < progress.total ? "Review unlocks when the checklist is complete." : undefined}>{[...statuses, "cancelled", "archived"].map((status) => <option key={status} value={status} disabled={status === "review" && progress.complete < progress.total} title={status === "review" && progress.complete < progress.total ? "Complete the checklist first." : undefined}>{statusLabel(status)}</option>)}</select>
         </label>
         {task.projectPath && <span className="wb-chip">{displaySegment(pathParts(task.projectPath).at(-1) ?? task.projectPath)}</span>}
         {task.dueAt && <span className={`wb-chip ${scheduleTone({ scheduledAt: task.dueAt, allDay: true }) === "overdue" ? "overdue" : scheduleTone({ scheduledAt: task.dueAt, allDay: true }) === "today" ? "due" : ""}`}>{scheduleLabel({ scheduledAt: task.dueAt, allDay: true }, "due")}</span>}
