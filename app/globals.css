@@ -1392,3 +1392,12 @@ html[data-theme="dark"] .tag-chip {
 .wb-panel .task-log li time { width: auto; font-size: 10.5px; color: var(--soft); }
 .wb-panel .task-log li span { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
 .wb-panel .task-log li + li { border-top: 1px solid var(--line); }
+
+/* The hidden Decline button no longer occupies layout: absolute, revealed
+   on hover or focus. Rows get the mockup's full text width back. */
+.wb-panel .task-checklist li { position: relative; flex-wrap: nowrap; padding: 3px 0; }
+.wb-panel .decline-check { position: absolute; right: 0; top: 3px; background: var(--surface); padding: 0 4px; }
+.wb-panel .check-remove { position: absolute; right: 0; top: 3px; border: 0; background: var(--surface); color: var(--soft); font-size: 13px; padding: 0 5px; cursor: pointer; opacity: 0; min-height: 0; }
+.wb-panel .task-checklist li:hover .check-remove, .wb-panel .check-remove:focus-visible { opacity: 1; }
+.wb-panel .check-remove:hover { color: var(--danger); }
+.wb-panel .check-reason { flex-basis: 100%; margin: 0 0 0 22px; font-size: 11.5px; color: var(--warning); }

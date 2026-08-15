@@ -4740,9 +4740,9 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
         </TaskMoreFields>
       </form>
 
-      <TaskChecklist title="Requirements" items={task.requirements} onToggle={(index, state) => onToggle("requirements", index, state)} />
+      <TaskChecklist title="Requirements" items={task.requirements} onToggle={(index, state) => onToggle("requirements", index, state)} onRemove={(index) => onPatch({ requirements: task.requirements.filter((_, i) => i !== index) })} />
       <form className="add-check" onSubmit={(event) => { event.preventDefault(); if (!newRequirement.trim()) return; onPatch({ requirements: [...task.requirements, { checked: false, text: newRequirement.trim() }] }); setNewRequirement(""); }}><input value={newRequirement} onChange={(event) => setNewRequirement(event.target.value)} placeholder="Add requirement…" /><button type="submit">Add</button></form>
-      <TaskChecklist title="Acceptance" items={task.acceptanceCriteria} onToggle={(index, state) => onToggle("acceptance", index, state)} />
+      <TaskChecklist title="Acceptance" items={task.acceptanceCriteria} onToggle={(index, state) => onToggle("acceptance", index, state)} onRemove={(index) => onPatch({ acceptanceCriteria: task.acceptanceCriteria.filter((_, i) => i !== index) })} />
       <form className="add-check" onSubmit={(event) => { event.preventDefault(); if (!newAcceptance.trim()) return; onPatch({ acceptanceCriteria: [...task.acceptanceCriteria, { checked: false, text: newAcceptance.trim() }] }); setNewAcceptance(""); }}><input value={newAcceptance} onChange={(event) => setNewAcceptance(event.target.value)} placeholder="Add criterion…" /><button type="submit">Add</button></form>
 
       {childTasks.length > 0 && <section className="task-subsection"><h3>Child work</h3><ul>{childTasks.map((child) => <li key={child.id}><strong>{child.id}</strong> {child.title} <span>{statusLabel(child.status)}</span></li>)}</ul></section>}
@@ -4752,18 +4752,15 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
   );
 }
 
-function TaskChecklist({ title, items, onToggle }: { title: string; items: ChecklistItem[]; onToggle: (index: number, state: ChecklistPatch) => void }) {
-  function decline(index: number, item: ChecklistItem) {
-    const reason = window.prompt(`Why is this not done?\n\n${item.text}`, item.reason ?? "");
-    if (reason && reason.trim()) onToggle(index, { declined: true, reason: reason.trim() });
-  }
+function TaskChecklist({ title, items, onToggle, onRemove }: { title: string; items: ChecklistItem[]; onToggle: (index: number, state: ChecklistPatch) => void; onRemove: (index: number) => void }) {
+  // Humans tick boxes or delete rows; "declined" is an agent's report verb
+  // and renders read-only when an agent recorded one.
   return (
     <section className="task-subsection"><h3>{title}</h3>{items.length === 0 ? null : <ul className="task-checklist">{items.map((item, index) => (
       <li key={`${item.text}-${index}`} className={item.declined ? "declined" : undefined}>
         <label><input type="checkbox" checked={item.checked} onChange={(event) => onToggle(index, { checked: event.target.checked })} /><span>{item.text}</span></label>
-        {item.declined
-          ? <p className="check-reason">Declined: {item.reason || "no reason recorded"} <button type="button" onClick={() => decline(index, item)}>Edit</button></p>
-          : item.checked ? null : <button type="button" className="decline-check" onClick={() => decline(index, item)}>Decline…</button>}
+        <button type="button" className="check-remove" aria-label={`Remove: ${item.text}`} onClick={() => onRemove(index)}>×</button>
+        {item.declined && <p className="check-reason">Declined by an agent: {item.reason || "no reason recorded"}</p>}
       </li>
     ))}</ul>}</section>
   );
