@@ -1262,3 +1262,12 @@ html[data-theme="dark"] { --tag-s: 40%; --tag-bg-l: 25%; --tag-ink-l: 80%; --tag
 /* An issue names itself; the title is not scraped from the first body line. */
 .issue-title-input { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--field); color: var(--ink); font-size: 15px; font-weight: 620; }
 .issue-title-input:focus-visible { border-color: var(--accent); }
+
+/* Pasted images: chips while pending, real files rendered from the record. */
+.pasted-images { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.pasted-image-chip { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px 4px 4px; border: 1px solid var(--line); border-radius: 9px; background: var(--field); color: var(--muted); font-size: 12px; }
+.pasted-image-chip img { width: 30px; height: 30px; object-fit: cover; border-radius: 6px; }
+.pasted-image-chip button { min-height: 24px; min-width: 24px; border: 0; background: transparent; color: var(--muted); font-size: 15px; cursor: pointer; }
+.pasted-image-chip button:hover { color: var(--ink); }
+.markdown-attachment { margin: 10px 0; }
+.markdown-body img { max-width: min(520px, 100%); max-height: 420px; border: 1px solid var(--line); border-radius: 11px; display: block; }

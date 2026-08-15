@@ -28,6 +28,7 @@ import {
   moveTask,
   claimIssue,
   noteUnclaimedIssue,
+  readRecordAttachment,
   replyToIssue,
   toggleTaskChecklist,
   updateCaptureDestination,
@@ -55,6 +56,8 @@ import { isTailscaleIPv4 } from "../lib/tailscale-network.mjs";
 const LOOPBACK_HOST = "127.0.0.1";
 const DEFAULT_PORT = 43170;
 const MAX_BODY_BYTES = 128 * 1024;
+// Routes that can carry pasted images (base64) get a larger allowance.
+const MAX_ATTACHMENT_BODY_BYTES = 16 * 1024 * 1024;
 const MAX_MCP_BODY_BYTES = 1024 * 1024;
 const UPDATE_CACHE_MS = 15 * 60 * 1000;
 const LOCAL_ORIGIN = /^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i;
@@ -137,7 +140,7 @@ function assertLocalRequest(request, allowedHost) {
   if (origin) request.workBrowserOrigin = origin;
 }
 
-async function readJsonBody(request) {
+async function readJsonBody(request, { maxBytes = MAX_BODY_BYTES } = {}) {
   const contentType = request.headers["content-type"] ?? "";
   if (!contentType.toLowerCase().startsWith("application/json")) {
     throw new WorkspaceError("Content-Type must be application/json.", {
@@ -146,14 +149,14 @@ async function readJsonBody(request) {
     });
   }
   const declaredLength = Number(request.headers["content-length"] ?? 0);
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
     throw new WorkspaceError("Request body is too large.", { code: "body_too_large", status: 413 });
   }
   const chunks = [];
   let total = 0;
   for await (const chunk of request) {
     total += chunk.length;
-    if (total > MAX_BODY_BYTES) {
+    if (total > maxBytes) {
       throw new WorkspaceError("Request body is too large.", { code: "body_too_large", status: 413 });
     }
     chunks.push(chunk);
@@ -202,7 +205,10 @@ function publicWorkspace(workspace) {
 }
 
 function selectedWorkspace(workspaces, defaultWorkspace, request) {
-  const requestedId = request.headers["x-work-workspace"];
+  // <img> tags cannot send headers, so a workspace query parameter is an
+  // equivalent explicit selection (used by attachment URLs).
+  const queryId = new URL(request.url ?? "/", "http://localhost").searchParams.get("workspace");
+  const requestedId = request.headers["x-work-workspace"] ?? (queryId || null);
   if (requestedId == null || requestedId === "") {
     request.workWorkspaceId = defaultWorkspace.id;
     return defaultWorkspace;
@@ -555,29 +561,44 @@ const WORKSPACE_ROUTES = [
     await deleteNote(c.workspace, c.id, { agentName });
     sendEmpty(c.request, c.response);
   }),
-  route("POST", "/api/notes", async (c) => [201, await createNote(c.workspace, await c.body(), await c.projects())]),
-  route("PATCH", "/api/notes/{id}", async (c) => [200, await updateNote(c.workspace, c.id, await c.body())]),
+  route("POST", "/api/notes", async (c) => [201, await createNote(c.workspace, await c.bigBody(), await c.projects())]),
+  route("PATCH", "/api/notes/{id}", async (c) => [200, await updateNote(c.workspace, c.id, await c.bigBody())]),
   route("DELETE", "/api/notes/{id}", async (c) => {
     await deleteNote(c.workspace, c.id);
     sendEmpty(c.request, c.response);
   }),
   route("GET", "/api/issues", async (c) => [200, { issues: filterUpdatedSince(await listIssues(c.workspace), c.url) }]),
-  route("POST", "/api/issues", async (c) => [201, await createIssue(c.workspace, await c.body(), await c.projects())]),
+  route("POST", "/api/issues", async (c) => [201, await createIssue(c.workspace, await c.bigBody(), await c.projects())]),
+  route("GET", "/api/attachments", async (c) => {
+    const { bytes, contentType } = await readRecordAttachment(
+      c.workspace,
+      c.url.searchParams.get("record"),
+      c.url.searchParams.get("name"),
+    );
+    c.response.writeHead(200, responseHeaders(c.request, {
+      "Content-Type": contentType,
+      "Content-Length": bytes.length,
+      "Cache-Control": "private, max-age=31536000, immutable",
+      "X-Content-Type-Options": "nosniff",
+    }));
+    c.response.end(bytes);
+    return null;
+  }),
   route("GET", "/api/agent/issues", async (c) => {
     requiredAgentName(c.request);
     return [200, { issues: filterUpdatedSince(await listIssues(c.workspace), c.url) }];
   }),
   route("POST", "/api/agent/issues", async (c) => {
     const agentName = requiredAgentName(c.request);
-    return [201, await createIssue(c.workspace, await c.body(), await c.projects(), { agentName })];
+    return [201, await createIssue(c.workspace, await c.bigBody(), await c.projects(), { agentName })];
   }),
-  route("POST", "/api/issues/{id}/replies", async (c) => [200, await replyToIssue(c.workspace, c.id, await c.body())]),
+  route("POST", "/api/issues/{id}/replies", async (c) => [200, await replyToIssue(c.workspace, c.id, await c.bigBody())]),
   route("POST", "/api/issues/{id}/state", async (c) => [200, await updateIssueState(c.workspace, c.id, await c.body())]),
   route("POST", "/api/agent/issues/{id}/claim", async (c) => [200, await claimIssue(c.workspace, c.id, requiredAgentName(c.request))]),
   route("POST", "/api/agent/issues/{id}/notes", async (c) => [200, await noteUnclaimedIssue(c.workspace, c.id, await c.body(), requiredAgentName(c.request))]),
   route("POST", "/api/agent/issues/{id}/replies", async (c) => {
     const agentName = requiredAgentName(c.request);
-    return [200, await replyToIssue(c.workspace, c.id, await c.body(), { agentName })];
+    return [200, await replyToIssue(c.workspace, c.id, await c.bigBody(), { agentName })];
   }),
   route("POST", "/api/agent/issues/{id}/state", async (c) => {
     const agentName = requiredAgentName(c.request);
@@ -626,7 +647,11 @@ async function handleRequest(workspaces, service, request, response) {
     return;
   }
 
-  const base = { request, response, url, service, workspaces, body: () => readJsonBody(request) };
+  const base = {
+    request, response, url, service, workspaces,
+    body: () => readJsonBody(request),
+    bigBody: () => readJsonBody(request, { maxBytes: MAX_ATTACHMENT_BODY_BYTES }),
+  };
   if (await dispatch(SERVICE_ROUTES, base)) return;
 
   const workspace = selectedWorkspace(workspaces, service.defaultWorkspace, request);

@@ -4,6 +4,7 @@ import { normalizeTags, tagHueAngle, workspaceTags } from "../lib/tags.mjs";
 import { splitTaskTitles } from "../lib/task-lines.mjs";
 import { decisionIsActive } from "../lib/decisions.mjs";
 import {
+  ClipboardEvent,
   CSSProperties,
   FormEvent,
   KeyboardEvent,
@@ -65,7 +66,7 @@ type ProjectNote = {
   updatedAt: string;
 };
 
-type IssueState = "queued" | "in_progress" | "needs_human" | "resolved" | "closed";
+type IssueState = "queued" | "in_progress" | "needs_human" | "closed";
 
 type IssueMessage = {
   id: string;
@@ -363,10 +364,9 @@ function shortTime(iso: string) {
 }
 
 const ISSUE_STATE_LABELS: Record<IssueState, string> = {
-  queued: "Queued",
+  queued: "Open",
   in_progress: "In progress",
   needs_human: "Needs you",
-  resolved: "Resolved",
   closed: "Closed",
 };
 
@@ -377,6 +377,63 @@ function scopeLabelFor(projects: Project[], projectPath: string | null, fallback
 
 function safeLinkTarget(target: string) {
   return /^(https?:\/\/|mailto:)/i.test(target) ? target : null;
+}
+
+// A record's pasted images live at .work/attachments/<record-id>/<name> and
+// are referenced relatively from the record markdown. Only those references
+// render as images — arbitrary remote image URLs stay plain text.
+const ATTACHMENT_REF = /^!\[([^\]]*)\]\(\.\.\/attachments\/([A-Za-z0-9_-]+)\/([a-z0-9][a-z0-9-]{0,60}\.(?:png|jpg|gif|webp))\)\s*$/;
+
+function attachmentUrl(record: string, name: string) {
+  const workspaceId = typeof window === "undefined" ? null : activeWorkspaceId ?? rememberedValue("work.workspace");
+  const suffix = workspaceId ? `&workspace=${encodeURIComponent(workspaceId)}` : "";
+  return `/api/attachments?record=${encodeURIComponent(record)}&name=${encodeURIComponent(name)}${suffix}`;
+}
+
+type PastedImage = { name: string; contentType: string; data: string; preview: string };
+
+// Returns null when the clipboard holds no images, so plain text pastes keep
+// their default behaviour; otherwise consumes the event and decodes the files.
+function readClipboardImages(event: ClipboardEvent<HTMLElement>): Promise<PastedImage[]> | null {
+  const files = Array.from(event.clipboardData?.items ?? [])
+    .filter((item) => item.type.startsWith("image/"))
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => file != null);
+  if (files.length === 0) return null;
+  event.preventDefault();
+  return Promise.all(files.map((file, index) => new Promise<PastedImage>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not read the pasted image."));
+    reader.onload = () => {
+      const url = String(reader.result);
+      resolve({
+        name: `paste-${index + 1}`,
+        contentType: file.type,
+        data: url.slice(url.indexOf(",") + 1),
+        preview: url,
+      });
+    };
+    reader.readAsDataURL(file);
+  })));
+}
+
+function bareAttachments(images: PastedImage[]) {
+  return images.map(({ name, contentType, data }) => ({ name, contentType, data }));
+}
+
+function PastedImageChips({ images, onRemove }: { images: PastedImage[]; onRemove: (index: number) => void }) {
+  if (images.length === 0) return null;
+  return (
+    <div className="pasted-images" aria-label="Pasted images awaiting submit">
+      {images.map((image, index) => (
+        <span key={`${image.name}-${index}`} className="pasted-image-chip">
+          <img src={image.preview} alt="" aria-hidden="true" />
+          {image.name}
+          <button type="button" aria-label={`Remove ${image.name}`} onClick={() => onRemove(index)}>×</button>
+        </span>
+      ))}
+    </div>
+  );
 }
 
 function InlineMarkdown({ text }: { text: string }) {
@@ -437,6 +494,17 @@ function Markdown({ children }: { children: string }) {
       continue;
     }
 
+    const attachment = ATTACHMENT_REF.exec(line);
+    if (attachment) {
+      blocks.push(
+        <p key={`attachment-${index}`} className="markdown-attachment">
+          <img src={attachmentUrl(attachment[2], attachment[3])} alt={attachment[1] || attachment[3]} loading="lazy" />
+        </p>,
+      );
+      index += 1;
+      continue;
+    }
+
     const list = /^(\s*)([-*]|\d+\.)\s+(.+)$/.exec(line);
     if (list) {
       const ordered = /\d+\./.test(list[2]);
@@ -482,17 +550,12 @@ const ISSUE_STATE_NOTES: Partial<Record<IssueState, { className: string; title: 
     title: () => "Needs you.",
     body: () => <span>Reply below. Only issues in this state appear in the bounded Needs you list.</span>,
   },
-  resolved: {
-    className: "resolved",
-    title: () => "Resolution — awaiting your review.",
-    body: (issue) => issue.resolutionSummary
-      ? <Markdown>{issue.resolutionSummary}</Markdown>
-      : <span>If the result is incomplete, reply or reopen the issue.</span>,
-  },
   closed: {
     className: "closed",
-    title: () => "Closed by a human.",
-    body: () => <span>You can reopen it at any time. Nothing in this conversation is discarded.</span>,
+    title: (issue) => issue.resolutionSummary ? "Closed with a resolution." : "Closed.",
+    body: (issue) => issue.resolutionSummary
+      ? <Markdown>{issue.resolutionSummary}</Markdown>
+      : <span>You can reopen it at any time. Nothing in this conversation is discarded.</span>,
   },
 };
 
@@ -1306,13 +1369,13 @@ export default function Home() {
     } : current);
   }
 
-  function createIssue(title: string, body: string) {
+  function createIssue(title: string, body: string, attachments?: { name: string; contentType: string; data: string }[]) {
     return run(async () => {
       const issue = await requestJson<Issue>("/api/issues", {
         method: "POST",
         // The title is its own field. Deriving it from the first body line
         // produced titles like: In issues, """Hand to an agent
-        body: JSON.stringify({ title, body, scopePath, projectPath: selectedProject?.path ?? null }),
+        body: JSON.stringify({ title, body, scopePath, projectPath: selectedProject?.path ?? null, attachments }),
       });
       replaceIn("issues", issue);
       setSelectedIssueId(issue.id);
@@ -1321,11 +1384,11 @@ export default function Home() {
     }, { saving: setSavingIssue, error: setIssueError, fallback: "The issue could not be submitted." });
   }
 
-  function replyToIssue(issueId: string, body: string) {
+  function replyToIssue(issueId: string, body: string, attachments?: { name: string; contentType: string; data: string }[]) {
     return run(async () => {
       const issue = await requestJson<Issue>(`/api/issues/${encodeURIComponent(issueId)}/replies`, {
         method: "POST",
-        body: JSON.stringify({ body }),
+        body: JSON.stringify({ body, attachments }),
       });
       replaceIn("issues", issue);
       return issue;
@@ -1372,7 +1435,7 @@ export default function Home() {
     }, { saving: setCreatingNote, error: setNoteError, fallback: "The note could not be created." });
   }
 
-  function updateProjectNote(noteId: string, patch: { title?: string; text?: string }) {
+  function updateProjectNote(noteId: string, patch: { title?: string; text?: string; attachments?: { name: string; contentType: string; data: string }[] }) {
     return run(async () => {
       const note = await requestJson<ProjectNote>(`/api/notes/${encodeURIComponent(noteId)}`, {
         method: "PATCH",
@@ -3311,8 +3374,8 @@ function IssuesView({
   saving: boolean;
   error: string | null;
   onSelect: (issueId: string) => void;
-  onCreate: (title: string, body: string) => Promise<Issue>;
-  onReply: (issueId: string, body: string) => Promise<Issue>;
+  onCreate: (title: string, body: string, attachments?: { name: string; contentType: string; data: string }[]) => Promise<Issue>;
+  onReply: (issueId: string, body: string, attachments?: { name: string; contentType: string; data: string }[]) => Promise<Issue>;
   onSetState: (issueId: string, state: "queued" | "closed") => Promise<Issue>;
   onSetDelegated: (issueId: string, delegated: boolean) => Promise<Issue>;
 }) {
@@ -3322,10 +3385,20 @@ function IssuesView({
   const [draft, setDraft] = useState("");
   const [reply, setReply] = useState("");
   const [search, setSearch] = useState("");
+  const [pastedDraft, setPastedDraft] = useState<PastedImage[]>([]);
+  const [pastedReply, setPastedReply] = useState<PastedImage[]>([]);
 
   useEffect(() => {
     setReply("");
+    setPastedReply([]);
   }, [selectedIssue?.id]);
+
+  function pasteInto(setter: (update: (current: PastedImage[]) => PastedImage[]) => void) {
+    return (event: ClipboardEvent<HTMLTextAreaElement>) => {
+      const decoded = readClipboardImages(event);
+      if (decoded) void decoded.then((images) => setter((current) => [...current, ...images])).catch(() => {});
+    };
+  }
 
   const filteredIssues = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -3345,17 +3418,19 @@ function IssuesView({
   async function submitIssue(event?: FormEvent) {
     event?.preventDefault();
     const body = draft;
-    if (!title.trim() || !body.trim() || saving) return;
-    await onCreate(title.trim(), body);
+    if (!title.trim() || (!body.trim() && pastedDraft.length === 0) || saving) return;
+    await onCreate(title.trim(), body, pastedDraft.length ? bareAttachments(pastedDraft) : undefined);
     setTitle("");
     setDraft("");
+    setPastedDraft([]);
   }
 
   async function submitReply(event?: FormEvent) {
     event?.preventDefault();
-    if (!selectedIssue || !reply.trim() || saving) return;
-    await onReply(selectedIssue.id, reply);
+    if (!selectedIssue || (!reply.trim() && pastedReply.length === 0) || saving) return;
+    await onReply(selectedIssue.id, reply, pastedReply.length ? bareAttachments(pastedReply) : undefined);
     setReply("");
+    setPastedReply([]);
   }
 
   function submitOnShortcut(event: KeyboardEvent<HTMLTextAreaElement>, action: () => Promise<void>) {
@@ -3398,14 +3473,16 @@ function IssuesView({
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => submitOnShortcut(event, () => submitIssue())}
-          placeholder="Describe it however it comes to you…"
+          onPaste={pasteInto(setPastedDraft)}
+          placeholder="Describe it however it comes to you… (paste screenshots straight in)"
           aria-describedby="issue-scope issue-submit-hint"
         />
+        <PastedImageChips images={pastedDraft} onRemove={(index) => setPastedDraft((current) => current.filter((_, i) => i !== index))} />
         <footer>
           <span id="issue-scope"><strong>Exact scope:</strong> {exactScope}</span>
           <div>
             <span id="issue-submit-hint"><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
-            <button type="submit" className="primary-action" disabled={saving || !title.trim() || !draft.trim()}>
+            <button type="submit" className="primary-action" disabled={saving || !title.trim() || (!draft.trim() && pastedDraft.length === 0)}>
               {saving ? "Submitting…" : "Submit issue"}
             </button>
           </div>
@@ -3462,7 +3539,7 @@ function IssuesView({
                   <small className="issue-long-id">Long ID · <code>{selectedIssue.longId}</code></small>
                 </div>
                 <div className="issue-state-actions">
-                  {(selectedIssue.state === "resolved" || selectedIssue.state === "closed") && (
+                  {selectedIssue.state === "closed" && (
                     <button type="button" className="secondary-action" disabled={saving} onClick={() => void onSetState(selectedIssue.id, "queued").catch(() => {})}>Reopen</button>
                   )}
                   {selectedIssue.state !== "closed" && (
@@ -3547,29 +3624,31 @@ function IssuesView({
                 <label htmlFor={`issue-reply-${selectedIssue.id}`}>
                   <strong>Reply</strong>
                   {selectedIssue.state === "needs_human" && <span>Replying returns this issue to Queued so work can continue.</span>}
-                  {(selectedIssue.state === "resolved" || selectedIssue.state === "closed") && <span>Replying automatically reopens this issue and returns it to Queued.</span>}
+                  {selectedIssue.state === "closed" && <span>Replying automatically reopens this issue and returns it to Queued.</span>}
                 </label>
                 <textarea
                   id={`issue-reply-${selectedIssue.id}`}
                   value={reply}
                   onChange={(event) => setReply(event.target.value)}
                   onKeyDown={(event) => submitOnShortcut(event, () => submitReply())}
-                  placeholder="Add context, answer questions, or say what still is not right…"
+                  onPaste={pasteInto(setPastedReply)}
+                  placeholder="Add context, answer questions, or paste a screenshot…"
                 />
+                <PastedImageChips images={pastedReply} onRemove={(index) => setPastedReply((current) => current.filter((_, i) => i !== index))} />
                 <footer>
                   <span>Markdown supported · <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd></span>
-                  <button type="submit" className="primary-action" disabled={saving || !reply.trim()}>
+                  <button type="submit" className="primary-action" disabled={saving || (!reply.trim() && pastedReply.length === 0)}>
                     {saving
                       ? "Submitting…"
                       : selectedIssue.state === "needs_human"
                         ? "Reply and return to queue"
-                        : selectedIssue.state === "resolved" || selectedIssue.state === "closed"
+                        : selectedIssue.state === "closed"
                           ? "Reply and reopen"
                           : "Reply"}
                   </button>
                 </footer>
               </form>
-              <p className="issue-authority-note">Only you can close this issue. An agent may resolve it, but cannot delete, lock, or prevent a reply.</p>
+              <p className="issue-authority-note">Closing is always reversible. An agent may close with a resolution summary, but cannot delete, lock, or prevent a reply.</p>
             </>
           ) : (
             <div className="note-editor-empty">
@@ -3606,7 +3685,7 @@ function NotesView({
   error: string | null;
   onSelect: (noteId: string) => void;
   onCreate: () => Promise<ProjectNote>;
-  onUpdate: (noteId: string, patch: { title?: string; text?: string }) => Promise<ProjectNote>;
+  onUpdate: (noteId: string, patch: { title?: string; text?: string; attachments?: { name: string; contentType: string; data: string }[] }) => Promise<ProjectNote>;
   onDelete: (noteId: string) => Promise<void>;
 }) {
   const selectedNote = notes.find((note) => note.id === selectedNoteId) ?? null;
@@ -3657,6 +3736,27 @@ function NotesView({
     } catch {
       if (revisionRef.current === revision) setSaveState("error");
       return false;
+    }
+  }
+
+  async function attachPastedImages(decoded: Promise<PastedImage[]>) {
+    if (!selectedNote) return;
+    const noteId = selectedNote.id;
+    const revision = revisionRef.current;
+    try {
+      const images = await decoded;
+      // Flush the text first so the server appends the references to what is
+      // on screen, then adopt the returned text so the draft carries them.
+      if (!(await persistDraft())) return;
+      setSaveState("saving");
+      const note = await onUpdate(noteId, { attachments: bareAttachments(images) });
+      if (revisionRef.current === revision) {
+        setDraftText(note.text);
+        setDirty(false);
+        setSaveState("saved");
+      }
+    } catch {
+      if (revisionRef.current === revision) setSaveState("error");
     }
   }
 
@@ -3816,7 +3916,11 @@ function NotesView({
                   value={draftText}
                   onChange={(event) => changeText(event.target.value)}
                   onBlur={() => void persistDraft()}
-                  placeholder="Write whatever you need to remember…"
+                  onPaste={(event) => {
+                    const decoded = readClipboardImages(event);
+                    if (decoded) void attachPastedImages(decoded);
+                  }}
+                  placeholder="Write whatever you need to remember… (paste screenshots straight in)"
                   aria-label="Note text"
                   spellCheck="true"
                 />
