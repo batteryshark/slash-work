@@ -2205,11 +2205,11 @@ export default function Home() {
           />
         ) : selectedCapture ? (
           <div className="wb-capture-panel">
-            <div className="task-panel-header">
+            <div className="wb-tp-head">
               <div>
                 <p className="eyebrow">Inbox · {shortTime(selectedCapture.createdAt)}</p>
               </div>
-              <div className="task-panel-header-actions"><button type="button" onClick={() => setSelectedCaptureId(null)} aria-label="Close capture">×</button></div>
+              <div className="wb-tp-close"><button type="button" onClick={() => setSelectedCaptureId(null)} aria-label="Close capture">×</button></div>
             </div>
             <div className="wb-capture-text"><Markdown>{selectedCapture.text}</Markdown></div>
             <label className="wb-capture-move">
@@ -4511,7 +4511,7 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
       {/* The heading asks the question the title answers, so the panel spends
           its space on the prompt instead of on a label, a placeholder, and a
           title that all say the same thing. */}
-      <div className="task-panel-header"><div><p className="eyebrow">New work item</p><h2 id="create-task-heading">What outcome or task needs tracking?</h2></div><button type="button" onClick={onClose} aria-label="Close new work item">×</button></div>
+      <div className="wb-tp-head"><div><p className="eyebrow">New work item</p><h2 id="create-task-heading">What outcome or task needs tracking?</h2></div><button type="button" onClick={onClose} aria-label="Close new work item">×</button></div>
       <form onSubmit={submit} className="task-form">
         <label className="field-wide"><span className="sr-only">Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Name it in a few words" autoFocus /></label>
         <TaskFields values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))}>
@@ -4621,7 +4621,7 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
 
   return (
     <aside className="task-panel" aria-labelledby="task-detail-heading">
-      <div className="task-panel-header">
+      <div className="wb-tp-head">
         <div>
           <p className="eyebrow">{task.id}{task.delegated ? " · handed to an agent" : ""}</p>
           {editingTitle ? (
@@ -4638,9 +4638,9 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
             <h2 id="task-detail-heading" className="wb-title-read" title="Select to edit the title" onClick={() => setEditingTitle(true)}>{task.title}</h2>
           )}
         </div>
-        <div className="task-panel-header-actions"><button type="button" onClick={onClose} aria-label="Close work item">×</button></div>
+        <div className="wb-tp-close"><button type="button" onClick={onClose} aria-label="Close work item">×</button></div>
       </div>
-      <div className="task-state-strip">
+      <div className="wb-tp-meta">
         <label>
           <span className="sr-only">Status</span>
           <select value={task.status} onChange={(event) => onMove(event.target.value)} disabled={saving} title={progress.complete < progress.total ? "Review unlocks when the checklist is complete." : undefined}>{[...statuses, "cancelled", "archived"].map((status) => <option key={status} value={status} disabled={status === "review" && progress.complete < progress.total} title={status === "review" && progress.complete < progress.total ? "Complete the checklist first." : undefined}>{statusLabel(status)}</option>)}</select>

@@ -1696,3 +1696,26 @@ html[data-theme="dark"] .tag-chip {
 .wb-panel .task-panel-header { padding: 10px 16px 2px; }
 .wb-panel .task-state-strip { padding: 2px 16px 0; }
 .wb-panel .field-delegate { margin: 6px 16px 0; padding: 0 0 12px; border-bottom: 1px solid var(--line); }
+
+/* ============================================================
+   HARD CUTOVER: the task panel header cluster owns new class
+   names; no legacy .task-panel-* or .task-state-strip rule can
+   reach it. Values are the mockup's, verbatim.
+   ============================================================ */
+.wb-tp-head { position: relative; padding: 12px 16px 8px; }
+.wb-tp-head .eyebrow { font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--soft); margin: 0 0 3px; }
+.wb-tp-head h2, .wb-tp-head .wb-title-read { margin: 0; font-size: 15px; font-weight: 650; line-height: 1.35; letter-spacing: 0; }
+.wb-tp-close { position: absolute; top: 8px; right: 10px; display: flex; }
+.wb-tp-close > button { border: 0; background: none; color: var(--soft); font-size: 14px; font-weight: 400; padding: 4px 8px; min-height: 0; cursor: pointer; border-radius: 6px; }
+.wb-tp-close > button:hover { color: var(--ink); background: var(--surface-muted); }
+
+.wb-tp-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 16px 0; font-size: 12px; color: var(--soft); }
+.wb-tp-meta label { display: inline-flex; margin: 0; }
+.wb-tp-meta select { min-height: 28px; width: auto; padding: 2px 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--field); color: var(--ink); font-size: 12.5px; }
+.wb-tp-meta .wb-chip { font-size: 11px; }
+.wb-tp-meta .tag-chip { font-size: 10.5px; padding: 1px 7px; }
+
+.wb-panel .field-delegate { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 8px; margin: 8px 16px 0; padding: 0 0 12px; border-bottom: 1px solid var(--line); font-size: 13px; cursor: pointer; }
+.wb-panel .field-delegate input[type="checkbox"] { width: 15px; height: 15px; flex: none; accent-color: var(--accent); margin: 0; }
+.wb-panel .field-delegate strong { font-weight: 600; font-size: 13px; }
+.wb-panel .field-delegate small { display: none; }
