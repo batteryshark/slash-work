@@ -4543,12 +4543,13 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, tasks, saving
   );
 }
 
-function WbSection({ label, value, placeholder, onSave, autoEdit }: {
+function WbSection({ label, value, placeholder, onSave, autoEdit, onAbandon }: {
   label: string;
   value: string;
   placeholder: string;
   onSave: (next: string) => void;
   autoEdit?: boolean;
+  onAbandon?: () => void;
 }) {
   // Read-first: prose renders as prose. The pencil (or the ghost row when the
   // section is empty) swaps in a textarea that saves itself on blur.
@@ -4566,7 +4567,12 @@ function WbSection({ label, value, placeholder, onSave, autoEdit }: {
           autoFocus
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          onBlur={() => { setEditing(false); if (draft !== value) onSave(draft); }}
+          onBlur={() => {
+            setEditing(false);
+            // Nothing typed into a freshly added section: it was never real.
+            if (!draft.trim() && !value.trim()) { onAbandon?.(); return; }
+            if (draft !== value) onSave(draft);
+          }}
           placeholder={placeholder}
         />
       ) : value.trim() ? (
@@ -4694,7 +4700,7 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
       ] as [string, string, string, (next: string) => void, string][])
         .filter(([, key, value]) => value.trim() || addedSections.includes(key))
         .map(([label, key, value, save, placeholder]) => (
-          <WbSection key={key} label={label} value={value} placeholder={placeholder} onSave={save} autoEdit={addedSections.includes(key) && !value.trim()} />
+          <WbSection key={key} label={label} value={value} placeholder={placeholder} onSave={save} autoEdit={addedSections.includes(key) && !value.trim()} onAbandon={() => setAddedSections((current) => current.filter((entry) => entry !== key))} />
         ))}
       {([["description", description], ["goal", goal], ["plan", plan], ["outcome", completionSummary]] as [string, string][])
         .filter(([key, value]) => !value.trim() && !addedSections.includes(key)).length > 0 && (

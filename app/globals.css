@@ -1401,3 +1401,7 @@ html[data-theme="dark"] .tag-chip {
 .wb-panel .task-checklist li:hover .check-remove, .wb-panel .check-remove:focus-visible { opacity: 1; }
 .wb-panel .check-remove:hover { color: var(--danger); }
 .wb-panel .check-reason { flex-basis: 100%; margin: 0 0 0 22px; font-size: 11.5px; color: var(--warning); }
+/* An invisible control must not be clickable: the row × only accepts the
+   pointer once the row is actually hovered or the button is focused. */
+.wb-panel .check-remove { pointer-events: none; }
+.wb-panel .task-checklist li:hover .check-remove, .wb-panel .check-remove:focus-visible { pointer-events: auto; }
