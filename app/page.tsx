@@ -1592,12 +1592,14 @@ export default function Home() {
         ? `Promoted from capture ${capture.id}.\n\n${capture.text}`
         : `Promoted from capture ${capture.id}.`,
     });
+    await deleteCapture(capture.id);
   }
 
   async function promoteCaptureToNote(capture: Capture) {
     const firstLine = capture.text.split("\n").find((line) => line.trim())?.trim() ?? capture.text;
     const title = firstLine.length > 300 ? `${firstLine.slice(0, 297)}…` : firstLine;
     await createProjectNote({ title, text: capture.text, projectPath: capture.projectPath ?? null });
+    await deleteCapture(capture.id);
   }
 
   async function runCommand() {
