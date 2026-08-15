@@ -2266,7 +2266,7 @@ export default function Home() {
           />
           <div className="wb-cap-hintrow">
             <span className={captureError ? "wb-cap-error" : ""} role={captureError ? "alert" : undefined}>
-              {captureError ?? captureNotice ?? captureReceipt?.destination ?? <span className="task-prefix-hint">Start a line <kbd>task:</kbd> to file a task instead</span>}
+              {captureError ?? captureNotice ?? captureReceipt?.destination ?? <span className="task-prefix-hint">Start with <kbd>task:</kbd> to file a task instead of a note</span>}
             </span>
             <span className="wb-cap-keys">
               {savingCapture ? "Saving…" : <><kbd>Enter</kbd> save · <kbd>Esc</kbd> close</>}
