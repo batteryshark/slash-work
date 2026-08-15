@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -18,7 +18,9 @@ after(async () => {
 });
 
 async function temporaryDirectory() {
-  const directory = await mkdtemp(join(tmpdir(), "work-attachments-"));
+  // realpath because the workspace resolves its root (macOS /var → /private/var)
+  // and this suite compares absolute paths out of payloads.
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "work-attachments-")));
   temporaryDirectories.push(directory);
   return directory;
 }
@@ -110,6 +112,69 @@ test("notes take attachments on create and update, and delete cleans them up", a
     const removed = await requestJson(api.origin, `/api/notes/${noteId}`, { method: "DELETE" });
     assert.equal(removed.response.status, 204);
     await assert.rejects(readdir(join(root, ".work", "attachments", noteId)), { code: "ENOENT" });
+  } finally {
+    await closeLocalApi(api.server);
+  }
+});
+
+test("project records keep their attachments beside the record, and payloads resolve them", async () => {
+  const root = await temporaryDirectory();
+  await initializeWorkspace(root);
+  const projectRoot = join(root, "project");
+  await mkdir(projectRoot);
+  await writeFile(join(projectRoot, ".project"), "");
+  const api = await startLocalApi({ root, port: 0 });
+
+  try {
+    const created = await requestJson(api.origin, "/api/issues", {
+      method: "POST",
+      body: { title: "Tile lippage on the north wall", body: "", projectPath: "project", scopePath: "project", attachments: [
+        { name: "lippage", contentType: "image/png", data: PNG_BASE64 },
+      ] },
+    });
+    assert.equal(created.response.status, 201);
+    const issueId = created.payload.id;
+
+    // The bytes live in the PROJECT's .work, exactly where the record's
+    // relative ../attachments/… reference points — not at the workspace root.
+    const beside = join(root, "project", ".work", "attachments", issueId, "lippage.png");
+    assert.deepEqual(await readFile(beside), PNG_BYTES);
+    await assert.rejects(readdir(join(root, ".work", "attachments", issueId)), { code: "ENOENT" });
+
+    // The create response and every later read resolve the refs to absolute
+    // paths, so an agent never has to reconstruct the record's directory.
+    assert.deepEqual(created.payload.attachments, [{ name: "lippage.png", path: beside }]);
+    const read = await requestJson(api.origin, `/api/issues/${issueId}`);
+    assert.deepEqual(read.payload.attachments, [{ name: "lippage.png", path: beside }]);
+
+    // The byte route finds project-homed files too.
+    const fetched = await fetch(new URL(`/api/attachments?record=${issueId}&name=lippage.png`, api.origin));
+    assert.equal(fetched.status, 200);
+    assert.deepEqual(Buffer.from(await fetched.arrayBuffer()), PNG_BYTES);
+
+    // Legacy trees wrote project records' files to the workspace root; the
+    // byte route still serves those.
+    await mkdir(join(root, ".work", "attachments", "note_legacy_home"), { recursive: true });
+    await writeFile(join(root, ".work", "attachments", "note_legacy_home", "old.png"), PNG_BYTES);
+    const legacy = await fetch(new URL("/api/attachments?record=note_legacy_home&name=old.png", api.origin));
+    assert.equal(legacy.status, 200);
+    assert.deepEqual(Buffer.from(await legacy.arrayBuffer()), PNG_BYTES);
+
+    // Notes: same home, same payload resolution.
+    const note = await requestJson(api.origin, "/api/notes", {
+      method: "POST",
+      body: { title: "Grout picks", text: "Warm gray.", projectPath: "project", attachments: [
+        { name: "grout", contentType: "image/png", data: PNG_BASE64 },
+      ] },
+    });
+    assert.equal(note.response.status, 201);
+    const notePath = join(root, "project", ".work", "attachments", note.payload.id, "grout.png");
+    assert.deepEqual(await readFile(notePath), PNG_BYTES);
+    assert.deepEqual(note.payload.attachments, [{ name: "grout.png", path: notePath }]);
+
+    // Deleting the note removes the project-homed folder with it.
+    await requestJson(api.origin, `/api/notes/${note.payload.id}`, { method: "DELETE" });
+    await assert.rejects(readdir(join(root, "project", ".work", "attachments", note.payload.id)), { code: "ENOENT" });
   } finally {
     await closeLocalApi(api.server);
   }
