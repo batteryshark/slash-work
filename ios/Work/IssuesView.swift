@@ -551,10 +551,12 @@ struct MarkdownText: View {
     }
 }
 
-/// The Notes tab: newest first, reading pane on push.
+/// The Notes tab: newest first, reading pane on push, delete behind a
+/// confirmation.
 struct NotesView: View {
     @EnvironmentObject private var model: AppModel
     @State private var showingNewNote = false
+    @State private var noteToDelete: WorkNote?
 
     var body: some View {
         NavigationStack {
@@ -578,8 +580,24 @@ struct NotesView: View {
                             .padding(.vertical, 3)
                         }
                         .listRowBackground(WorkTheme.surface)
+                        .swipeActions {
+                            Button(role: .destructive) { noteToDelete = note } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                            .disabled(model.isShowingCachedData || model.isMutating)
+                        }
                     }
                 }
+            }
+            .confirmationDialog("Delete this note?", isPresented: Binding(
+                get: { noteToDelete != nil }, set: { if !$0 { noteToDelete = nil } }
+            ), titleVisibility: .visible) {
+                Button("Delete Note", role: .destructive) {
+                    guard let note = noteToDelete else { return }
+                    Task { _ = await model.deleteNote(note) }
+                }
+            } message: {
+                Text("This removes the note and its attachments. This cannot be undone.")
             }
             .listStyle(.insetGrouped)
             .environment(\.defaultMinListRowHeight, 34)
@@ -603,7 +621,10 @@ struct NotesView: View {
 
 struct NoteReadingView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
     let noteID: String
+    @State private var editing = false
+    @State private var confirmingDelete = false
 
     var body: some View {
         Group {
@@ -623,6 +644,35 @@ struct NoteReadingView: View {
                 .background(WorkTheme.canvas)
                 .navigationTitle("Note")
                 .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            Button { editing = true } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+                            .disabled(model.isShowingCachedData || model.isMutating)
+                            Button(role: .destructive) { confirmingDelete = true } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                            .disabled(model.isShowingCachedData || model.isMutating)
+                        } label: {
+                            Label("Note actions", systemImage: "ellipsis.circle")
+                        }
+                    }
+                }
+                .sheet(isPresented: $editing) {
+                    EditNoteSheet(note: note).environmentObject(model)
+                }
+                .confirmationDialog("Delete this note?", isPresented: $confirmingDelete,
+                                    titleVisibility: .visible) {
+                    Button("Delete Note", role: .destructive) {
+                        Task {
+                            if await model.deleteNote(note) { dismiss() }
+                        }
+                    }
+                } message: {
+                    Text("This removes the note and its attachments. This cannot be undone.")
+                }
             } else {
                 ContentUnavailableView("Note unavailable", systemImage: "note.text",
                                        description: Text("It may have moved outside the current project scope."))
@@ -632,6 +682,50 @@ struct NoteReadingView: View {
 
     private var note: WorkNote? {
         model.snapshot?.notes.first { $0.id == noteID }
+    }
+}
+
+private struct EditNoteSheet: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    let note: WorkNote
+    @State private var title: String
+    @State private var text: String
+
+    init(note: WorkNote) {
+        self.note = note
+        _title = State(initialValue: note.title)
+        _text = State(initialValue: note.text)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Note") {
+                    TextField("Title", text: $title)
+                    TextEditor(text: $text).frame(minHeight: 220)
+                }
+            }
+            .navigationTitle("Edit Note")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(model.isMutating ? "Saving…" : "Save") {
+                        Task {
+                            if await model.updateNote(note,
+                                                      title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+                                                      text: text) {
+                                dismiss()
+                            }
+                        }
+                    }
+                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                              || model.isMutating
+                              || (title == note.title && text == note.text))
+                }
+            }
+        }
     }
 }
 

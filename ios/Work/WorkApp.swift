@@ -61,6 +61,9 @@ private struct WorkbenchTabs: View {
 
             NotesView()
                 .tabItem { Label("Notes", systemImage: "note.text") }
+
+            FilesView()
+                .tabItem { Label("Files", systemImage: "folder") }
         }
     }
 }

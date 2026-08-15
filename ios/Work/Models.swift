@@ -394,6 +394,65 @@ struct TaskLogEntry: Codable, Hashable, Sendable {
     let message: String
 }
 
+// MARK: Files — the read-only browser under /api/files.
+
+struct FileDirectory: Decodable, Sendable {
+    let scopePath: String
+    let path: String
+    let entries: [FileEntry]
+}
+
+struct FileEntry: Decodable, Identifiable, Hashable, Sendable {
+    let name: String
+    let path: String
+    let kind: String
+    let language: String?
+    let gitStatus: String?
+    let previewable: Bool
+    let blockedReason: String?
+
+    var id: String { path }
+    var isDirectory: Bool { kind == "directory" }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, path, kind, language, gitStatus, previewable, blockedReason
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = c.value(.name, "")
+        path = c.value(.path, "")
+        kind = c.value(.kind, "other")
+        language = c.value(.language)
+        gitStatus = c.value(.gitStatus)
+        previewable = c.value(.previewable, false)
+        blockedReason = c.value(.blockedReason)
+    }
+}
+
+struct FilePreview: Decodable, Sendable {
+    let path: String
+    let name: String
+    let content: String
+    let language: String?
+    let size: Int
+    let truncated: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case path, name, content, language, size, truncated
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        path = c.value(.path, "")
+        name = c.value(.name, "")
+        content = c.value(.content, "")
+        language = c.value(.language)
+        size = c.value(.size, 0)
+        truncated = c.value(.truncated, false)
+    }
+}
+
 struct ServerProfile: Codable, Identifiable, Hashable, Sendable {
     let id: String
     var name: String

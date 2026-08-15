@@ -176,6 +176,27 @@ struct WorkAPIClient: @unchecked Sendable {
         return try await send("api/notes", method: "POST", workspaceID: workspaceID, body: body)
     }
 
+    func updateNote(id: String, title: String?, text: String?, workspaceID: String) async throws -> WorkNote {
+        try await send("api/notes/\(encoded(id))", method: "PATCH", workspaceID: workspaceID,
+                       body: UpdateNoteRequest(title: title, text: text))
+    }
+
+    func deleteNote(id: String, workspaceID: String) async throws {
+        try await delete("api/notes/\(encoded(id))", workspaceID: workspaceID)
+    }
+
+    func filesDirectory(scopePath: String, path: String, workspaceID: String) async throws -> FileDirectory {
+        try await get("api/files/directory", workspaceID: workspaceID,
+                      query: [URLQueryItem(name: "scopePath", value: scopePath),
+                              URLQueryItem(name: "path", value: path)])
+    }
+
+    func fileContent(scopePath: String, path: String, workspaceID: String) async throws -> FilePreview {
+        try await get("api/files/content", workspaceID: workspaceID,
+                      query: [URLQueryItem(name: "scopePath", value: scopePath),
+                              URLQueryItem(name: "path", value: path)])
+    }
+
     func issues(workspaceID: String) async throws -> [WorkIssue] {
         let response: IssueListResponse = try await get("api/issues", workspaceID: workspaceID)
         return response.issues
@@ -385,6 +406,7 @@ private struct CreateNoteRequest: Encodable {
     let scopePath: String
     let projectPath: String?
 }
+private struct UpdateNoteRequest: Encodable { let title: String?; let text: String? }
 private struct CreateIssueRequest: Encodable {
     let title: String?
     let body: String

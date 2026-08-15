@@ -494,6 +494,44 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func updateNote(_ note: WorkNote, title: String, text: String) async -> Bool {
+        await mutate {
+            guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
+            _ = try await client.updateNote(id: note.id, title: title, text: text, workspaceID: workspaceID)
+        }
+    }
+
+    func deleteNote(_ note: WorkNote) async -> Bool {
+        await mutate {
+            guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
+            try await client.deleteNote(id: note.id, workspaceID: workspaceID)
+        }
+    }
+
+    /// Read-only file browsing, scoped to the selected project. Failures land
+    /// in lastError like every other call; the caller just gets nil.
+    func listFiles(path: String) async -> FileDirectory? {
+        guard let client, let workspaceID = selectedWorkspaceID,
+              let scope = selectedProjectPath else { return nil }
+        do {
+            return try await client.filesDirectory(scopePath: scope, path: path, workspaceID: workspaceID)
+        } catch {
+            lastError = error.localizedDescription
+            return nil
+        }
+    }
+
+    func previewFile(path: String) async -> FilePreview? {
+        guard let client, let workspaceID = selectedWorkspaceID,
+              let scope = selectedProjectPath else { return nil }
+        do {
+            return try await client.fileContent(scopePath: scope, path: path, workspaceID: workspaceID)
+        } catch {
+            lastError = error.localizedDescription
+            return nil
+        }
+    }
+
     func createIssue(title: String, body: String) async -> Bool {
         await mutate {
             guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
