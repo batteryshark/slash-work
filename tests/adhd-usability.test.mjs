@@ -145,7 +145,7 @@ test("keeps the ADHD usability gates present in the interface", async () => {
   assert.match(css, /\.task-list-children \{/);
   // The dock's task shortcut is named where the dock explains itself.
   assert.match(page, /task-prefix-hint/);
-  assert.match(page, /Start a line <kbd>task:<\/kbd>/);
+  assert.match(page, /Start with <kbd>task:<\/kbd>/);
 
   // No modal interruptions and no required form fields.
   assert.doesNotMatch(page, /<dialog|window\.alert|window\.confirm|\brequired=/i);
