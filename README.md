@@ -1,339 +1,134 @@
 # Work
 
-![Work logo](docs/logo.svg)
+[![npm](https://img.shields.io/npm/v/slash-work)](https://www.npmjs.com/package/slash-work)
 
-![Work: capture anything and continue without reconstructing context](docs/og.png)
+Every task, issue, and note is a markdown file stored beside the work it
+describes. Agents operate on those files under a contract.
 
-Work stores project tasks, captures, notes, issues, and decisions as local
-files for people managing many repositories. Agents connect as attributed
-clients through the MCP server, the REST API, or the `work` CLI. The home screen
-prioritizes capture and resumption; Issues provide durable conversations, while
-Notes, Board, Files, and Activity expose reference material, current work, a
-read-only source reference, and durable history.
+## Why this exists
 
-Requires Node.js 22.13 or newer and npm.
+Task trackers die because capture costs too much. A form that demands a
+title, a project, and a priority kills the thought before it lands. At the
+same time, agents need a substrate they can read and write without a vendor
+API — and that substrate already exists: files. Work fixes both at once:
+capture in one keystroke, records as plain files, and a contract that states
+exactly what an agent may do to them.
 
-## See Work in action
+## The workbench
 
-The screenshots below use a fictional project; no private workspace data is
-included.
+A keyboard-first workbench over your file tree.
 
-### Keep the whole lifecycle visible
+![The Today tab of the workbench: left rail with roots, project tree, and tags beside a task panel](docs/screenshots/workbench-today.png)
+*The Today tab: left rail with roots, project tree, and tags; a read-first
+task panel that becomes editable on click.*
 
-![Work board showing backlog, ready, in flight, blocked, review, and completed columns](docs/screenshots/board.jpg)
+![The capture bar: a single text field opened with the slash key](docs/screenshots/capture.png)
+*Capture: press `/` anywhere and type. Prefix with `task:` to create a task
+instead of a note. No form, no required fields.*
 
-<table>
-  <tr>
-    <td width="50%">
-      <strong>Resume without reconstructing context</strong><br><br>
-      <img src="docs/screenshots/home.jpg" alt="Work project home showing current work, latest progress, and quick capture">
-    </td>
-    <td width="50%">
-      <strong>Keep reference notes beside the project</strong><br><br>
-      <img src="docs/screenshots/notes.jpg" alt="Work notes view showing plain-text reference notes beside the project">
-    </td>
-  </tr>
-  <tr>
-    <td width="50%">
-      <strong>Inspect source without turning Work into an editor</strong><br><br>
-      <img src="docs/screenshots/files.jpg" alt="Work read-only file explorer showing Git changes and a TypeScript source preview">
-    </td>
-    <td width="50%">
-      <strong>Follow durable progress over time</strong><br><br>
-      <img src="docs/screenshots/activity.jpg" alt="Work activity view showing a chronological project progress timeline">
-    </td>
-  </tr>
-</table>
+![The board view: tasks in status columns with subtasks indented](docs/screenshots/board.png)
+*Work as a board or a list. Quick-add with Tab to indent subtasks; drag a
+task to reparent it.*
 
-## Start Work for a root directory
+![A closed issue thread: the close reason appears as an entry in the thread](docs/screenshots/issue-thread.png)
+*Issues are open or closed, GitHub-style. State changes carry their reason
+in the thread; agent writes are attributed to their run.*
 
-Install the public npm package once:
+- Left rail: roots, project tree, tags. Scoped tabs: Today, Work, Issues,
+  Notes, Files, Activity.
+- Read-first panels. Text is text until you click it.
+- Paste a screenshot into any record. It is stored as a plain file beside
+  the record, not in a blob store.
+- Workspace-wide `W-####` task and `I-####` issue ids, like a tracker,
+  without the tracker.
+- Multiple roots — work laptop, home server, archive. Each root has an id
+  floor, so id ranges never collide when trees meet.
+
+## Quick start
 
 ```bash
-npm install --global slash-work
+npm install -g slash-work   # or: npx slash-work
+cd ~/projects
+work                        # serves the UI, prints the local URL
 ```
 
-Then enter any directory that contains projects and run one command:
+The server binds to loopback. `work --tailscale` binds to your tailnet
+address instead. It never binds `0.0.0.0`.
+
+The CLI writes the same files as the UI:
 
 ```bash
-cd /path/to/my-projects
-work
+work new "Fix the login timeout" -p software/rekit
+work list -p software/rekit --open
+work check W-0412 2                     # tick acceptance criterion 2
+work update W-0412 --status done
 ```
 
-Update to the newest published version at any time:
+## The file format
 
-```bash
-npm update --global slash-work
+Every record is a markdown file with single-line JSON frontmatter. Records
+live in `.work/` directories beside the actual work — the root holds
+unassigned records, each project holds its own. Grep them, diff them, sync
+them, back them up. They are yours.
+
+```markdown
+---
+id: "W-0412"
+title: "Replace the water filter"
+status: "ready"
+project_path: "home/house"
+delegated: false
+tags: ["maintenance"]
+created_at: "2026-08-14T09:12:00.000Z"
+updated_at: "2026-08-14T09:12:00.000Z"
+---
+
+## Description
+
+Cartridges are on the garage shelf, top left. Shut the valve first.
 ```
 
-Contributors can instead clone the repository, run `npm install`, and use
-`npm link` to test the current source checkout globally.
+Projects are anything with a `.work/` directory — software and life projects
+alike. Move the folder and its records move with it.
 
-Work opens the local address in your browser and also prints it in the terminal.
-Pass `--no-open` when you do not want that. By default, Work listens on the
-loopback interface only; it is not published to the internet and does not
-require a hosted account.
+## Agents
 
-The local UI and API prefer ports `43171` and `43170`, respectively, and
-automatically choose other free ports when those preferences are occupied. Use
-the exact URLs printed at startup. Passing `--ui-port` or `--api-port` pins a
-port instead. Work deliberately avoids common development ports such as `3000`
-and the conventional OpenTelemetry OTLP-over-gRPC receiver port `4317`; common
-ports can collide on the host or in an SSH/IDE forwarding layer that the remote
-service cannot inspect.
+One human, their projects, and a contract for agents. The contract is the
+product's spine; the full text is in [CONTRACT.md](./CONTRACT.md).
 
-To use the full Work interface from another device on your tailnet, opt in with
-one flag:
+- The **Hand to an agent** checkbox is the only delegation signal. Agents
+  claim delegated items; they never self-select work.
+- Agents write back through five verbs: comment, transition, attach an
+  artifact, file a new issue, propose follow-on work — parented to the
+  delegated goal, never top-level.
+- Agents never set `done` on a task. The human closes tasks.
+- An agent may close its claimed issue, but only with a resolution summary.
+  A human can always reopen.
+- Agents never edit human-authored text. Every agent write is attributed to
+  its run identity.
 
-```bash
-work --tailscale
-```
+Agent runners are external consumers of the API and the files. Work ships no
+model client and calls no model.
 
-Work asks the local Tailscale CLI for this machine's IPv4 address, binds the UI
-and API only to that interface, and prints the resulting `http://100.x.y.z:43171/`
-URL. It never binds `0.0.0.0`. Tailnet mode relies on your Tailscale membership
-and ACLs rather than separate Work login credentials, so anyone those ACLs
-permit to reach the machine can use and modify the selected Work roots.
+## iOS
 
-### Use the native iOS app
+A native companion app lives in [`ios/`](./ios). It connects to a
+`work --tailscale` instance, remembers multiple servers, and keeps the last
+snapshot for read-only access when the machine is offline. Capture, Today,
+issues, and task detail work from a phone.
 
-The repository includes a first-class SwiftUI client in the
-[`ios/` source directory](https://github.com/batteryshark/slash-work/tree/main/ios).
-It connects to the API URL printed by `work --tailscale`, discovers the
-registered workspaces, and provides native Home, Board, Capture, Notes,
-Issues, Inbox, task, and decision experiences. The app remembers multiple Work
-instances, uses conditional snapshot refreshes, and retains the last snapshot
-for clearly marked read-only access when a machine is offline.
+## Philosophy
 
-Open `ios/Work.xcodeproj` in Xcode, select your development team, and install it
-on an iPhone or iPad connected to the same tailnet. The app relies on the same
-Tailscale membership and ACL boundary as the browser UI.
+Work is a system of record, not a platform.
 
-On first launch, the selected directory becomes the workspace root. On later
-launches inside one of its descendants, Work finds the nearest ancestor
-containing `.work/workspace.json`, resumes it, and opens at that descendant's
-folder scope. Use `work --init` when you intentionally want the current
-directory to become a separate nested workspace.
+- No cloud, no accounts, no telemetry.
+- No embedded model client. AI reaches Work only as an external, attributed
+  client.
+- No federation. One Work instance per machine; reach another machine over
+  its own Tailscale-bound instance.
+- One writer per tree. Sync the files with any tool you trust, but give each
+  live tree one running service.
+- Files first. If Work disappeared tomorrow, your records would still be
+  readable markdown.
 
-Every launched root is also registered in `~/.work/roots.json`. After that you
-can start `work` without a path and switch among recent roots from the root
-button in the web header—including from a narrow phone-sized browser. Use
-**Choose folder…** to open the operating system's folder picker. Selecting a
-directory registers it and creates its top-level `.work/` workspace when
-needed. The CLI remains available for scripted setup. `work register` treats
-the supplied directory as the exact root even when an ancestor is already a
-Work workspace:
-
-```bash
-work register ~/Home
-work register ~/Hacking
-work register ~/Career
-work roots
-```
-
-Use **Remove** beside a non-current root, or
-`work unregister <id-or-path>`, to remove an entry from the picker. This only
-forgets the recent root; it never deletes the directory, `.work/`, or any
-artifact. The browser never receives a general filesystem-browsing API or
-submits a typed path. The loopback Work process opens the native picker after
-an explicit local button press and accepts only the directory returned by the
-operating system.
-
-The root control beside the Work brand shows the current workspace and opens
-only workspace management: switch roots, remove a remembered root, or choose
-another folder. The slash mark opens a separate system menu. Work quietly checks npm every six hours
-while the interface is open and marks the slash when a newer version is
-available. **Check now** performs a manual check. A global npm installation can
-use the confirmed **Install & restart** action to install that exact published
-version, replace the current loopback service, and reload the interface. Source
-checkouts report updates but must be updated with Git. **Restart Work** remains
-available in the same system menu for reloading the service without changing
-files or versions.
-
-The selected workspace root is a hard visibility boundary. Work can discover
-projects below it, but it does not scan its parent or siblings. Switching the
-picker changes the boundary for that browser; records from different roots are
-never combined.
-
-Projects are explicit. The preferred marker is a project-owned `.work/`
-directory containing `project.json`. Initialize it by creating the directory;
-Work writes the marker the next time it discovers the project. Existing empty
-`.project` files and `.project/` directories remain supported and are upgraded
-without deleting the legacy marker. Git repositories, package manifests, build
-files, and scratch directories are ignored unless you mark them:
-
-```bash
-mkdir -p path/to/project/.work
-```
-
-Linked Git worktrees of a marked project are treated as aliases, not additional
-projects. Work reads and writes the primary worktree's `.work/` store even when
-the CLI or UI is launched from a linked worktree.
-
-## What is saved
-
-Work keeps human-readable Markdown beside the thing it describes. The selected
-root's `.work/` contains `workspace.json` plus unassigned captures,
-notes, issues, tasks, and decisions. Every project has its own
-`.work/project.json`, `.work/tasks/`, `.work/captures/`,
-`.work/notes/`, `.work/issues/`, and `.work/decisions/`.
-Notes use a plain-text body with a small metadata header so they stay readable
-without a special editor. Notes are context, never instructions; agent-created
-notes record who contributed them. Assigning or reassigning a
-record moves its file to the owning project; moving the whole project folder
-therefore moves its work and history too. Everything survives browser
-refreshes, server restarts, and a different browser on the same computer.
-Browser storage may remember harmless interface preferences, but it is not the
-source of truth for work.
-
-This means the workspace can be backed up, searched, inspected, and versioned
-with ordinary file tools. Deleting browser data does not delete the work log.
-Do not commit `.work/` if the workspace contains private operational notes.
-
-## Everyday use
-
-- Press `/`, type a messy thought, and press Enter. Use `Shift+Enter` for new
-  lines when the thought is a list or needs more room. It is saved immediately;
-  choosing a project is optional.
-- Type `/work task: describe the outcome` to create a backlog card without
-  opening a form, or promote any Inbox thought with **Make task**.
-- Open **Notes** for longer plain-text thoughts. Create or select an individual
-  note, write without formatting, and let Work save it beside the current
-  project. Notes are reference material, never instructions; use a task card
-  when you want execution. Deleting a note requires a second confirmation.
-- Open **Issues** to record a free-form problem and keep its conversation
-  beside the project. A title and categorization are never
-  required. Issue messages support Markdown and code blocks. Filing an issue
-  authorizes investigation and replies, not repository changes; create a task
-  when you authorize execution. Tasks and issues both carry a human-only
-  "Hand to an agent" toggle; an agent runner picks up delegated items on its
-  next pass, and Work rejects the flag from any agent identity. An agent can
-  add an attributed occurrence note to a queued, unclaimed issue without
-  claiming it or changing its lifecycle.
-- An agent may mark an issue **Resolved** with a resolution summary, but that is
-  its assessment rather than a permanent closure. Only a human can choose
-  **Close**. **Reopen** remains available after either state, and a human reply
-  to an issue needing input, a resolved issue, or a closed issue automatically
-  returns it to the queue without discarding any conversation or state history.
-- Open **Files** for a read-only, scope-bound tree and text preview. Language
-  badges and Git markers make modified, added, and untracked files easy to
-  spot. A project with linked worktrees gets an explicit checkout selector so
-  each working tree can be inspected without becoming a separate project.
-  Generated folders, Work metadata, secrets, binaries, symlinks, and oversized
-  files are not exposed as source previews.
-- Open **Board** to see Backlog, Ready, In flight, Blocked, Review, and
-  Completed. Drag cards between columns or use the accessible status control.
-  A project can switch to a plain **List** view from its profile card; small
-  projects start in list view and can adopt the board when they grow.
-- Open a project and add its **Project purpose**: a durable description of what
-  it is, who it serves, and why it exists. Work returns this context to agents
-  before they scope operational records.
-- Open a card for project, delegation ("Hand to an agent"), tags,
-  dependencies, blockers, requirements, acceptance criteria, plan, notes,
-  completion summary, timestamps, and its append-only progress log.
-- Open **Activity** to understand what was added, changed, blocked, completed,
-  cancelled, or archived across the current directory scope.
-- Start at **All in this root** to see the root, a folder to see a group, or a
-  project to see only that project.
-- Use **Needs you** for an actual choice. A decision exposes its real
-  alternatives—such as selecting a project or keeping something
-  unassigned—plus **Decide later** and **Cancel** where safe. Opening a card
-  does not silently approve it.
-- Stop the local process with `Ctrl-C`. Run the same command later to resume
-  from the files already in `.work/`.
-
-Agents and terminal users use the same records:
-
-```bash
-work agent
-work projects
-work task "Implement the board" --project software/rekit --delegate
-work task "Workspace-wide maintenance" --unassigned
-work delegate W-0001
-work move W-0001 in_progress --note "UI team started"
-work log W-0001 "Requirements and dependency gate pass"
-work list
-work show W-0001
-```
-
-A fresh agent should begin with `work agent`. Inside an existing workspace it
-reports the exact workspace, folder scope, and marked current project; outside
-a workspace it remains read-only and reports that no local context resolved.
-The agent can then load the installed version's capabilities without starting
-the service:
-
-```bash
-work agent
-work agent context --json
-work projects --json
-work agent operations
-work agent instructions tasks.create
-work agent instructions issues.reply --json
-work agent instructions issues.note --json
-```
-
-The operation index stays small; the agent loads rules and input schemas only
-for the operation it needs. A running service exposes the same catalog at
-`GET /api/agent`, task-scoped guides below `GET /api/agent/operations/`, and
-OpenAPI 3.1 at `GET /api/openapi.json`. Instructions are bundled with the npm
-version rather than copied into `.work/`, and describe capabilities without
-granting authority. See
-[`docs/AGENT-CAPABILITIES.md`](docs/AGENT-CAPABILITIES.md) for the complete
-contract.
-
-A root `.work/workspace.json` identifies the workspace. A descendant `.work`
-directory identifies a project, with `.work/project.json` adding its stable
-profile. Local create commands invoked inside that project target it by default,
-including from nested directories and linked worktrees. Use `--unassigned` only
-when the new record intentionally belongs to the workspace rather than the
-current project; `--project` selects a different exact discovered path.
-
-For agents that support portable Markdown skills, the repository and npm
-package also ship [`skills/slash-work/SKILL.md`](skills/slash-work/SKILL.md).
-It is vendor-neutral—there is no OpenAI- or Claude-specific metadata—and uses
-progressive disclosure to explain service routing, artifact semantics, and the
-filesystem fallback only when needed.
-
-See [`docs/LOCAL-WORKSPACE.md`](docs/LOCAL-WORKSPACE.md) for discovery,
-containment, storage, and recovery details.
-Automations that write the filesystem records directly should follow the
-[`Work Artifact Markdown Contract`](docs/ARTIFACT-SCHEMA.md); the enforced
-input rules for each mutation live in the `work agent instructions` catalog.
-
-## Development and validation
-
-Launch Work from the checkout to run the API and Vite interface together:
-
-```bash
-npm run work -- /path/to/a/test-root --no-open
-```
-
-Run the complete build and test suite before submitting a change:
-
-```bash
-npm test
-```
-
-Releases use npm trusted publishing rather than a stored npm token. After
-updating `package.json` and `package-lock.json`, merge the release commit and
-push a matching version tag such as `v0.2.4`. The
-[`publish.yml`](.github/workflows/publish.yml) workflow verifies the tag, runs
-the complete test suite, and publishes through GitHub Actions OIDC. The npm
-package must trust `batteryshark/slash-work` and the `publish.yml` workflow.
-
-The product acceptance gates and five-minute human scenario live in
-[`docs/ADHD-USABILITY-STANDARD.md`](docs/ADHD-USABILITY-STANDARD.md).
-
-## Repository layout
-
-- `app/` contains the React interface and styles.
-- `bin/` contains the `work` CLI and local process launcher.
-- `lib/` owns workspace discovery and the filesystem record store.
-- `server/` exposes the loopback-only JSON API.
-- `tests/` covers the interface contract, storage, containment, worktrees, and
-  lifecycle behavior.
-- `docs/` defines the local workspace and ADHD usability contracts.
-
-## License
-
-Work is available under the [MIT License](LICENSE).
+MIT licensed. See [LICENSE](./LICENSE).
