@@ -1464,15 +1464,15 @@ export default function Home() {
     }, { saving: setSavingIssue, error: setIssueError, fallback: "The issue could not be deleted." });
   }
 
-  function createProjectNote(input: { title?: string; text?: string } = {}) {
+  function createProjectNote(input: { title?: string; text?: string; projectPath?: string | null; scopePath?: string } = {}) {
     return run(async () => {
       const note = await requestJson<ProjectNote>("/api/notes", {
         method: "POST",
         body: JSON.stringify({
           title: input.title ?? "Untitled note",
           text: input.text ?? "",
-          scopePath,
-          projectPath: selectedProject?.path ?? null,
+          scopePath: input.scopePath ?? (input.projectPath !== undefined ? input.projectPath ?? "." : scopePath),
+          projectPath: input.projectPath !== undefined ? input.projectPath : selectedProject?.path ?? null,
         }),
       });
       replaceIn("notes", note);
@@ -1590,7 +1590,7 @@ export default function Home() {
   async function promoteCaptureToNote(capture: Capture) {
     const firstLine = capture.text.split("\n").find((line) => line.trim())?.trim() ?? capture.text;
     const title = firstLine.length > 300 ? `${firstLine.slice(0, 297)}…` : firstLine;
-    await createProjectNote({ title, text: capture.text });
+    await createProjectNote({ title, text: capture.text, projectPath: capture.projectPath ?? null });
   }
 
   async function runCommand() {
@@ -2192,7 +2192,20 @@ export default function Home() {
               <div className="task-panel-header-actions"><button type="button" onClick={() => setSelectedCaptureId(null)} aria-label="Close capture">×</button></div>
             </div>
             <div className="wb-capture-text"><Markdown>{selectedCapture.text}</Markdown></div>
-            <p className="wb-capture-dest">{destinationForCapture(selectedCapture)}</p>
+            <label className="wb-capture-move">
+              <span>File in</span>
+              <select
+                value={selectedCapture.projectPath ?? "."}
+                disabled={movingCaptureId === selectedCapture.id}
+                onChange={(event) => void moveCapture(selectedCapture, event.target.value === "." ? "scope:." : `project:${event.target.value}`)}
+              >
+                <option value=".">Root inbox — no project yet</option>
+                {data.projects.filter((project) => project.path !== ".").map((project) => (
+                  <option key={project.path} value={project.path}>{project.name}</option>
+                ))}
+              </select>
+            </label>
+            <p className="wb-capture-dest">{movingCaptureId === selectedCapture.id ? "Moving…" : destinationForCapture(selectedCapture)}</p>
             <div className="p-actions wb-capture-actions">
               <button type="button" className="wb-newbtn" onClick={() => { setSelectedCaptureId(null); void promoteCaptureToTask(selectedCapture); }}>→ Task</button>
               <button type="button" className="wb-linkbtn" onClick={() => { setSelectedCaptureId(null); void promoteCaptureToNote(selectedCapture); }}>→ Note</button>

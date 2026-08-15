@@ -1523,3 +1523,5 @@ html[data-theme="dark"] .kanban-card { border-color: var(--line); box-shadow: no
 .wb-capture-text { padding: 4px 16px; font-size: 13px; }
 .wb-capture-dest { padding: 0 16px; color: var(--soft); font-size: 12px; }
 .wb-capture-actions { display: flex; gap: 8px; padding: 8px 16px; }
+.wb-capture-move { display: flex; align-items: center; gap: 8px; padding: 6px 16px 0; font-size: 12px; color: var(--soft); }
+.wb-capture-move select { flex: 1; border: 1px solid var(--line); border-radius: 8px; background: var(--field); color: var(--ink); padding: 6px 9px; min-height: 34px; font-size: 13px; }
