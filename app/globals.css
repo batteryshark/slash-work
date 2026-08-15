@@ -1691,3 +1691,8 @@ html[data-theme="dark"] .tag-chip {
 .wb-panel .task-log li time { flex: none; width: 46px; }
 .wb-panel .task-log li span { font-size: 12.5px; color: var(--muted); }
 .wb-panel .add-log textarea { min-height: 32px; }
+
+/* Header cluster rhythm: title, meta, agent, rule — the mockup's gaps. */
+.wb-panel .task-panel-header { padding: 10px 16px 2px; }
+.wb-panel .task-state-strip { padding: 2px 16px 0; }
+.wb-panel .field-delegate { margin: 6px 16px 0; padding: 0 0 12px; border-bottom: 1px solid var(--line); }
