@@ -4640,7 +4640,16 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
         </div>
         <div className="task-panel-header-actions"><button type="button" onClick={onClose} aria-label="Close work item">×</button></div>
       </div>
-      <div className="task-state-strip"><label><span>Status</span><select value={task.status} onChange={(event) => onMove(event.target.value)} disabled={saving}>{[...statuses, "cancelled", "archived"].map((status) => <option key={status} value={status} disabled={status === "review" && progress.complete < progress.total}>{status === "review" && progress.complete < progress.total ? "Review — complete checklist first" : statusLabel(status)}</option>)}</select></label><span>{progress.complete}/{progress.total} checks complete</span><span>Updated {shortTime(task.updatedAt)}</span></div>
+      <div className="task-state-strip">
+        <label>
+          <span className="sr-only">Status</span>
+          <select value={task.status} onChange={(event) => onMove(event.target.value)} disabled={saving}>{[...statuses, "cancelled", "archived"].map((status) => <option key={status} value={status} disabled={status === "review" && progress.complete < progress.total}>{status === "review" && progress.complete < progress.total ? "Review — complete checklist first" : statusLabel(status)}</option>)}</select>
+        </label>
+        {task.projectPath && <span className="wb-chip">{displaySegment(pathParts(task.projectPath).at(-1) ?? task.projectPath)}</span>}
+        {task.dueAt && <span className={`wb-chip ${scheduleTone({ scheduledAt: task.dueAt, allDay: true }) === "overdue" ? "overdue" : scheduleTone({ scheduledAt: task.dueAt, allDay: true }) === "today" ? "due" : ""}`}>{scheduleLabel({ scheduledAt: task.dueAt, allDay: true }, "due")}</span>}
+        {progress.total > 0 && <span className="wb-chip">{progress.complete}/{progress.total} checks</span>}
+        {task.tags.map((tag) => <TagChip key={tag} tag={tag} />)}
+      </div>
       {task.status === "review" && progress.complete < progress.total && <div className="task-error" role="status">This legacy review card has unchecked requirements or acceptance criteria. Verify its checklist before treating it as review-ready.</div>}
       {error && <div className="task-error" role="alert">{error}</div>}
       {openQuestions}

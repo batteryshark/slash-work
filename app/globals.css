@@ -1660,3 +1660,17 @@ html[data-theme="dark"] .tag-chip {
 .wb-panel .task-checklist li { margin: 0; }
 .wb-panel .task-lifecycle ul { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .wb-panel .task-lifecycle li { font-size: 11px; color: var(--soft); overflow-wrap: anywhere; }
+
+/* The meta row is the mockup's: select then chips, one wrapping line. */
+.wb-panel .task-state-strip { padding: 6px 16px 0; gap: 6px; }
+.wb-panel .task-state-strip label { display: inline-flex; }
+.wb-panel .task-state-strip .wb-chip { font-size: 11px; }
+.wb-panel .task-state-strip .tag-chip { font-size: 10.5px; padding: 1px 7px; }
+
+/* Checklist rows exactly: 24px rhythm, no boxes, reason as a small line. */
+.wb-panel .task-checklist li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 2px 0; margin: 0; border: 0; background: none; }
+.wb-panel .task-checklist li label { display: flex; gap: 8px; align-items: baseline; flex: 1; min-width: 0; padding: 0; margin: 0; font-size: 13px; line-height: 1.4; }
+.wb-panel .task-checklist li label input[type="checkbox"] { width: 14px; height: 14px; flex: none; transform: translateY(2px); accent-color: var(--accent); }
+.wb-panel .task-checklist li label span { min-width: 0; }
+.wb-panel .task-checklist .check-reason { flex-basis: 100%; margin: 0 0 0 22px; font-size: 11.5px; color: var(--warning); }
+.wb-panel .task-checklist .check-reason button { border: 0; background: none; color: var(--soft); font-size: 11px; cursor: pointer; padding: 0 4px; }
