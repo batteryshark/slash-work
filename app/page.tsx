@@ -2754,8 +2754,7 @@ function ProjectTagEditor({ project, suggestions, onUpdateProfile }: {
   }
 
   return (
-    <section className="project-tags" aria-label="Project tags">
-      <div className="project-tags-heading"><p className="eyebrow">Cuts across folders</p><h2>Tags</h2></div>
+    <section className="project-tags wb-tags-inline" aria-label="Project tags">
       <div className="project-tag-chips">
         {project.tags.map((tag) => (
           <TagChip key={tag} tag={tag}>
@@ -2768,7 +2767,6 @@ function ProjectTagEditor({ project, suggestions, onUpdateProfile }: {
             >×</button>
           </TagChip>
         ))}
-        {project.tags.length === 0 && <span className="project-tags-empty">No tags. Optional — a project works exactly the same without them.</span>}
       </div>
       <div className="project-tag-input">
         <input
