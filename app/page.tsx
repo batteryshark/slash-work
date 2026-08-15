@@ -749,6 +749,7 @@ export default function Home() {
   const [creatingNote, setCreatingNote] = useState(false);
   const [noteError, setNoteError] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedCaptureId, setSelectedCaptureId] = useState<string | null>(null);
   const [creatingTask, setCreatingTask] = useState(false);
   const [taskError, setTaskError] = useState<string | null>(null);
   const [savingTask, setSavingTask] = useState(false);
@@ -1700,7 +1701,7 @@ export default function Home() {
     if (event.key === "Escape") {
       setCommand("");
       setCaptureError(null);
-      event.currentTarget.blur();
+      setCaptureDockCollapsedPersisted(true);
     }
   }
 
@@ -1818,7 +1819,10 @@ export default function Home() {
   const expandedDecisionObj = expandedDecision
     ? (data.decisions ?? []).find((decision) => decision.id === expandedDecision) ?? null
     : null;
-  const panelOpen = creatingTask || !!selectedTask || !!expandedDecisionObj;
+  const selectedCapture = selectedCaptureId
+    ? (data.captures ?? []).find((capture) => capture.id === selectedCaptureId) ?? null
+    : null;
+  const panelOpen = creatingTask || !!selectedTask || !!expandedDecisionObj || !!selectedCapture;
   const projectScoped = scopeKind === "project";
   const openTaskTotal = scopedTasks.filter((task) => !["done", "cancelled", "archived"].includes(task.status)).length;
   const queuedIssueCount = scopedIssues.filter((issue) => issue.state === "queued").length;
@@ -2034,9 +2038,10 @@ export default function Home() {
               onReopenDecision={(decisionId) => void reopenDecision(decisionId)}
               onOpenIssue={(issue) => { if (issue.projectPath) openScope(issue.projectPath); setSelectedIssueId(issue.id); setView("issues"); }}
               onOpenTask={setSelectedTaskId}
-              onPromoteTask={(capture) => void promoteCaptureToTask(capture)}
-              onPromoteNote={(capture) => void promoteCaptureToNote(capture)}
-              onDropCapture={(captureId) => void deleteCapture(captureId)}
+              onOpenCapture={setSelectedCaptureId}
+              onPromoteTask={(capture) => { setSelectedCaptureId(null); void promoteCaptureToTask(capture); }}
+              onPromoteNote={(capture) => { setSelectedCaptureId(null); void promoteCaptureToNote(capture); }}
+              onDropCapture={(captureId) => { setSelectedCaptureId(null); void deleteCapture(captureId); }}
             />
           ) : view === "work" ? (
             workMode === "overview" && scopePath === "." ? (
@@ -2178,6 +2183,23 @@ export default function Home() {
             onToggle={(section, index, state) => void toggleWorkChecklist(selectedTask.id, section, index, state)}
             onLog={(message) => logWorkProgress(selectedTask.id, message)}
           />
+        ) : selectedCapture ? (
+          <div className="wb-capture-panel">
+            <div className="task-panel-header">
+              <div>
+                <p className="eyebrow">Inbox · {shortTime(selectedCapture.createdAt)}</p>
+              </div>
+              <div className="task-panel-header-actions"><button type="button" onClick={() => setSelectedCaptureId(null)} aria-label="Close capture">×</button></div>
+            </div>
+            <div className="wb-capture-text"><Markdown>{selectedCapture.text}</Markdown></div>
+            <p className="wb-capture-dest">{destinationForCapture(selectedCapture)}</p>
+            <div className="p-actions wb-capture-actions">
+              <button type="button" className="wb-newbtn" onClick={() => { setSelectedCaptureId(null); void promoteCaptureToTask(selectedCapture); }}>→ Task</button>
+              <button type="button" className="wb-linkbtn" onClick={() => { setSelectedCaptureId(null); void promoteCaptureToNote(selectedCapture); }}>→ Note</button>
+              <button type="button" className="wb-linkbtn wb-drop" onClick={() => { setSelectedCaptureId(null); void deleteCapture(selectedCapture.id); }}>Let it go</button>
+            </div>
+            <p className="wb-empty">Triage is one decision: it becomes work, it becomes reference, or it dies. Open the task after filing if it needs more.</p>
+          </div>
         ) : expandedDecisionObj ? (
           <div className="wb-decision-panel">
             <DecisionPanel
@@ -2211,11 +2233,11 @@ export default function Home() {
           />
           <div className="wb-cap-hintrow">
             <span className={captureError ? "wb-cap-error" : ""} role={captureError ? "alert" : undefined}>
-              {captureError ?? captureNotice ?? captureReceipt?.destination ?? <span className="task-prefix-hint">Start a line <kbd>task:</kbd> to file a task instead — one per pasted line</span>}
+              {captureError ?? captureNotice ?? captureReceipt?.destination ?? <span className="task-prefix-hint">Start a line <kbd>task:</kbd> to file a task instead</span>}
             </span>
             <span className="wb-cap-keys">
-              <kbd>Enter</kbd> save · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line
-              <button type="submit" className="wb-newbtn" disabled={savingCapture}>{savingCapture ? "Saving…" : "Save thought"}</button>
+              {savingCapture ? "Saving…" : <><kbd>Enter</kbd> save · <kbd>Esc</kbd> close</>}
+              <button type="submit" className="sr-only">Save thought</button>
               <button type="button" className="wb-cap-collapse" aria-label="Collapse the capture dock" onClick={() => setCaptureDockCollapsedPersisted(true)}>▾</button>
             </span>
           </div>
@@ -2242,6 +2264,7 @@ function WbToday({
   onReopenDecision,
   onOpenIssue,
   onOpenTask,
+  onOpenCapture,
   onPromoteTask,
   onPromoteNote,
   onDropCapture,
@@ -2261,6 +2284,7 @@ function WbToday({
   onReopenDecision: (decisionId: string) => void;
   onOpenIssue: (issue: Issue) => void;
   onOpenTask: (taskId: string) => void;
+  onOpenCapture: (captureId: string) => void;
   onPromoteTask: (capture: Capture) => void;
   onPromoteNote: (capture: Capture) => void;
   onDropCapture: (captureId: string) => void;
@@ -2355,7 +2379,9 @@ function WbToday({
         {captures.slice(0, 10).map((capture) => (
           <div className="wb-trow wb-trow-static" key={capture.id}>
             <span className="wb-what">note</span>
-            <span className="wb-trow-title">{capture.text}</span>
+            <button type="button" className="wb-trow-open" onClick={() => onOpenCapture(capture.id)} aria-label="Open this thought">
+              <span className="wb-trow-title">{capture.text}</span>
+            </button>
             {capture.projectPath && <span className="wb-chip">{projectName(capture.projectPath)}</span>}
             <span className="wb-triage">
               <button type="button" onClick={() => onPromoteTask(capture)}>→ Task</button>
