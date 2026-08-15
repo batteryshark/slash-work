@@ -2011,31 +2011,12 @@ export default function Home() {
           <div className="wb-projheader">
             <strong>{selectedProject.name}</strong>
             <ProjectTagEditor project={selectedProject} suggestions={projectTagVocabulary} onUpdateProfile={updateProjectProfile} />
-            <div className="wb-projheader-danger project-delete-panel">
-              {confirmingProjectDelete ? (
-                <>
-                  <span>Delete {selectedProject.name}? Records under it are removed from Work.</span>
-                  <button type="button" className="danger-zone-button" disabled={deletingProject} onClick={() => void confirmProjectDelete()}>
-                    {deletingProject ? "Deleting…" : "Really delete"}
-                  </button>
-                  <button type="button" onClick={() => setConfirmingProjectDelete(false)}>Keep it</button>
-                  {projectDeleteError && <small role="alert">{projectDeleteError}</small>}
-                </>
-              ) : (
-                <button
-                  type="button"
-                  className="wb-proj-more danger-zone-button"
-                  aria-label={`Project options for ${selectedProject.name}`}
-                  title="Delete this project…"
-                  onClick={() => setConfirmingProjectDelete(true)}
-                >…</button>
-              )}
-            </div>
           </div>
         )}
 
         <main id="main-content" className="wb-view">
           {view === "today" ? (
+            <>
             <WbToday
               scopeLabel={scopeLabel}
               projects={data.projects}
@@ -2057,6 +2038,31 @@ export default function Home() {
               onPromoteNote={(capture) => { setSelectedCaptureId(null); void promoteCaptureToNote(capture); }}
               onDropCapture={(captureId) => { setSelectedCaptureId(null); void deleteCapture(captureId); }}
             />
+            {projectScoped && selectedProject && (
+              <div className="wb-today wb-dangerzone project-delete-panel">
+                <h2 className="wb-h2">Danger zone</h2>
+                <div className="wb-stack wb-danger-stack">
+                  <div className="wb-trow wb-trow-static">
+                    {confirmingProjectDelete ? (
+                      <>
+                        <span className="wb-trow-title">Delete {selectedProject.name}? Its Work records are removed; nothing else on disk is touched.</span>
+                        <button type="button" className="danger-zone-button" disabled={deletingProject} onClick={() => void confirmProjectDelete()}>
+                          {deletingProject ? "Deleting…" : "Really delete"}
+                        </button>
+                        <button type="button" className="wb-linkbtn" onClick={() => setConfirmingProjectDelete(false)}>Keep it</button>
+                        {projectDeleteError && <small role="alert">{projectDeleteError}</small>}
+                      </>
+                    ) : (
+                      <>
+                        <span className="wb-trow-title">Remove this project from Work. Two clicks, never one.</span>
+                        <button type="button" className="danger-zone-button" onClick={() => setConfirmingProjectDelete(true)}>Delete project…</button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
           ) : view === "work" ? (
             workMode === "overview" && scopePath === "." ? (
               <WbProjectsOverview

@@ -1587,3 +1587,11 @@ html[data-theme="dark"] .kanban-card { border-color: var(--line); box-shadow: no
 .wb-projheader > strong { font-size: 13.5px; }
 .wb-projheader-danger.project-delete-panel .wb-proj-more.danger-zone-button { border: 0; background: none; color: var(--soft); min-height: 26px; padding: 2px 8px; }
 .wb-projheader-danger.project-delete-panel .wb-proj-more.danger-zone-button:hover { color: var(--danger); }
+.wb-dangerzone { padding-top: 0; margin-top: -30px; }
+.wb-dangerzone .wb-h2 { color: var(--danger); opacity: .75; }
+.wb-danger-stack { border-color: var(--danger-line); }
+.wb-danger-stack .danger-zone-button { border: 1px solid var(--danger-line); color: var(--danger); background: none; border-radius: 8px; padding: 4px 12px; min-height: 30px; font-size: 12.5px; cursor: pointer; flex: none; }
+.wb-danger-stack .wb-trow-title { color: var(--muted); font-size: 12.5px; }
+.wb-today.wb-dangerzone.project-delete-panel { max-width: 900px; width: auto; margin: -30px auto 0; padding: 0 20px 40px; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.wb-dangerzone .wb-danger-stack .danger-zone-button { background: none; border: 1px solid var(--danger-line); color: var(--danger); box-shadow: none; }
+.wb-dangerzone .wb-danger-stack .danger-zone-button:hover { background: var(--danger-soft); }
