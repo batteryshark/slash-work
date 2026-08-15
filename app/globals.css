@@ -1407,3 +1407,57 @@ html[data-theme="dark"] { --tag-s: 40%; --tag-bg-l: 25%; --tag-ink-l: 80%; --tag
 .wb-newproj-form button { flex: 1; border: 1px solid var(--line); background: none; color: var(--ink); border-radius: 8px; padding: 5px 0; cursor: pointer; min-height: 32px; }
 .wb-newproj-form button[type="submit"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 650; }
 .wb-newproj-form small { color: var(--danger); }
+
+/* Density list */
+.wb-list { max-width: 980px; margin: 0 auto; padding: 8px 16px 40px; }
+.wb-lgroup { margin-top: 6px; }
+.wb-gh { display: flex; align-items: center; gap: 8px; border: 0; background: none; color: var(--muted); font-weight: 650; font-size: 12px; padding: 8px 6px 4px; cursor: pointer; width: 100%; text-align: left; }
+.wb-gh:hover { color: var(--ink); }
+.wb-gh.open .wb-tw { transform: rotate(90deg); }
+.wb-list .task-list { list-style: none; margin: 0; padding: 0; }
+.wb-list .task-list-children { margin-left: 26px; border-left: 1px solid var(--line); padding-left: 6px; }
+.wb-lrow { display: flex; align-items: center; gap: 9px; padding: 0 8px; min-height: 36px; border-radius: 8px; }
+.wb-lrow:hover { background: var(--surface); }
+.wb-lrow.dropover { box-shadow: inset 0 0 0 1px var(--accent); }
+.wb-lrow.done .wb-lrow-title { text-decoration: line-through; color: var(--soft); }
+.wb-donebox { accent-color: var(--success); width: 15px; height: 15px; flex: none; cursor: pointer; }
+.wb-lrow-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; border: 0; background: none; color: var(--ink); cursor: pointer; text-align: left; padding: 8px 0; font: inherit; }
+.wb-lrow-main code { font-family: var(--mono); font-size: 11px; color: var(--soft); flex: none; width: 56px; }
+.wb-lrow-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-prog { font-family: var(--mono); font-size: 11px; color: var(--soft); width: 38px; text-align: right; flex: none; }
+.wb-terminal-toggle { display: block; margin: 14px auto 0; border: 0; background: none; color: var(--soft); cursor: pointer; font-size: 12px; min-height: 32px; }
+.wb-terminal-toggle:hover { color: var(--muted); }
+.wb-empty-state { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 28px 8px; color: var(--muted); }
+.wb-empty-state .wb-newbtn { margin-top: 4px; }
+
+/* Folding board */
+.wb-board-toolbar { display: flex; align-items: center; gap: 10px; padding: 10px 16px 0; }
+.wb-board-toolbar .board-search { flex: 1; max-width: 420px; }
+.wb-board-toolbar .wb-terminal-toggle { margin: 0; }
+.wb-kanban-flex { display: flex !important; gap: 8px; align-items: flex-start; }
+.wb-kanban-flex .kanban-column { flex: 1 1 0; min-width: 150px; }
+.wb-col-slim { flex: 0 0 36px; display: flex; flex-direction: column; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--surface); border-radius: 12px; padding: 12px 6px; cursor: pointer; color: var(--soft); min-height: 130px; }
+.wb-col-slim > span:last-child { writing-mode: vertical-rl; font-size: 11px; font-weight: 650; letter-spacing: .03em; }
+.wb-col-slim:hover { border-color: var(--soft); color: var(--muted); }
+.wb-col-fold { margin-left: 8px; border: 0; background: none; color: var(--soft); cursor: pointer; font-size: 11px; }
+.wb-col-fold:hover { color: var(--ink); }
+
+/* Read-first task panel */
+.wb-title-read { cursor: text; border-radius: 8px; }
+.wb-title-read:hover { background: var(--surface-muted); }
+.wb-title-input { width: 100%; font-size: 19px; font-weight: 700; border: 1px solid var(--accent); border-radius: 8px; background: var(--field); color: var(--ink); padding: 4px 8px; font-family: inherit; outline: none; }
+.wb-sec { margin: 14px 16px 0; }
+.wb-sec-h { display: flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--soft); margin-bottom: 5px; }
+.wb-pencil { opacity: 0; border: 0; background: none; color: var(--soft); cursor: pointer; padding: 2px 6px; min-height: 26px; }
+.wb-sec:hover .wb-pencil, .wb-pencil:focus-visible { opacity: 1; }
+.wb-pencil:hover { color: var(--ink); }
+.wb-sec-prose { font-size: 13px; color: var(--ink); }
+.wb-sec-prose .markdown-body p { margin: 0 0 8px; }
+.wb-sec textarea { width: 100%; min-height: 120px; border: 1px solid var(--accent); border-radius: 10px; background: var(--field); color: var(--ink); padding: 9px 11px; font: 13px/1.5 var(--sans); resize: vertical; outline: none; }
+.wb-sec-add { border: 1px dashed var(--line); background: none; color: var(--soft); border-radius: 9px; padding: 8px 11px; cursor: pointer; width: 100%; text-align: left; min-height: 36px; }
+.wb-sec-add:hover { color: var(--muted); border-color: var(--soft); }
+
+/* Slim view bars replace the hero headers. */
+.wb-viewbar { display: flex; align-items: center; gap: 8px; padding: 10px 16px 4px; font-size: 14px; }
+.wb-viewbar .wb-n { font-size: 12px; }
+.issue-composer { margin: 8px 16px; }

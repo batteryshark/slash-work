@@ -2073,12 +2073,15 @@ export default function Home() {
                 scopeLabel={scopeLabel}
                 tasks={scopedTasks}
                 statuses={data.workspace.statuses ?? ["backlog", "ready", "in_progress", "blocked", "review", "done"]}
+                projects={data.projects}
+                atRoot={scopePath === "."}
                 showTerminal={showTerminalTasks}
                 onToggleTerminal={() => setShowTerminalTasks((shown) => !shown)}
                 onMove={(taskId, status) => void moveWorkTask(taskId, status).catch(() => {})}
                 onOpenTask={setSelectedTaskId}
                 onCreate={() => setCreatingTask(true)}
                 onQuickAdd={quickAddTask}
+                onReparent={(taskId, parentId) => void patchWorkTask(taskId, { parentId }).catch(() => {})}
                 error={taskError}
               />
             )
@@ -3135,13 +3138,10 @@ function FilesView({ scopeLabel, scopePath, project, onProjectCreated }: {
 
   return (
     <section className="files-view" aria-labelledby="files-heading">
-      <header className="files-toolbar">
+      <header className="files-toolbar wb-viewbar">
         <div>
-          <p className="eyebrow">Read-only source reference</p>
-          <h1 id="files-heading">{scopeLabel} files</h1>
-          <p>{git.available
-            ? `${totalChanges} changed file${totalChanges === 1 ? "" : "s"} in this Git scope. Browse without editing source files, or start a Work project in an unmarked folder.`
-            : "Browse without editing source files, or start a Work project in an unmarked folder. Git markers appear when the selected scope is inside a repository."}</p>
+          <strong id="files-heading">{scopeLabel} files</strong>
+          <span className="wb-n"> read-only{git.available ? ` · ${totalChanges} changed in Git` : ""}</span>
         </div>
         <div className="files-toolbar-actions">
           {fileScopes.length > 1 && (
@@ -3262,6 +3262,7 @@ function IssuesView({
   const [search, setSearch] = useState("");
   const [pastedDraft, setPastedDraft] = useState<PastedImage[]>([]);
   const [pastedReply, setPastedReply] = useState<PastedImage[]>([]);
+  const [composing, setComposing] = useState(false);
 
   useEffect(() => {
     setReply("");
@@ -3298,6 +3299,7 @@ function IssuesView({
     setTitle("");
     setDraft("");
     setPastedDraft([]);
+    setComposing(false);
   }
 
   async function submitReply(event?: FormEvent) {
@@ -3321,15 +3323,16 @@ function IssuesView({
 
   return (
     <section className="issues-view" aria-labelledby="issues-heading">
-      <header className="issues-toolbar">
-        <div>
-          <p className="eyebrow">A durable conversation beside the work</p>
-          <h1 id="issues-heading">{scopeLabel} issues</h1>
-          <p>Name it, then write what is wrong, unclear, or worth investigating.</p>
-        </div>
-      </header>
+      <div className="wb-viewbar">
+        <strong id="issues-heading">{scopeLabel} issues</strong>
+        <span className="wb-n">{issues.length}</span>
+        <span className="wb-spacer" />
+        <button type="button" className="wb-newbtn" onClick={() => setComposing((open) => !open)}>
+          {composing ? "Cancel" : "New issue"}
+        </button>
+      </div>
 
-      <form className="issue-composer" onSubmit={(event) => void submitIssue(event).catch(() => {})}>
+      {composing && <form className="issue-composer" onSubmit={(event) => void submitIssue(event).catch(() => {})}>
         <label htmlFor="new-issue-title">
           <strong>File an issue</strong>
           <span>A short name, then the detail below</span>
@@ -3362,7 +3365,7 @@ function IssuesView({
             </button>
           </div>
         </footer>
-      </form>
+      </form>}
 
       {error && <p className="note-error" role="alert">{error}</p>}
 
@@ -3724,16 +3727,14 @@ function NotesView({
 
   return (
     <section className="notes-view" aria-labelledby="notes-heading">
-      <header className="notes-toolbar">
-        <div>
-          <p className="eyebrow">{scopeKind === "project" ? "Project notebook" : scopeKind === "root" ? "Workspace notebook" : "Folder notebook"}</p>
-          <h1 id="notes-heading">{scopeLabel} notes</h1>
-          <p>Plain-text working notes kept beside the project. Human notes stay protected; agent-created notes show who contributed them.</p>
-        </div>
-        <button type="button" className="primary-action" disabled={creating} onClick={() => void createNote()}>
-          {creating ? "Creating…" : "New note"}<span aria-hidden="true">＋</span>
+      <div className="wb-viewbar">
+        <strong id="notes-heading">{scopeLabel} notes</strong>
+        <span className="wb-n">{notes.length}</span>
+        <span className="wb-spacer" />
+        <button type="button" className="wb-newbtn" disabled={creating} onClick={() => void createNote()}>
+          {creating ? "Creating…" : "New note"}
         </button>
-      </header>
+      </div>
 
       {error && <p className="note-error" role="alert">{error}</p>}
 
@@ -4010,81 +4011,170 @@ function QuickAddRow({ status, statusName, onQuickAdd }: { status: string; statu
   );
 }
 
-function TaskListView({ scopeLabel, tasks, statuses, showTerminal, onToggleTerminal, onMove, onOpenTask, onCreate, onQuickAdd, error }: {
+function TaskListView({ scopeLabel, tasks, statuses, projects, atRoot, showTerminal, onToggleTerminal, onMove, onOpenTask, onCreate, onQuickAdd, onReparent, error }: {
   scopeLabel: string;
   tasks: WorkTask[];
   statuses: string[];
+  projects: Project[];
+  atRoot: boolean;
   showTerminal: boolean;
   onToggleTerminal: () => void;
   onMove: (id: string, status: string) => void;
   onOpenTask: (id: string) => void;
   onCreate: () => void;
   onQuickAdd: QuickAddCreate;
+  onReparent: (taskId: string, parentId: string | null) => void;
   error: string | null;
 }) {
-  const order = [...statuses, "cancelled", "archived"];
-  const visible = tasks
-    .filter((task) => showTerminal || !["cancelled", "archived"].includes(task.status))
-    // Oldest first inside a status: a list typed top to bottom reads back in
-    // the order it was typed, and a new quick-add row lands at the bottom
-    // beside the input that made it.
-    .sort((left, right) => order.indexOf(left.status) - order.indexOf(right.status) || (left.dueAt ?? "9999").localeCompare(right.dueAt ?? "9999") || (left.createdAt ?? "").localeCompare(right.createdAt ?? ""));
-  // Subtasks render under their parent when the parent is visible here; an
-  // orphan (parent filtered out or in another project) stays at top level.
+  // Done starts folded; every group can fold. The fold is session state, not
+  // preference — a fresh window starts from the same calm default.
+  const [folded, setFolded] = useState<Record<string, boolean>>({ done: true });
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+
+  const known = ["in_progress", "blocked", "review", "ready", "backlog", "done"];
+  const extras = statuses.filter((status) => !known.includes(status));
+  const groupOrder = [
+    ...known.filter((status) => statuses.includes(status)),
+    ...extras,
+    ...(showTerminal ? ["cancelled", "archived"] : []),
+  ];
+
+  const visible = tasks.filter((task) => showTerminal || !["cancelled", "archived"].includes(task.status));
   const ids = new Set(visible.map((task) => task.id));
+  const byId = new Map(visible.map((task) => [task.id, task]));
   const childrenOf = (id: string) => visible.filter((task) => task.parentId === id);
-  const topLevel = visible.filter((task) => !task.parentId || !ids.has(task.parentId));
-  const row = (task: WorkTask) => (
-    <li key={task.id}>
-      <div className="task-list-row">
-        <button type="button" className="task-list-title" onClick={() => onOpenTask(task.id)} aria-label={`Open ${task.id}: ${task.title}`}>
-          <strong>{task.title}</strong>
-          <small>{task.id}{task.delegated ? " · handed to an agent" : ""}</small>
-        </button>
-        <label className="task-list-status">
-          <span className="sr-only">Status for {task.id}</span>
-          <select value={task.status} onChange={(event) => onMove(task.id, event.target.value)}>
-            {order.map((status) => <option key={status} value={status}>{statusLabel(status)}</option>)}
-          </select>
-        </label>
-      </div>
-      {childrenOf(task.id).length > 0 && (
-        <ol className="task-list task-list-children" aria-label={`Subtasks of ${task.id}`}>
-          {childrenOf(task.id).map((child) => row(child))}
-        </ol>
-      )}
-    </li>
-  );
+  const topLevel = visible
+    .filter((task) => !task.parentId || !ids.has(task.parentId))
+    .sort((left, right) => (left.dueAt ?? "9999").localeCompare(right.dueAt ?? "9999") || (left.createdAt ?? "").localeCompare(right.createdAt ?? ""));
+
+  function isDescendantOf(taskId: string, ancestorId: string) {
+    let current = byId.get(taskId);
+    const seen = new Set<string>();
+    while (current?.parentId && !seen.has(current.parentId)) {
+      if (current.parentId === ancestorId) return true;
+      seen.add(current.parentId);
+      current = byId.get(current.parentId);
+    }
+    return false;
+  }
+
+  function completeFromRow(task: WorkTask, checked: boolean) {
+    if (!checked) {
+      onMove(task.id, "backlog");
+      return;
+    }
+    const progress = checklistProgress(task);
+    if (progress.total > 0 && progress.complete < progress.total) {
+      // The checklist gate: open the card at its unfinished boxes instead of
+      // silently refusing — same rule the CLI enforces on review.
+      onOpenTask(task.id);
+      return;
+    }
+    onMove(task.id, "done");
+  }
+
+  function dropOnRow(task: WorkTask) {
+    return (event: React.DragEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setDropTarget(null);
+      if (!dragId || dragId === task.id) { setDragId(null); return; }
+      if (isDescendantOf(task.id, dragId)) { setDragId(null); return; }
+      onReparent(dragId, task.id);
+      setDragId(null);
+    };
+  }
+
+  const row = (task: WorkTask, depth: number): ReactNode => {
+    const progress = checklistProgress(task);
+    const terminal = ["done", "cancelled", "archived"].includes(task.status);
+    const tone = task.dueAt && !terminal ? scheduleTone({ scheduledAt: task.dueAt, allDay: true }) : null;
+    return (
+      <li key={task.id}>
+        <div
+          className={`wb-lrow${terminal ? " done" : ""}${dropTarget === task.id ? " dropover" : ""}`}
+          draggable
+          onDragStart={(event) => { setDragId(task.id); event.dataTransfer.effectAllowed = "move"; }}
+          onDragOver={(event) => { event.preventDefault(); setDropTarget(task.id); }}
+          onDragLeave={() => setDropTarget((current) => current === task.id ? null : current)}
+          onDrop={dropOnRow(task)}
+        >
+          <input
+            type="checkbox"
+            className="wb-donebox"
+            checked={task.status === "done"}
+            onChange={(event) => completeFromRow(task, event.target.checked)}
+            aria-label={`Mark ${task.id} ${task.status === "done" ? "not done" : "done"}`}
+          />
+          <span className={`wb-dot status-${task.status}`} aria-hidden="true" />
+          <button type="button" className="wb-lrow-main" onClick={() => onOpenTask(task.id)} aria-label={`Open ${task.id}: ${task.title}`}>
+            <code>{task.id}</code>
+            <span className="wb-lrow-title">{task.title}</span>
+          </button>
+          {task.delegated && <span className="wb-chip agent">agent</span>}
+          {task.blockedReason && <span className="wb-chip overdue">blocked</span>}
+          {tone === "overdue" && <span className="wb-chip overdue">overdue</span>}
+          {tone === "today" && <span className="wb-chip due">today</span>}
+          {tone === "upcoming" && task.dueAt && <span className="wb-chip">{scheduleLabel({ scheduledAt: task.dueAt, allDay: true }, "due")}</span>}
+          {atRoot && <span className="wb-meta">{scopeLabelFor(projects, task.projectPath, "root")}</span>}
+          <span className="wb-prog">{progress.total > 0 ? `${progress.complete}/${progress.total}` : ""}</span>
+        </div>
+        {childrenOf(task.id).length > 0 && (
+          <ol className="task-list task-list-children" aria-label={`Subtasks of ${task.id}`}>
+            {childrenOf(task.id).map((child) => row(child, depth + 1))}
+          </ol>
+        )}
+      </li>
+    );
+  };
+
   return (
-    <section className="board-view task-list-view" aria-labelledby="board-heading">
-      <div className="board-toolbar">
-        <div>
-          <p className="eyebrow">A plain list · full lifecycle</p>
-          <h1 id="board-heading">{scopeLabel} tasks</h1>
-          <p>{visible.length} work items. Select one for full details.</p>
-        </div>
-        <div className="board-actions">
-          <button type="button" className="secondary-action" onClick={onToggleTerminal}>{showTerminal ? "Hide cancelled & archived" : "Show cancelled & archived"}</button>
-          <button type="button" className="primary-action" onClick={onCreate}>New work item</button>
-        </div>
-      </div>
+    <section
+      className="wb-list task-list-view"
+      aria-label={`${scopeLabel} tasks`}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={() => { if (dragId) { onReparent(dragId, null); setDragId(null); setDropTarget(null); } }}
+    >
       {error && <div className="task-error" role="alert">{error}</div>}
-      {visible.length === 0 ? (
-        <div className="board-empty">
+      {visible.length === 0 && (
+        <div className="wb-empty-state">
           <strong>No work items in this scope yet.</strong>
-          <span>Type the first one below, promote an Inbox thought, or open the full form.</span>
-          <button type="button" className="primary-action" onClick={onCreate}>Create the first item</button>
+          <span>Type the first one below, promote an Inbox thought, or use New item.</span>
+          <button type="button" className="wb-newbtn" onClick={onCreate}>Create the first item</button>
         </div>
-      ) : (
-        <ol className="task-list" aria-label="Tasks in this project">
-          {topLevel.map((task) => row(task))}
-        </ol>
       )}
+      {groupOrder.map((status) => {
+        const group = topLevel.filter((task) => task.status === status);
+        if (group.length === 0) return null;
+        const isFolded = folded[status] ?? false;
+        return (
+          <div key={status} className="wb-lgroup">
+            <button
+              type="button"
+              className={`wb-gh${isFolded ? "" : " open"}`}
+              aria-expanded={!isFolded}
+              onClick={() => setFolded((current) => ({ ...current, [status]: !isFolded }))}
+            >
+              <span className="wb-tw" aria-hidden="true">▸</span>
+              <span className={`wb-dot status-${status}`} aria-hidden="true" />
+              {statusLabel(status)} <span className="wb-n">{group.length}{isFolded ? " — show" : ""}</span>
+            </button>
+            {!isFolded && (
+              <ol className="task-list" aria-label={`${statusLabel(status)} tasks`}>
+                {group.map((task) => row(task, 0))}
+              </ol>
+            )}
+          </div>
+        );
+      })}
       <QuickAddRow status="backlog" statusName={statusLabel("backlog")} onQuickAdd={onQuickAdd} />
+      <button type="button" className="wb-terminal-toggle" onClick={onToggleTerminal}>
+        {showTerminal ? "Hide cancelled & archived" : "Show cancelled & archived"}
+      </button>
     </section>
   );
 }
-
 function KanbanBoard({
   scopeLabel,
   tasks,
@@ -4125,27 +4215,18 @@ function KanbanBoard({
   const boardStatuses = showTerminal ? [...statuses, "cancelled", "archived"] : statuses;
   const query = search.trim().toLowerCase();
   const filtered = tasks.filter((task) => !query || [task.id, task.title, task.projectPath ?? "", ...task.tags].join(" ").toLowerCase().includes(query));
-  const activeCount = filtered.filter((task) => ["in_progress", "blocked", "review"].includes(task.status)).length;
-  const doneCount = filtered.filter((task) => task.status === "done").length;
+  // Done earns a full column only when asked; empty columns collapse to
+  // slivers except while a drag is looking for a destination.
+  const [doneOpen, setDoneOpen] = useState(false);
 
   return (
-    <section className="board-view" aria-labelledby="board-heading">
-      <div className="board-toolbar">
-        <div>
-          <p className="eyebrow">Present state · full lifecycle</p>
-          <h1 id="board-heading">{scopeLabel} board</h1>
-          <p>{filtered.length}{query ? ` of ${tasks.length}` : ""} work items · {activeCount} in flight · {doneCount} completed <span className="board-detail-hint">Select a card for full details.</span></p>
-        </div>
-        <div className="board-actions">
-          <button type="button" className="secondary-action" onClick={onToggleTerminal}>{showTerminal ? "Hide cancelled & archived" : "Show cancelled & archived"}</button>
-          <button type="button" className="primary-action" onClick={onCreate}>New work item</button>
-        </div>
-      </div>
-      <div className="board-filters" aria-label="Board filters">
+    <section className="board-view" aria-label={`${scopeLabel} board`}>
+      <div className="wb-board-toolbar">
         <label className="board-search">
           <span className="sr-only">Search work items</span>
           <input type="search" value={search} onChange={(event) => onSearch(event.target.value)} placeholder="Search title, ID, project, or tag…" />
         </label>
+        <button type="button" className="wb-terminal-toggle" onClick={onToggleTerminal}>{showTerminal ? "Hide cancelled & archived" : "Show cancelled & archived"}</button>
       </div>
       {error && <div className="task-error" role="alert">{error}</div>}
       {tasks.length === 0 ? (
@@ -4156,9 +4237,24 @@ function KanbanBoard({
         </div>
       ) : (
         <div className="kanban-scroll" aria-label="Kanban board">
-          <div className="kanban-grid" style={{ gridTemplateColumns: `repeat(${boardStatuses.length}, minmax(${showTerminal ? 168 : 150}px, 1fr))` }}>
+          <div className="kanban-grid wb-kanban-flex">
             {boardStatuses.map((status) => {
               const columnTasks = filtered.filter((task) => task.status === status);
+              const slim = !draggingTaskId && ((status === "done" && !doneOpen) || (columnTasks.length === 0 && status !== "done"));
+              if (slim) {
+                return (
+                  <button
+                    type="button"
+                    key={status}
+                    className={`wb-col-slim status-${status}`}
+                    onClick={() => { if (status === "done") setDoneOpen(true); }}
+                    title={status === "done" ? "Show completed cards" : `${statusLabel(status)} is empty`}
+                  >
+                    <span className={`wb-dot status-${status}`} aria-hidden="true" />
+                    <span>{statusLabel(status)} · {columnTasks.length}</span>
+                  </button>
+                );
+              }
               return (
                 <section
                   className={`kanban-column status-${status} ${draggingTaskId ? "drag-active" : ""}`}
@@ -4171,7 +4267,13 @@ function KanbanBoard({
                   }}
                   aria-labelledby={`column-${status}`}
                 >
-                  <header><h2 id={`column-${status}`}>{statusLabel(status)}</h2><span>{columnTasks.length}</span></header>
+                  <header>
+                    <h2 id={`column-${status}`}>{statusLabel(status)}</h2>
+                    <span>{columnTasks.length}</span>
+                    {status === "done" && doneOpen && (
+                      <button type="button" className="wb-col-fold" onClick={() => setDoneOpen(false)}>fold</button>
+                    )}
+                  </header>
                   <div className="kanban-card-list">
                     {columnTasks.map((task) => {
                       const progress = checklistProgress(task);
@@ -4238,8 +4340,9 @@ function ActivityView({ scopeLabel, tasks, projects, onOpenTask }: { scopeLabel:
     .sort((a, b) => b.at.localeCompare(a.at));
   return (
     <section className="activity-view" aria-labelledby="activity-heading">
-      <div className="board-toolbar">
-        <div><p className="eyebrow">What was added, changed, and completed</p><h1 id="activity-heading">{scopeLabel} activity</h1><p>{events.length} durable progress entries from Markdown work items.</p></div>
+      <div className="wb-viewbar">
+        <strong id="activity-heading">{scopeLabel} activity</strong>
+        <span className="wb-n">{events.length} entries</span>
       </div>
       {events.length === 0 ? (
         <div className="empty-panel"><strong>No task activity yet.</strong><span>Creating, moving, editing, and checking work items appends here automatically.</span></div>
@@ -4372,6 +4475,40 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
   );
 }
 
+function WbSection({ label, value, placeholder, onSave }: {
+  label: string;
+  value: string;
+  placeholder: string;
+  onSave: (next: string) => void;
+}) {
+  // Read-first: prose renders as prose. The pencil (or the ghost row when the
+  // section is empty) swaps in a textarea that saves itself on blur.
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  useEffect(() => { if (!editing) setDraft(value); }, [value, editing]);
+  return (
+    <div className="wb-sec">
+      <div className="wb-sec-h">
+        <span>{label}</span>
+        <button type="button" className="wb-pencil" aria-label={`Edit ${label.toLowerCase()}`} onClick={() => setEditing(true)}>✎</button>
+      </div>
+      {editing ? (
+        <textarea
+          autoFocus
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={() => { setEditing(false); if (draft !== value) onSave(draft); }}
+          placeholder={placeholder}
+        />
+      ) : value.trim() ? (
+        <div className="wb-sec-prose"><Markdown>{value}</Markdown></div>
+      ) : (
+        <button type="button" className="wb-sec-add" onClick={() => setEditing(true)}>{placeholder}</button>
+      )}
+    </div>
+  );
+}
+
 function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, onClose, onMove, onPatch, onToggle, onLog }: {
   task: WorkTask;
   tasks: WorkTask[];
@@ -4393,6 +4530,7 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
     dueAt: task.dueAt?.slice(0, 10) ?? "",
   });
   const [title, setTitle] = useState(task.title);
+  const [editingTitle, setEditingTitle] = useState(false);
   const [fields, setFields] = useState<TaskFieldValues>(taskFieldValues);
   const [dependsOn, setDependsOn] = useState(task.dependsOn.join(", "));
   const [blockedBy, setBlockedBy] = useState(task.blockedBy.join(", "));
@@ -4416,7 +4554,7 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
 
   function saveDetails(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onPatch({ title, delegated: fields.delegated, tags: commaList(fields.tags), dependsOn: commaList(dependsOn), blockedBy: commaList(blockedBy), blockedReason: blockedReason.trim() || null, parentId: fields.parentId.trim() || null, dueAt: fields.dueAt || null, description, goal, plan, notes, completionSummary });
+    onPatch({ tags: commaList(fields.tags), dependsOn: commaList(dependsOn), blockedBy: commaList(blockedBy), blockedReason: blockedReason.trim() || null, parentId: fields.parentId.trim() || null, dueAt: fields.dueAt || null, notes, completionSummary });
   }
 
   const childTasks = tasks.filter((item) => item.parentId === task.id);
@@ -4424,25 +4562,50 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
 
   return (
     <aside className="task-panel" aria-labelledby="task-detail-heading">
-      <div className="task-panel-header"><div><p className="eyebrow">{task.id}{task.delegated ? " · handed to an agent" : ""}</p><h2 id="task-detail-heading">{task.title}</h2></div><div className="task-panel-header-actions"><button type="button" onClick={onClose} aria-label="Close work item">×</button></div></div>
+      <div className="task-panel-header">
+        <div>
+          <p className="eyebrow">{task.id}{task.delegated ? " · handed to an agent" : ""}</p>
+          {editingTitle ? (
+            <input
+              className="wb-title-input"
+              autoFocus
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              onBlur={() => { setEditingTitle(false); if (title.trim() && title !== task.title) onPatch({ title: title.trim() }); else setTitle(task.title); }}
+              onKeyDown={(event) => { if (event.key === "Enter") (event.target as HTMLInputElement).blur(); if (event.key === "Escape") { setTitle(task.title); setEditingTitle(false); } }}
+              aria-label="Task title"
+            />
+          ) : (
+            <h2 id="task-detail-heading" className="wb-title-read" title="Select to edit the title" onClick={() => setEditingTitle(true)}>{task.title}</h2>
+          )}
+        </div>
+        <div className="task-panel-header-actions"><button type="button" onClick={onClose} aria-label="Close work item">×</button></div>
+      </div>
       <div className="task-state-strip"><label><span>Status</span><select value={task.status} onChange={(event) => onMove(event.target.value)} disabled={saving}>{[...statuses, "cancelled", "archived"].map((status) => <option key={status} value={status} disabled={status === "review" && progress.complete < progress.total}>{status === "review" && progress.complete < progress.total ? "Review — complete checklist first" : statusLabel(status)}</option>)}</select></label><span>{progress.complete}/{progress.total} checks complete</span><span>Updated {shortTime(task.updatedAt)}</span></div>
       {task.status === "review" && progress.complete < progress.total && <div className="task-error" role="status">This legacy review card has unchecked requirements or acceptance criteria. Verify its checklist before treating it as review-ready.</div>}
       {error && <div className="task-error" role="alert">{error}</div>}
       {openQuestions}
+      <TaskFields
+        values={fields}
+        onChange={(patch) => {
+          setFields((current) => ({ ...current, ...patch }));
+          // Delegation is one tick with immediate meaning; it never waits for
+          // a save button.
+          if ("delegated" in patch) onPatch({ delegated: patch.delegated });
+        }}
+      />
+      <WbSection label="Description" value={description} placeholder="Background and context — what is this, and what is the situation?" onSave={(next) => { setDescription(next); onPatch({ description: next }); }} />
+      <WbSection label="Goal" value={goal} placeholder="The discrete outcome — what does done accomplish?" onSave={(next) => { setGoal(next); onPatch({ goal: next }); }} />
+      <WbSection label="Plan" value={plan} placeholder="How to get there — known steps or research shape" onSave={(next) => { setPlan(next); onPatch({ plan: next }); }} />
       <form className="task-form" onSubmit={saveDetails}>
-        <label className="field-wide"><span>Title</span><input value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-        <TaskFields values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))} />
-        <label className="field-wide"><span>Description</span><textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Background and context — what is this, and what is the situation?" /></label>
-        <label className="field-wide"><span>Goal</span><textarea value={goal} onChange={(event) => setGoal(event.target.value)} placeholder="The discrete outcome — what does done accomplish?" /></label>
-        <label className="field-wide"><span>Plan</span><textarea value={plan} onChange={(event) => setPlan(event.target.value)} placeholder="How to get there — known steps or research shape" /></label>
         <TaskMoreFields values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))}>
           <label className="field-wide"><span>Depends on task IDs</span><input value={dependsOn} onChange={(event) => setDependsOn(event.target.value)} placeholder="W-0001, W-0002" /></label>
           <label className="field-wide"><span>Blocked by task IDs</span><input value={blockedBy} onChange={(event) => setBlockedBy(event.target.value)} placeholder="W-0001" /></label>
           <label className="field-wide"><span>Blocker explanation</span><textarea value={blockedReason} onChange={(event) => setBlockedReason(event.target.value)} /></label>
           <label className="field-wide"><span>Notes</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
           <label className="field-wide"><span>Completion summary</span><textarea value={completionSummary} onChange={(event) => setCompletionSummary(event.target.value)} placeholder="What shipped, changed, or was learned?" /></label>
+          <button type="submit" className="primary-action" disabled={saving}>{saving ? "Saving…" : "Save details"}</button>
         </TaskMoreFields>
-        <button type="submit" className="primary-action" disabled={saving}>{saving ? "Saving…" : "Save card details"}</button>
       </form>
 
       <TaskChecklist title="Requirements" items={task.requirements} onToggle={(index, state) => onToggle("requirements", index, state)} />
