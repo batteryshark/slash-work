@@ -1597,3 +1597,16 @@ html[data-theme="dark"] .kanban-card { border-color: var(--line); box-shadow: no
 .wb-dangerzone .wb-danger-stack .danger-zone-button:hover { background: var(--danger-soft); }
 .wb-tags-inline .project-tag-suggestions { flex-basis: 100%; margin: 2px 0 0; display: flex; flex-wrap: wrap; gap: 4px; }
 .wb-tags-inline .project-tag-suggestions .tag-chip { font-size: 11px; padding: 1px 8px; min-height: 22px; }
+
+/* Tag chips carry the mockup's translucent wash, both themes. */
+.tag-chip {
+  border: 1px solid hsl(var(--tag-h, 0) 40% 40% / .5);
+  background: hsl(var(--tag-h, 0) 45% 50% / .12);
+  color: hsl(var(--tag-h, 0) 55% 38%);
+  font-weight: 600;
+}
+html[data-theme="dark"] .tag-chip {
+  border-color: hsl(var(--tag-h, 0) 40% 40% / .5);
+  background: hsl(var(--tag-h, 0) 45% 50% / .1);
+  color: hsl(var(--tag-h, 0) 70% 75%);
+}
