@@ -1571,3 +1571,12 @@ html[data-theme="dark"] .kanban-card { border-color: var(--line); box-shadow: no
 .activity-list li button strong { font-size: 12.5px; font-weight: 600; display: inline; }
 .activity-list li button span { font-size: 12.5px; color: var(--muted); display: inline; margin-left: 6px; }
 .activity-list li button small { display: block; font-size: 11px; color: var(--soft); }
+.wb-ver { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--soft); }
+.wb-proj-more.danger-zone-button { border: 0; background: none; color: var(--soft); font-size: 15px; padding: 2px 8px; min-height: 28px; }
+.wb-proj-more.danger-zone-button:hover { color: var(--danger); }
+.wb-projheader .project-tag-input input { min-height: 26px; width: 74px; font-size: 11.5px; padding: 0 9px; }
+
+/* Panels live inside the workbench dock, never as overlays. */
+.wb-panel .task-panel { position: static; inset: auto; width: 100%; max-width: none; min-width: 0; height: auto; max-height: none; border: 0; border-radius: 0; box-shadow: none; transform: none; background: none; }
+.wb-panel .task-panel-header { padding: 12px 16px 8px; }
+.wb-panel .task-form { padding: 0 16px; }

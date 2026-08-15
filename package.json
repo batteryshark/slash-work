@@ -1,6 +1,6 @@
 {
   "name": "slash-work",
-  "version": "0.2.22",
+  "version": "1.0.0",
   "description": "A local, filesystem-backed project manager for your projects. Agents connect as clients over MCP and REST.",
   "license": "MIT",
   "repository": {

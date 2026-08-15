@@ -1234,6 +1234,13 @@ export default function Home() {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }, [data, scopePath]);
   // ---- workbench shell state ----
+  const [serviceVersion, setServiceVersion] = useState<string | null>(null);
+  useEffect(() => {
+    fetch("/api/health", { headers: { accept: "application/json" } })
+      .then((response) => response.json())
+      .then((health) => setServiceVersion(health?.service?.version ?? null))
+      .catch(() => {});
+  }, [data?.workspace.id]);
   const [railOpen, setRailOpen] = useState(() => {
     if (typeof window === "undefined") return true;
     return localStorage.getItem("work.rail") !== "closed";
@@ -1946,6 +1953,7 @@ export default function Home() {
                   onClick={() => { setSystemMenuOpen((open) => !open); setWorkspaceMenuOpen(false); }}>
             ⚙ <span>Settings</span>
             {updateStatus?.updateAvailable && <span className="update-available-dot" aria-hidden="true" />}
+            {serviceVersion && <span className="wb-ver">v{serviceVersion}</span>}
           </button>
         </div>
       </nav>
@@ -2014,7 +2022,13 @@ export default function Home() {
                   {projectDeleteError && <small role="alert">{projectDeleteError}</small>}
                 </>
               ) : (
-                <button type="button" className="danger-zone-button" onClick={() => setConfirmingProjectDelete(true)}>Delete project…</button>
+                <button
+                  type="button"
+                  className="wb-proj-more danger-zone-button"
+                  aria-label={`Project options for ${selectedProject.name}`}
+                  title="Delete this project…"
+                  onClick={() => setConfirmingProjectDelete(true)}
+                >…</button>
               )}
             </div>
           </div>
@@ -2780,7 +2794,7 @@ function ProjectTagEditor({ project, suggestions, onUpdateProfile }: {
           maxLength={500}
           disabled={saving}
           aria-label="Add a tag"
-          placeholder="Add a tag…"
+          placeholder="+ tag"
         />
         {(matches.length > 0 || isNew) && (
           <div className="project-tag-suggestions" role="group" aria-label="Tag suggestions">
