@@ -2054,7 +2054,7 @@ export default function Home() {
                       </>
                     ) : (
                       <>
-                        <span className="wb-trow-title">Remove this project from Work. Two clicks, never one.</span>
+                        <span className="wb-trow-title">This will remove the project after confirmation.</span>
                         <button type="button" className="danger-zone-button" onClick={() => setConfirmingProjectDelete(true)}>Delete project…</button>
                       </>
                     )}
@@ -2231,7 +2231,6 @@ export default function Home() {
               <button type="button" className="wb-linkbtn" onClick={() => { setSelectedCaptureId(null); void promoteCaptureToNote(selectedCapture); }}>→ Note</button>
               <button type="button" className="wb-linkbtn wb-drop" onClick={() => { setSelectedCaptureId(null); void deleteCapture(selectedCapture.id); }}>Let it go</button>
             </div>
-            <p className="wb-empty">Triage is one decision: it becomes work, it becomes reference, or it dies. Open the task after filing if it needs more.</p>
           </div>
         ) : expandedDecisionObj ? (
           <div className="wb-decision-panel">
@@ -2424,7 +2423,7 @@ function WbToday({
           </div>
         ))}
         {captures.length > 10 && <p className="wb-empty">{captures.length - 10} more in this inbox.</p>}
-        {captures.length === 0 && <p className="wb-empty">Inbox zero. Type <kbd>/</kbd> when a thought arrives.</p>}
+        {captures.length === 0 && <p className="wb-empty">Nothing in the inbox.</p>}
       </div>
     </div>
   );
