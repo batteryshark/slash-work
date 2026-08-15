@@ -1551,3 +1551,23 @@ html[data-theme="dark"] .kanban-card { border-color: var(--line); box-shadow: no
 /* Project header: the small versions win over the legacy card styles */
 .wb-projheader .project-tag-input input { min-height: 28px; width: 96px; max-width: 110px; font-size: 12px; padding: 0 10px; }
 .wb-projheader-danger.project-delete-panel .danger-zone-button { background: none; border: 1px solid var(--danger-line); color: var(--danger); min-height: 28px; padding: 3px 10px; font-size: 12px; box-shadow: none; }
+
+/* Redundant panel headings die — the view bar already says where you are. */
+.notes-list-heading, .file-tree-heading { display: none; }
+
+/* Files tree at mockup density; project-start reveals on hover. */
+.file-tree-row { min-height: 30px; padding: 2px 8px; font-size: 12.5px; gap: 6px; }
+.file-kind { font-size: 9px; padding: 1px 5px; border-radius: 4px; }
+.file-tree-name { font-size: 12.5px; }
+.file-project-start { opacity: 0; font-size: 11px; min-height: 26px; padding: 2px 8px; background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 6px; }
+.file-tree-row:hover .file-project-start, .file-project-start:focus-visible { opacity: 1; }
+.file-tree-legend { font-size: 11px; }
+
+/* Activity: flat day rows, not cards. */
+.activity-list li { display: flex; gap: 10px; align-items: baseline; border: 0; background: none; padding: 4px 10px; margin: 0; box-shadow: none; border-radius: 6px; }
+.activity-list li:hover { background: var(--surface); }
+.activity-list li time { flex: none; width: 112px; font-family: var(--mono); font-size: 11px; color: var(--soft); }
+.activity-list li button { border: 0; background: none; padding: 0; display: block; text-align: left; color: var(--ink); cursor: pointer; min-height: 0; }
+.activity-list li button strong { font-size: 12.5px; font-weight: 600; display: inline; }
+.activity-list li button span { font-size: 12.5px; color: var(--muted); display: inline; margin-left: 6px; }
+.activity-list li button small { display: block; font-size: 11px; color: var(--soft); }
