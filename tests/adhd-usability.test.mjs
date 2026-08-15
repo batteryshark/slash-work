@@ -10,7 +10,7 @@ test("ships a local root-scoped interface, not a hosted demo", async () => {
     readFile(new URL("package.json", root), "utf8"),
   ]);
 
-  assert.match(html, /<title>Work · One root at a time<\/title>/i);
+  assert.match(html, /<title>Work<\/title>/i);
   assert.equal(JSON.parse(packageSource).bin.work, "bin/work.mjs");
   await assert.rejects(access(new URL(".openai/hosting.json", root)));
 });
