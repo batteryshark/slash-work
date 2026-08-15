@@ -127,6 +127,7 @@ private struct NewIssueSheet: View {
     @FocusState private var nameFocused: Bool
     @State private var title = ""
     @State private var bodyText = ""
+    @State private var images: [PendingImage] = []
 
     var body: some View {
         NavigationStack {
@@ -178,6 +179,10 @@ private struct NewIssueSheet: View {
                 } header: {
                     Text("Description")
                 }
+
+                Section("Images") {
+                    AttachmentTray(images: $images)
+                }
             }
             .navigationTitle("File Issue")
             .navigationBarTitleDisplayMode(.inline)
@@ -188,10 +193,11 @@ private struct NewIssueSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Submit") {
                         Task {
-                            if await model.createIssue(title: title, body: bodyText) { dismiss() }
+                            if await model.createIssue(title: title, body: bodyText,
+                                                       attachments: images) { dismiss() }
                         }
                     }
-                    .disabled(trimmedTitle.isEmpty || trimmedBody.isEmpty
+                    .disabled(trimmedTitle.isEmpty || (trimmedBody.isEmpty && images.isEmpty)
                               || model.isMutating || model.isShowingCachedData)
                 }
             }
@@ -247,9 +253,8 @@ struct IssueDetailView: View {
                                 .foregroundStyle(.tertiary)
                                 .textSelection(.enabled)
                                 .accessibilityLabel("Long issue ID, \(issue.longId)")
-                            MarkdownText(source: issue.body)
+                            MarkdownBody(source: issue.body)
                                 .font(.footnote)
-                                .frame(maxWidth: .infinity, alignment: .leading)
                             Text(messageMetadata(
                                 author: WorkIssueAuthor(kind: "human", name: nil),
                                 createdAt: issue.createdAt
@@ -283,7 +288,7 @@ struct IssueDetailView: View {
                                 Label("Resolution", systemImage: "checkmark.circle.fill")
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(WorkTheme.success)
-                                MarkdownText(source: summary)
+                                MarkdownBody(source: summary)
                                     .font(.footnote)
                             }
                             .padding(12)
@@ -385,7 +390,7 @@ private struct IssueMessageView: View {
             .font(.caption.weight(.semibold))
             .foregroundStyle(message.author.kind == "agent" ? WorkTheme.accent : Color.blue)
 
-            MarkdownText(source: message.body)
+            MarkdownBody(source: message.body)
                 .font(.footnote)
 
             if let date = WorkFormatting.date(from: message.createdAt) {
@@ -409,6 +414,7 @@ private struct IssueReplyComposer: View {
     @Binding var text: String
     let isFocused: FocusState<Bool>.Binding
     let issue: WorkIssue
+    @State private var images: [PendingImage] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -421,6 +427,9 @@ private struct IssueReplyComposer: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            if !model.isShowingCachedData {
+                AttachmentTray(images: $images)
+            }
             HStack(alignment: .bottom, spacing: 10) {
                 TextField("Write a reply…", text: $text, axis: .vertical)
                     .lineLimit(1...8)
@@ -431,7 +440,10 @@ private struct IssueReplyComposer: View {
 
                 Button {
                     Task {
-                        if await model.reply(to: issue, body: text) { text = "" }
+                        if await model.reply(to: issue, body: text, attachments: images) {
+                            text = ""
+                            images = []
+                        }
                     }
                 } label: {
                     Label(
@@ -443,7 +455,7 @@ private struct IssueReplyComposer: View {
                     .font(.title2)
                 }
                 .disabled(
-                    text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    (text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && images.isEmpty)
                         || model.isMutating
                         || model.isShowingCachedData
                 )
@@ -636,7 +648,7 @@ struct NoteReadingView: View {
                             Label("Created by \(note.createdBy.name ?? "agent")", systemImage: "cpu")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
-                        MarkdownText(source: note.text)
+                        MarkdownBody(source: note.text)
                             .font(.footnote)
                     }
                     .padding()
@@ -734,6 +746,7 @@ struct NewNoteSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
     @State private var text = ""
+    @State private var images: [PendingImage] = []
 
     var body: some View {
         NavigationStack {
@@ -741,6 +754,9 @@ struct NewNoteSheet: View {
                 Section("Note") {
                     TextField("Title", text: $title)
                     TextEditor(text: $text).frame(minHeight: 180)
+                }
+                Section("Images") {
+                    AttachmentTray(images: $images)
                 }
             }
             .navigationTitle("New Note")
@@ -752,7 +768,8 @@ struct NewNoteSheet: View {
                         Task {
                             if await model.createNote(
                                 title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                                text: text.trimmingCharacters(in: .whitespacesAndNewlines)
+                                text: text.trimmingCharacters(in: .whitespacesAndNewlines),
+                                attachments: images
                             ) { dismiss() }
                         }
                     }

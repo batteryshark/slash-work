@@ -161,6 +161,27 @@ struct WorkTests {
         #expect(TaskLines.taskCommandTitles("task:") == nil)
     }
 
+    /// The server appends `![name](../attachments/<record>/<name>)` lines to
+    /// bodies; the renderer must split them out instead of dropping them.
+    @Test func recordBodiesSplitIntoTextAndAttachmentBlocks() {
+        let body = "The tap target is wrong.\n\n![shot.png](../attachments/I-0004/shot.png)\nMore text."
+        let blocks = RecordBodyBlock.parse(body)
+        #expect(blocks == [
+            .text("The tap target is wrong.\n"),
+            .attachment(record: "I-0004", name: "shot.png"),
+            .text("More text."),
+        ])
+        #expect(RecordBodyBlock.parse("plain words") == [.text("plain words")])
+    }
+
+    @Test func imageTypeSniffingReadsMagicBytes() {
+        #expect(PendingImage.sniffContentType(Data([0x89, 0x50, 0x4E, 0x47, 0x0D])) == "image/png")
+        #expect(PendingImage.sniffContentType(Data([0xFF, 0xD8, 0xFF, 0xE0])) == "image/jpeg")
+        #expect(PendingImage.sniffContentType(Data("GIF89a".utf8)) == "image/gif")
+        #expect(PendingImage.sniffContentType(Data("RIFF0000WEBPVP8 ".utf8)) == "image/webp")
+        #expect(PendingImage.sniffContentType(Data("not an image".utf8)) == nil)
+    }
+
     @Test func issueDelegationDefaultsOffAndPatchesOnlyDelegation() throws {
         let issue = #"{"id":"issue_mabc1234_ab12cd34ef56","title":"Named issue","body":"Details","state":"queued","scopePath":".","projectPath":null,"claimedBy":null,"resolutionSummary":null,"messages":[],"stateHistory":[],"createdAt":"","updatedAt":""}"#.data(using: .utf8)!
         let decoded = try JSONDecoder().decode(WorkIssue.self, from: issue)

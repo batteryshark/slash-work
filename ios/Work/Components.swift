@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 /// The workbench palette, verbatim from app/globals.css. Light and dark are
@@ -317,6 +318,178 @@ struct TaskRowView: View {
             return
         }
         _ = await model.moveTask(task, to: "done")
+    }
+}
+
+/// A record body with its stored images inline: text blocks render as
+/// markdown, `../attachments/` refs fetch through /api/attachments.
+struct MarkdownBody: View {
+    let source: String
+
+    var body: some View {
+        let blocks = RecordBodyBlock.parse(source)
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(blocks) { block in
+                switch block {
+                case let .text(text):
+                    MarkdownText(source: text)
+                case let .attachment(record, name):
+                    AttachmentImageView(record: record, name: name)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct AttachmentImageView: View {
+    @EnvironmentObject private var model: AppModel
+    let record: String
+    let name: String
+    @State private var image: UIImage?
+    @State private var failed = false
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: 320, alignment: .leading)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .accessibilityLabel("Attached image \(name)")
+            } else if failed {
+                Label("\(name) could not be loaded.", systemImage: "photo")
+                    .font(.caption)
+                    .foregroundStyle(WorkTheme.muted)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 60)
+                    .task {
+                        if let data = await model.attachmentData(record: record, name: name),
+                           let loaded = UIImage(data: data) {
+                            image = loaded
+                        } else {
+                            failed = true
+                        }
+                    }
+            }
+        }
+    }
+}
+
+/// Pending images beside a composer: photo-library picks and clipboard
+/// pastes, shown as removable chips until the write sends them.
+struct AttachmentTray: View {
+    @Binding var images: [PendingImage]
+    @State private var pickerItems: [PhotosPickerItem] = []
+    @State private var message: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !images.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(images) { image in
+                            HStack(spacing: 4) {
+                                if let thumb = UIImage(data: image.data) {
+                                    Image(uiImage: thumb)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: 22, height: 22)
+                                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                                } else {
+                                    Image(systemName: "photo")
+                                }
+                                Text(image.name)
+                                    .font(.caption2)
+                                    .lineLimit(1)
+                                Button {
+                                    images.removeAll { $0.id == image.id }
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(WorkTheme.muted)
+                                }
+                                .accessibilityLabel("Remove \(image.name)")
+                            }
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(WorkTheme.surfaceMuted, in: Capsule())
+                        }
+                    }
+                }
+            }
+
+            HStack(spacing: 14) {
+                PhotosPicker(selection: $pickerItems,
+                             maxSelectionCount: PendingImage.maxPerWrite - images.count,
+                             matching: .images) {
+                    Label("Add photo", systemImage: "photo.badge.plus")
+                        .font(.caption)
+                }
+                .disabled(images.count >= PendingImage.maxPerWrite)
+
+                Button {
+                    pasteImage()
+                } label: {
+                    Label("Paste image", systemImage: "doc.on.clipboard")
+                        .font(.caption)
+                }
+                .disabled(images.count >= PendingImage.maxPerWrite)
+            }
+
+            if let message {
+                Text(message)
+                    .font(.caption2)
+                    .foregroundStyle(WorkTheme.danger)
+            }
+        }
+        .onChange(of: pickerItems) { _, items in
+            guard !items.isEmpty else { return }
+            pickerItems = []
+            Task {
+                for item in items {
+                    guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+                    append(data, stem: "photo")
+                }
+            }
+        }
+    }
+
+    private func pasteImage() {
+        message = nil
+        guard let image = UIPasteboard.general.image else {
+            message = "The clipboard has no image."
+            return
+        }
+        var data = image.pngData()
+        if let bytes = data, bytes.count > PendingImage.maxBytes {
+            data = image.jpegData(compressionQuality: 0.8)
+        }
+        guard let bytes = data else {
+            message = "The clipboard image could not be read."
+            return
+        }
+        append(bytes, stem: "paste")
+    }
+
+    private func append(_ data: Data, stem: String) {
+        message = nil
+        guard images.count < PendingImage.maxPerWrite else {
+            message = "At most \(PendingImage.maxPerWrite) images per write."
+            return
+        }
+        guard data.count <= PendingImage.maxBytes else {
+            message = "Images are capped at 5 MB each."
+            return
+        }
+        guard let contentType = PendingImage.sniffContentType(data) else {
+            message = "Only png, jpeg, gif, and webp images can be attached."
+            return
+        }
+        images.append(PendingImage(name: "\(stem)-\(images.count + 1)",
+                                   contentType: contentType, data: data))
     }
 }
 

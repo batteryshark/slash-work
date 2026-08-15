@@ -170,10 +170,23 @@ struct WorkAPIClient: @unchecked Sendable {
         try await delete("api/captures/\(encoded(id))", workspaceID: workspaceID)
     }
 
-    func createNote(title: String, text: String, projectPath: String?, workspaceID: String) async throws -> WorkNote {
+    func createNote(title: String, text: String, projectPath: String?, workspaceID: String,
+                    attachments: [AttachmentPayload] = []) async throws -> WorkNote {
         let body = CreateNoteRequest(title: title, text: text, scopePath: projectPath ?? ".",
-                                     projectPath: projectPath)
+                                     projectPath: projectPath,
+                                     attachments: attachments.isEmpty ? nil : attachments)
         return try await send("api/notes", method: "POST", workspaceID: workspaceID, body: body)
+    }
+
+    /// One stored image, raw bytes. The route serves the file that the
+    /// `../attachments/<record>/<name>` markdown refs point at.
+    func attachment(record: String, name: String, workspaceID: String) async throws -> Data {
+        let (data, response) = try await data(
+            path: "api/attachments", workspaceID: workspaceID,
+            query: [URLQueryItem(name: "record", value: record),
+                    URLQueryItem(name: "name", value: name)])
+        try validate(response: response, data: data)
+        return data
     }
 
     func updateNote(id: String, title: String?, text: String?, workspaceID: String) async throws -> WorkNote {
@@ -202,19 +215,23 @@ struct WorkAPIClient: @unchecked Sendable {
         return response.issues
     }
 
-    func createIssue(title: String?, body: String, projectPath: String?, workspaceID: String) async throws -> WorkIssue {
+    func createIssue(title: String?, body: String, projectPath: String?, workspaceID: String,
+                     attachments: [AttachmentPayload] = []) async throws -> WorkIssue {
         try await send("api/issues", method: "POST", workspaceID: workspaceID,
                        body: CreateIssueRequest(title: title, body: body, scopePath: projectPath ?? ".",
-                                                projectPath: projectPath))
+                                                projectPath: projectPath,
+                                                attachments: attachments.isEmpty ? nil : attachments))
     }
 
     func updateIssue(id: String, patch: IssuePatchRequest, workspaceID: String) async throws -> WorkIssue {
         try await send("api/issues/\(encoded(id))", method: "PATCH", workspaceID: workspaceID, body: patch)
     }
 
-    func replyToIssue(id: String, body: String, workspaceID: String) async throws -> WorkIssue {
+    func replyToIssue(id: String, body: String, workspaceID: String,
+                      attachments: [AttachmentPayload] = []) async throws -> WorkIssue {
         try await send("api/issues/\(encoded(id))/replies", method: "POST", workspaceID: workspaceID,
-                       body: IssueReplyRequest(body: body))
+                       body: IssueReplyRequest(body: body,
+                                               attachments: attachments.isEmpty ? nil : attachments))
     }
 
     func updateIssueState(id: String, state: WorkIssueState, workspaceID: String) async throws -> WorkIssue {
@@ -405,6 +422,7 @@ private struct CreateNoteRequest: Encodable {
     let text: String
     let scopePath: String
     let projectPath: String?
+    let attachments: [AttachmentPayload]?
 }
 private struct UpdateNoteRequest: Encodable { let title: String?; let text: String? }
 private struct CreateIssueRequest: Encodable {
@@ -412,8 +430,20 @@ private struct CreateIssueRequest: Encodable {
     let body: String
     let scopePath: String
     let projectPath: String?
+    let attachments: [AttachmentPayload]?
 }
 struct IssuePatchRequest: Encodable { let delegated: Bool }
 private struct IssueListResponse: Decodable { let issues: [WorkIssue] }
-private struct IssueReplyRequest: Encodable { let body: String }
+private struct IssueReplyRequest: Encodable {
+    let body: String
+    let attachments: [AttachmentPayload]?
+}
 private struct IssueStateRequest: Encodable { let state: WorkIssueState }
+
+/// The wire shape the server accepts beside issue and note writes: png, jpeg,
+/// gif, or webp bytes as base64, capped at 5 MB each and 10 per write.
+struct AttachmentPayload: Encodable, Sendable {
+    let name: String
+    let contentType: String
+    let data: String
+}

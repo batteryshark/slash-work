@@ -394,6 +394,77 @@ struct TaskLogEntry: Codable, Hashable, Sendable {
     let message: String
 }
 
+/// An image picked or pasted into a composer, waiting to be sent beside the
+/// record it belongs to.
+struct PendingImage: Identifiable, Sendable {
+    let id = UUID()
+    let name: String
+    let contentType: String
+    let data: Data
+
+    static let maxBytes = 5 * 1024 * 1024
+    static let maxPerWrite = 10
+
+    var payload: AttachmentPayload {
+        AttachmentPayload(name: name, contentType: contentType, data: data.base64EncodedString())
+    }
+
+    /// The server only accepts the four image types it can serve back; the
+    /// magic bytes decide, not the file name.
+    static func sniffContentType(_ data: Data) -> String? {
+        if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "image/png" }
+        if data.starts(with: [0xFF, 0xD8, 0xFF]) { return "image/jpeg" }
+        if data.starts(with: Array("GIF8".utf8)) { return "image/gif" }
+        if data.count > 12, data.starts(with: Array("RIFF".utf8)),
+           data[8..<12].elementsEqual(Array("WEBP".utf8)) { return "image/webp" }
+        return nil
+    }
+}
+
+/// One rendered block of a record body: plain markdown, or an image stored
+/// beside the record (`![name](../attachments/<record>/<name>)`).
+enum RecordBodyBlock: Identifiable, Hashable {
+    case text(String)
+    case attachment(record: String, name: String)
+
+    var id: Self { self }
+
+    private static let refPattern = #"^!\[[^\]]*\]\(\.\./attachments/([^/)]+)/([^)]+)\)$"#
+
+    /// Splits a body into text and attachment blocks. Attachment refs sit on
+    /// their own lines — the server writes them that way.
+    static func parse(_ source: String) -> [RecordBodyBlock] {
+        var blocks: [RecordBodyBlock] = []
+        var textLines: [String] = []
+        func flushText() {
+            let text = textLines.joined(separator: "\n")
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                blocks.append(.text(text))
+            }
+            textLines = []
+        }
+        for line in source.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if let match = trimmed.range(of: refPattern, options: .regularExpression) {
+                let ref = String(trimmed[match])
+                // Between "](../attachments/" and ")": record/name.
+                if let open = ref.range(of: "](../attachments/"), let close = ref.lastIndex(of: ")") {
+                    let inner = ref[open.upperBound..<close]
+                    let parts = inner.split(separator: "/", maxSplits: 1)
+                    if parts.count == 2 {
+                        flushText()
+                        blocks.append(.attachment(record: String(parts[0]), name: String(parts[1])))
+                        continue
+                    }
+                }
+            }
+            textLines.append(line)
+        }
+        flushText()
+        return blocks
+    }
+}
+
 // MARK: Files — the read-only browser under /api/files.
 
 struct FileDirectory: Decodable, Sendable {

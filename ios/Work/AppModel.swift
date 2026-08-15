@@ -486,12 +486,27 @@ final class AppModel: ObservableObject {
         await resolveDecision(decision, action: "reopen", option: nil, note: nil)
     }
 
-    func createNote(title: String, text: String) async -> Bool {
+    func createNote(title: String, text: String, attachments: [PendingImage] = []) async -> Bool {
         await mutate {
             guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
             _ = try await client.createNote(title: title, text: text,
-                                            projectPath: self.selectedProjectPath, workspaceID: workspaceID)
+                                            projectPath: self.selectedProjectPath, workspaceID: workspaceID,
+                                            attachments: attachments.map(\.payload))
         }
+    }
+
+    /// Attachment bytes for one image ref, cached in memory per workspace so a
+    /// thread full of screenshots fetches each one once.
+    private static let attachmentCache = NSCache<NSString, NSData>()
+
+    func attachmentData(record: String, name: String) async -> Data? {
+        guard let client, let workspaceID = selectedWorkspaceID else { return nil }
+        let key = "\(workspaceID)/\(record)/\(name)" as NSString
+        if let cached = Self.attachmentCache.object(forKey: key) { return cached as Data }
+        guard let data = try? await client.attachment(record: record, name: name,
+                                                      workspaceID: workspaceID) else { return nil }
+        Self.attachmentCache.setObject(data as NSData, forKey: key)
+        return data
     }
 
     func updateNote(_ note: WorkNote, title: String, text: String) async -> Bool {
@@ -532,13 +547,14 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func createIssue(title: String, body: String) async -> Bool {
+    func createIssue(title: String, body: String, attachments: [PendingImage] = []) async -> Bool {
         await mutate {
             guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
             let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
             _ = try await client.createIssue(title: name.isEmpty ? nil : name, body: body,
                                              projectPath: self.selectedProjectPath,
-                                             workspaceID: workspaceID)
+                                             workspaceID: workspaceID,
+                                             attachments: attachments.map(\.payload))
         }
     }
 
@@ -550,10 +566,11 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func reply(to issue: WorkIssue, body: String) async -> Bool {
+    func reply(to issue: WorkIssue, body: String, attachments: [PendingImage] = []) async -> Bool {
         await mutate {
             guard let client = self.client, let workspaceID = self.selectedWorkspaceID else { return }
-            _ = try await client.replyToIssue(id: issue.id, body: body, workspaceID: workspaceID)
+            _ = try await client.replyToIssue(id: issue.id, body: body, workspaceID: workspaceID,
+                                              attachments: attachments.map(\.payload))
         }
     }
 
