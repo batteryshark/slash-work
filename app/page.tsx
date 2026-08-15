@@ -4531,15 +4531,16 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
   );
 }
 
-function WbSection({ label, value, placeholder, onSave }: {
+function WbSection({ label, value, placeholder, onSave, autoEdit }: {
   label: string;
   value: string;
   placeholder: string;
   onSave: (next: string) => void;
+  autoEdit?: boolean;
 }) {
   // Read-first: prose renders as prose. The pencil (or the ghost row when the
   // section is empty) swaps in a textarea that saves itself on blur.
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(autoEdit ?? false);
   const [draft, setDraft] = useState(value);
   useEffect(() => { if (!editing) setDraft(value); }, [value, editing]);
   return (
@@ -4596,6 +4597,7 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
   const [plan, setPlan] = useState(task.sections.plan);
   const [notes, setNotes] = useState(task.sections.notes);
   const [completionSummary, setCompletionSummary] = useState(task.sections.completionSummary);
+  const [addedSections, setAddedSections] = useState<string[]>([]);
   const [newRequirement, setNewRequirement] = useState("");
   const [newAcceptance, setNewAcceptance] = useState("");
   const [logMessage, setLogMessage] = useState("");
@@ -4606,6 +4608,7 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
     setDependsOn(task.dependsOn.join(", ")); setBlockedBy(task.blockedBy.join(", ")); setBlockedReason(task.blockedReason ?? "");
     setDescription(task.sections.description); setGoal(task.sections.goal); setPlan(task.sections.plan); setNotes(task.sections.notes);
     setCompletionSummary(task.sections.completionSummary);
+    setAddedSections([]);
   }, [task.id, task.updatedAt]);
 
   function saveDetails(event: FormEvent<HTMLFormElement>) {
@@ -4650,9 +4653,28 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
           if ("delegated" in patch) onPatch({ delegated: patch.delegated });
         }}
       />
-      <WbSection label="Description" value={description} placeholder="Background and context — what is this, and what is the situation?" onSave={(next) => { setDescription(next); onPatch({ description: next }); }} />
-      <WbSection label="Goal" value={goal} placeholder="The discrete outcome — what does done accomplish?" onSave={(next) => { setGoal(next); onPatch({ goal: next }); }} />
-      <WbSection label="Plan" value={plan} placeholder="How to get there — known steps or research shape" onSave={(next) => { setPlan(next); onPatch({ plan: next }); }} />
+      {([
+        ["Description", "description", description, (next: string) => { setDescription(next); onPatch({ description: next }); }, "Background and context — what is this, and what is the situation?"],
+        ["Goal", "goal", goal, (next: string) => { setGoal(next); onPatch({ goal: next }); }, "The discrete outcome — what does done accomplish?"],
+        ["Plan", "plan", plan, (next: string) => { setPlan(next); onPatch({ plan: next }); }, "How to get there — known steps or research shape"],
+      ] as [string, string, string, (next: string) => void, string][])
+        .filter(([, key, value]) => value.trim() || addedSections.includes(key))
+        .map(([label, key, value, save, placeholder]) => (
+          <WbSection key={key} label={label} value={value} placeholder={placeholder} onSave={save} autoEdit={addedSections.includes(key) && !value.trim()} />
+        ))}
+      {([["description", description], ["goal", goal], ["plan", plan]] as [string, string][])
+        .filter(([key, value]) => !value.trim() && !addedSections.includes(key)).length > 0 && (
+        <div className="wb-sec wb-addsection">
+          <div className="wb-sec-h">Add section</div>
+          <div className="wb-addsection-row">
+            {([["description", description], ["goal", goal], ["plan", plan]] as [string, string][])
+              .filter(([key, value]) => !value.trim() && !addedSections.includes(key))
+              .map(([key]) => (
+                <button type="button" key={key} className="wb-sec-add" onClick={() => setAddedSections((current) => [...current, key])}>+ {key}</button>
+              ))}
+          </div>
+        </div>
+      )}
       <form className="task-form" onSubmit={saveDetails}>
         <TaskMoreFields values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))}>
           <label className="field-wide"><span>Depends on task IDs</span><input value={dependsOn} onChange={(event) => setDependsOn(event.target.value)} placeholder="W-0001, W-0002" /></label>
@@ -4670,7 +4692,7 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
       <form className="add-check" onSubmit={(event) => { event.preventDefault(); if (!newAcceptance.trim()) return; onPatch({ acceptanceCriteria: [...task.acceptanceCriteria, { checked: false, text: newAcceptance.trim() }] }); setNewAcceptance(""); }}><input value={newAcceptance} onChange={(event) => setNewAcceptance(event.target.value)} placeholder="Add acceptance criterion…" /><button type="submit">Add</button></form>
 
       {childTasks.length > 0 && <section className="task-subsection"><h3>Child work</h3><ul>{childTasks.map((child) => <li key={child.id}><strong>{child.id}</strong> {child.title} <span>{statusLabel(child.status)}</span></li>)}</ul></section>}
-      <section className="task-subsection"><h3>Lifecycle</h3><ul><li>Created: {new Date(task.createdAt).toLocaleString()}</li>{task.startedAt && <li>Started: {new Date(task.startedAt).toLocaleString()}</li>}{task.completedAt && <li>Completed: {new Date(task.completedAt).toLocaleString()}</li>}{task.cancelledAt && <li>Cancelled: {new Date(task.cancelledAt).toLocaleString()}</li>}{task.dueAt && <li>Due: {new Date(task.dueAt).toLocaleDateString()}</li>}{task.source && <li>Source: {task.source}</li>}</ul></section>
+      <section className="task-subsection task-lifecycle"><h3>Lifecycle</h3><ul><li>Created: {new Date(task.createdAt).toLocaleString()}</li>{task.startedAt && <li>Started: {new Date(task.startedAt).toLocaleString()}</li>}{task.completedAt && <li>Completed: {new Date(task.completedAt).toLocaleString()}</li>}{task.cancelledAt && <li>Cancelled: {new Date(task.cancelledAt).toLocaleString()}</li>}{task.dueAt && <li>Due: {new Date(task.dueAt).toLocaleDateString()}</li>}{task.source && <li>Source: {task.source}</li>}</ul></section>
       <section className="task-subsection"><h3>Progress log</h3>{task.log.length === 0 ? <p>No entries yet.</p> : <ol className="task-log">{[...task.log].reverse().map((entry, index) => <li key={`${entry.at}-${index}`}><time dateTime={entry.at}>{new Date(entry.at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time><span>{entry.message}</span></li>)}</ol>}</section>
       <form className="add-log" onSubmit={(event) => { event.preventDefault(); if (!logMessage.trim()) return; void onLog(logMessage.trim()).then(() => setLogMessage("")); }}><label><span>Add progress</span><textarea value={logMessage} onChange={(event) => setLogMessage(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); if (logMessage.trim()) void onLog(logMessage.trim()).then(() => setLogMessage("")); } }} placeholder="Add progress… (Enter)" /></label><button type="submit" className="primary-action" disabled={!logMessage.trim()}>Append to log</button></form>
     </aside>

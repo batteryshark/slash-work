@@ -1649,3 +1649,14 @@ html[data-theme="dark"] .tag-chip {
 .wb-panel .task-log li { font-size: 12px; }
 .wb-panel .task-log time { font-size: 11px; font-family: var(--mono); color: var(--soft); }
 .wb-panel .task-form { padding: 0 16px 16px; }
+
+/* Tighter panel rhythm; lifecycle is a footnote; add-section is a pill row. */
+.wb-panel .wb-sec { margin: 10px 16px 0; }
+.wb-panel .task-subsection { margin: 12px 16px 0; }
+.wb-panel .task-state-strip { padding-top: 2px; }
+.wb-panel .field-delegate { padding-top: 4px; }
+.wb-addsection-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.wb-panel .task-checklist ul, .wb-panel .task-subsection ul { margin: 0; padding: 0; list-style: none; }
+.wb-panel .task-checklist li { margin: 0; }
+.wb-panel .task-lifecycle ul { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.wb-panel .task-lifecycle li { font-size: 11px; color: var(--soft); overflow-wrap: anywhere; }
