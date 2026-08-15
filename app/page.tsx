@@ -2165,6 +2165,7 @@ export default function Home() {
           <CreateTaskPanel
             projects={data.projects}
             statuses={data.workspace.statuses}
+            tasks={scopedTasks}
             defaultProjectPath={selectedProject?.path ?? null}
             saving={savingTask}
             error={taskError}
@@ -4445,17 +4446,27 @@ function TaskFields({ values, onChange, children }: {
 
 // Rarely-touched fields sit behind the one "More details" disclosure, shared
 // by both panels. `children` renders extra panel-specific fields inside it.
-function TaskMoreFields({ values, onChange, children }: {
+function TaskMoreFields({ values, onChange, tasks, excludeId, children }: {
   values: TaskFieldValues;
   onChange: (patch: Partial<TaskFieldValues>) => void;
+  tasks: WorkTask[];
+  excludeId?: string;
   children?: ReactNode;
 }) {
+  // Nobody types record ids by hand: parent is a pick from open tasks.
+  const candidates = tasks.filter((task) => task.id !== excludeId && !["done", "cancelled", "archived"].includes(task.status));
   return (
     <details className="task-more-fields">
       <summary>More details</summary>
       <div className="field-grid">
         <label><span>Due date</span><input type="date" value={values.dueAt} onChange={(event) => onChange({ dueAt: event.target.value })} /></label>
-        <label><span>Parent task ID</span><input value={values.parentId} onChange={(event) => onChange({ parentId: event.target.value })} placeholder="W-0001" /></label>
+        <label><span>Parent task ID</span>
+          <select value={values.parentId} onChange={(event) => onChange({ parentId: event.target.value })}>
+            <option value="">none</option>
+            {values.parentId && !candidates.some((task) => task.id === values.parentId) && <option value={values.parentId}>{values.parentId}</option>}
+            {candidates.map((task) => <option key={task.id} value={task.id}>{task.id} — {task.title.slice(0, 42)}{task.title.length > 42 ? "…" : ""}</option>)}
+          </select>
+        </label>
       </div>
       <label className="field-wide"><span>Tags</span><input value={values.tags} onChange={(event) => onChange({ tags: event.target.value })} placeholder="Comma-separated" /></label>
       {children}
@@ -4463,8 +4474,9 @@ function TaskMoreFields({ values, onChange, children }: {
   );
 }
 
-function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error, onClose, onCreate }: {
+function CreateTaskPanel({ projects, statuses, defaultProjectPath, tasks, saving, error, onClose, onCreate }: {
   projects: Project[];
+  tasks: WorkTask[];
   statuses: string[];
   defaultProjectPath: string | null;
   saving: boolean;
@@ -4523,7 +4535,7 @@ function CreateTaskPanel({ projects, statuses, defaultProjectPath, saving, error
         <label className="field-wide"><span>Requirements · one per line</span><textarea value={requirements} onChange={(event) => setRequirements(event.target.value)} placeholder={"Must preserve Markdown\nMust remain root-scoped"} /></label>
         <label className="field-wide"><span>Acceptance criteria · one per line</span><textarea value={acceptance} onChange={(event) => setAcceptance(event.target.value)} placeholder={"Board reflects status\nRestart restores the card"} /></label>
         <label className="field-wide"><span>Plan</span><textarea value={plan} onChange={(event) => setPlan(event.target.value)} placeholder="How to get there — known steps or research shape" /></label>
-        <TaskMoreFields values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))} />
+        <TaskMoreFields values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))} tasks={tasks} />
         {error && <div className="task-error" role="alert">{error}</div>}
         <div className="task-panel-actions"><button type="button" className="secondary-action" onClick={onClose}>Cancel</button><button type="submit" className="primary-action" disabled={!title.trim() || saving}>{saving ? "Creating…" : "Create work item"}</button></div>
       </form>
@@ -4698,8 +4710,29 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
         </div>
       )}
       <form className="task-form" onSubmit={saveDetails}>
-        <TaskMoreFields values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))}>
-          <label className="field-wide"><span>Depends on task IDs</span><input value={dependsOn} onChange={(event) => setDependsOn(event.target.value)} placeholder="W-0001, W-0002" /></label>
+        <TaskMoreFields values={fields} onChange={(patch) => setFields((current) => ({ ...current, ...patch }))} tasks={tasks} excludeId={task.id}>
+          <div className="field-wide wb-deps"><span>Depends on task IDs</span>
+            <div className="wb-deps-chips">
+              {commaList(dependsOn).map((id) => (
+                <span key={id} className="wb-chip">{id}
+                  <button type="button" aria-label={`Remove dependency ${id}`} onClick={() => setDependsOn(commaList(dependsOn).filter((entry) => entry !== id).join(", "))}>×</button>
+                </span>
+              ))}
+              <select
+                value=""
+                aria-label="Add a dependency"
+                onChange={(event) => {
+                  const id = event.target.value;
+                  if (id && !commaList(dependsOn).includes(id)) setDependsOn([...commaList(dependsOn), id].join(", "));
+                }}
+              >
+                <option value="">+ add a dependency…</option>
+                {tasks.filter((candidate) => candidate.id !== task.id && !["done", "cancelled", "archived"].includes(candidate.status)).map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>{candidate.id} — {candidate.title.slice(0, 42)}{candidate.title.length > 42 ? "…" : ""}</option>
+                ))}
+              </select>
+            </div>
+          </div>
           <label className="field-wide"><span>Blocked by task IDs</span><input value={blockedBy} onChange={(event) => setBlockedBy(event.target.value)} placeholder="W-0001" /></label>
           <label className="field-wide"><span>Blocker explanation</span><textarea value={blockedReason} onChange={(event) => setBlockedReason(event.target.value)} /></label>
           <label className="field-wide"><span>Notes</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
@@ -4713,7 +4746,7 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
       <form className="add-check" onSubmit={(event) => { event.preventDefault(); if (!newAcceptance.trim()) return; onPatch({ acceptanceCriteria: [...task.acceptanceCriteria, { checked: false, text: newAcceptance.trim() }] }); setNewAcceptance(""); }}><input value={newAcceptance} onChange={(event) => setNewAcceptance(event.target.value)} placeholder="Add criterion…" /><button type="submit">Add</button></form>
 
       {childTasks.length > 0 && <section className="task-subsection"><h3>Child work</h3><ul>{childTasks.map((child) => <li key={child.id}><strong>{child.id}</strong> {child.title} <span>{statusLabel(child.status)}</span></li>)}</ul></section>}
-      <section className="task-subsection"><h3>Log</h3>{task.log.length === 0 ? <p>No entries yet.</p> : <ol className="task-log">{[...task.log].reverse().map((entry, index) => <li key={`${entry.at}-${index}`}><time dateTime={entry.at}>{new Date(entry.at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time><span>{entry.message}</span></li>)}</ol>}</section>
+      <section className="task-subsection"><h3>Log</h3>{task.log.length === 0 ? <p>No entries yet.</p> : <ol className="task-log">{[...task.log].reverse().map((entry, index) => <li key={`${entry.at}-${index}`}><time dateTime={entry.at} title={new Date(entry.at).toLocaleString()}>{new Date(entry.at).toLocaleDateString([], { month: "numeric", day: "numeric", year: "2-digit" })} {new Date(entry.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</time><span>{entry.message}</span></li>)}</ol>}</section>
       <form className="add-log" onSubmit={(event) => { event.preventDefault(); if (!logMessage.trim()) return; void onLog(logMessage.trim()).then(() => setLogMessage("")); }}><label><span>Add progress</span><textarea value={logMessage} onChange={(event) => setLogMessage(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); if (logMessage.trim()) void onLog(logMessage.trim()).then(() => setLogMessage("")); } }} placeholder="Add progress… (Enter)" /></label><button type="submit" className="primary-action" disabled={!logMessage.trim()}>Append to log</button></form>
     </aside>
   );
