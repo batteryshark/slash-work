@@ -95,6 +95,7 @@ Options:
   --detail <text>     Decision context
   --option <text>     Decision option; may be repeated
   --recommend <text>  Recommend one exact recorded decision option
+  --because <text>    Why the recommendation (required with --recommend)
   --ref <id>          Link the decision to a Work item; may be repeated
   --delegate          Hand the new task to an agent (human-only signal)
   --tag <tag>         Tag; may be repeated (work project replaces the project's list)
@@ -144,6 +145,7 @@ const CLI_FLAGS = {
   detail: { type: "string" },
   option: repeatable(),
   recommend: { type: "string" },
+  because: { type: "string" },
   ref: repeatable(),
   delegate: { type: "boolean" },
   off: { type: "boolean" },
@@ -441,6 +443,7 @@ async function runDecision(options, positionals) {
       projectPath,
       options: options.option,
       recommendedOption: options.recommend ?? null,
+      recommendationReason: options.because ?? null,
       refs: options.ref,
     },
     projects,

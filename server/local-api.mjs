@@ -620,7 +620,7 @@ const WORKSPACE_ROUTES = [
     sendEmpty(c.request, c.response);
   }),
   route("GET", "/api/decisions", async (c) => [200, { decisions: await listDecisions(c.workspace) }]),
-  route("POST", "/api/decisions", async (c) => [201, await createDecision(c.workspace, await c.body(), await c.projects())]),
+  route("POST", "/api/decisions", async (c) => [201, await createDecision(c.workspace, await c.body(), await c.projects(), { agentName: optionalAgentName(c.request) })]),
   route("POST", "/api/decisions/{id}/actions", async (c) => [200, await applyDecisionAction(c.workspace, c.id, await c.body(), await c.projects())]),
   route("GET", "/api/tasks", async (c) => [200, { tasks: filterUpdatedSince(await listTasks(c.workspace), c.url) }]),
   route("POST", "/api/tasks", async (c) => [201, await createTask(c.workspace, await c.body(), await c.projects(), { agentName: optionalAgentName(c.request) })]),

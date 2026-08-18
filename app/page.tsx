@@ -156,6 +156,7 @@ type Decision = {
   refs: string[];
   options: string[];
   recommendedOption: string | null;
+  recommendationReason: string | null;
   status:
     | "open"
     | "approved"
@@ -2635,6 +2636,9 @@ function DecisionPanel({ decision, draft, projects, saving, autoFocusResponse, o
   return (
     <div className="decision-panel">
       {decision.detail && <p className="decision-detail">{decision.detail}</p>}
+      {!decision.recommendedOption && decision.recommendationReason && (
+        <p className="decision-noreason">No recommendation: {decision.recommendationReason}</p>
+      )}
       <fieldset>
         <legend>{hasExplicitOptions ? "Choose one option" : "What is your decision?"}</legend>
         {hasExplicitOptions ? displayedOptions.map((option) => (
@@ -2649,6 +2653,7 @@ function DecisionPanel({ decision, draft, projects, saving, autoFocusResponse, o
             <span>
               <strong>{option}</strong>
               {option === decision.recommendedOption && <small className="decision-recommended">Recommendation</small>}
+              {option === decision.recommendedOption && decision.recommendationReason && <small className="decision-reason">{decision.recommendationReason}</small>}
               {option === "Other" && <small>Write a different answer below.</small>}
             </span>
           </label>

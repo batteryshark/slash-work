@@ -201,6 +201,8 @@ test("exposes a memorable launcher that resumes the nearest workspace", async ()
       "Assign later",
       "--recommend",
       "Keep unassigned",
+      "--because",
+      "No project owns the lab yet.",
     ],
     { cwd: descendant },
   );
@@ -1991,6 +1993,7 @@ test("links decisions to work items and logs the answer on the task without touc
         detail: "The grammar has left recursion.",
         options: ["Recursive descent", "PEG"],
         recommendedOption: "PEG",
+        recommendationReason: "PEG handles the left recursion without a rewrite.",
         refs: [taskId],
       },
     });
@@ -2041,6 +2044,49 @@ test("links decisions to work items and logs the answer on the task without touc
       body: { title: "Bad refs", refs: "W-0001" },
     });
     assert.equal(invalid.response.status, 400);
+
+    // A recommendation is only trustworthy with its reason: a bare pill is
+    // rejected for everyone, and an agent may not stay silent either way —
+    // no lean also states its why. Only silence is refused.
+    const barePill = await apiRequest(server.origin, "/api/decisions", {
+      method: "POST",
+      body: { title: "Bare pill", options: ["A", "B"], recommendedOption: "A" },
+    });
+    assert.equal(barePill.response.status, 400);
+    assert.equal(barePill.payload.error.code, "decision_reason_required");
+
+    const agentSilence = await apiRequest(server.origin, "/api/decisions", {
+      method: "POST",
+      headers: { "X-Work-Agent": "dromond/brisk_otter" },
+      body: { title: "Shrug", options: ["A", "B"] },
+    });
+    assert.equal(agentSilence.response.status, 403);
+    assert.equal(agentSilence.payload.error.code, "decision_reason_required");
+
+    const agentNoLean = await apiRequest(server.origin, "/api/decisions", {
+      method: "POST",
+      headers: { "X-Work-Agent": "dromond/brisk_otter" },
+      body: { title: "Taste call", options: ["Serif", "Sans"], recommendationReason: "Pure typography taste; both render correctly. This is the human's call." },
+    });
+    assert.equal(agentNoLean.response.status, 201);
+    assert.equal(agentNoLean.payload.recommendedOption, null);
+    assert.match(agentNoLean.payload.recommendationReason, /taste/);
+
+    const agentLean = await apiRequest(server.origin, "/api/decisions", {
+      method: "POST",
+      headers: { "X-Work-Agent": "dromond/brisk_otter" },
+      body: { title: "Retry policy", options: ["Exponential", "Fixed"], recommendedOption: "Exponential", recommendationReason: "The API rate limits back off; fixed retries hammer it." },
+    });
+    assert.equal(agentLean.response.status, 201);
+    assert.equal(agentLean.payload.recommendedOption, "Exponential");
+
+    // Humans deciding for themselves are not forced to write essays: no
+    // recommendation, no required reason.
+    const humanPlain = await apiRequest(server.origin, "/api/decisions", {
+      method: "POST",
+      body: { title: "Own question", options: ["A", "B"] },
+    });
+    assert.equal(humanPlain.response.status, 201);
   } finally {
     await closeLocalApi(server.server);
   }
@@ -2074,6 +2120,7 @@ test("records explicit decision actions instead of treating an open card as appr
         detail: "Choose its home only when the ownership boundary is clear.",
         options: ["Assign to a project", "Keep unassigned"],
         recommendedOption: "Keep unassigned",
+        recommendationReason: "The ownership boundary is still unclear.",
       },
     });
     assert.equal(created.response.status, 201);
