@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.0 - 2026-08-15
+
+### Changed
+
+- A recommendation on a decision now requires its reason: `recommendedOption`
+  without `recommendationReason` is rejected. Agent-filed decisions must
+  state a reason either way — why the recommended option, or why no lean is
+  possible. Only silence is refused. Agent clients that file decisions must
+  send the new field.
+
+### Added
+
+- `recommendationReason` on decisions, shown under the Recommendation tag in
+  the decision panel; a decision filed with no lean shows a flat
+  "No recommendation: <reason>" line.
+- `work decision --because <text>` carries the reason from the CLI.
+
 ## 1.0.1 - 2026-08-15
 
 ### Fixed
@@ -40,5 +57,6 @@
 - A duplicate project id degrades to a warning instead of killing boot.
 - Workspace snapshots never reference an unlisted project.
 
+[1.1.0]: https://github.com/batteryshark/slash-work/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/batteryshark/slash-work/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/batteryshark/slash-work/compare/v0.2.22...v1.0.0
