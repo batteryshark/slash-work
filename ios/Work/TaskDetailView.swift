@@ -442,6 +442,11 @@ struct TaskDetailView: View {
                                     Text("Recommended: \(recommended)")
                                         .font(.caption2).foregroundStyle(WorkTheme.accent)
                                 }
+                                if let reason = question.recommendationReason, !reason.isEmpty {
+                                    Text(reason)
+                                        .font(.caption2).foregroundStyle(WorkTheme.muted)
+                                        .lineLimit(2)
+                                }
                             }
                             Spacer(minLength: 0)
                             Image(systemName: "chevron.right").foregroundStyle(.tertiary)

@@ -300,7 +300,9 @@ struct DecisionSheet: View {
 
     init(decision: WorkDecision) {
         self.decision = decision
-        _selectedOption = State(initialValue: decision.recommendedOption ?? decision.options.first ?? "")
+        // A recommendation never preselects itself (CONTRACT §3): the human
+        // picks. Approve stays disabled until they do.
+        _selectedOption = State(initialValue: "")
     }
 
     var body: some View {
@@ -309,19 +311,35 @@ struct DecisionSheet: View {
                 Section {
                     Text(decision.title).font(.title3.bold())
                     if !decision.detail.isEmpty { Text(decision.detail).foregroundStyle(.secondary) }
+                    // No lean, but the filer said why: that is the argument.
+                    if decision.recommendedOption == nil, let reason = decision.recommendationReason, !reason.isEmpty {
+                        Text("No recommendation: \(reason)")
+                            .font(.footnote).foregroundStyle(WorkTheme.muted)
+                    }
                 }
 
                 if !decision.options.isEmpty {
                     Section("Choose one") {
                         ForEach(choices, id: \.self) { option in
                             Button { selectedOption = option } label: {
-                                HStack {
-                                    Image(systemName: selectedOption == option ? "checkmark.circle.fill" : "circle")
-                                    Text(option).foregroundStyle(.primary)
-                                    Spacer()
-                                    if option == decision.recommendedOption {
-                                        Label("Recommended", systemImage: "sparkles")
-                                            .font(.caption).foregroundStyle(WorkTheme.accent)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Image(systemName: selectedOption == option ? "checkmark.circle.fill" : "circle")
+                                        Text(option).foregroundStyle(.primary)
+                                        Spacer()
+                                        if option == decision.recommendedOption {
+                                            Label("Recommended", systemImage: "sparkles")
+                                                .font(.caption).foregroundStyle(WorkTheme.accent)
+                                        }
+                                    }
+                                    // The reason travels with the pick: the human
+                                    // decides on the argument, not on trust.
+                                    if option == decision.recommendedOption,
+                                       let reason = decision.recommendationReason, !reason.isEmpty {
+                                        Text(reason)
+                                            .font(.caption).foregroundStyle(WorkTheme.muted)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                            .padding(.leading, 26)
                                     }
                                 }
                             }

@@ -24,7 +24,12 @@ struct IssuesView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             .workNavigation()
-            .workCapture()
+            // On this tab the + files an issue, matching the web's New issue
+            // button; capture moves to the top bar.
+            .workCapture(primary: model.selectedProjectPath == nil ? nil : WorkPrimaryCreate(label: "File issue") { showingNewIssue = true })
+            .sheet(isPresented: $showingNewIssue) {
+                NewIssueSheet().environmentObject(model)
+            }
         }
     }
 
@@ -59,18 +64,6 @@ struct IssuesView: View {
         .scrollContentBackground(.hidden)
         .background(WorkTheme.canvas)
         .refreshable { await model.refresh() }
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button { showingNewIssue = true } label: {
-                    Label("File issue", systemImage: "square.and.pencil")
-                }
-                .disabled(model.isShowingCachedData || model.isMutating)
-                .accessibilityHint("Opens a free-form issue composer")
-            }
-        }
-        .sheet(isPresented: $showingNewIssue) {
-            NewIssueSheet().environmentObject(model)
-        }
     }
 
     /// Open before closed; inside each half, the most recently touched first.
@@ -617,15 +610,8 @@ struct NotesView: View {
             .background(WorkTheme.canvas)
             .navigationBarTitleDisplayMode(.inline)
             .workNavigation()
-            .workCapture()
+            .workCapture(primary: WorkPrimaryCreate(label: "New note") { showingNewNote = true })
             .refreshable { await model.refresh() }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { showingNewNote = true } label: { Image(systemName: "plus") }
-                        .disabled(model.isShowingCachedData)
-                        .accessibilityLabel("New note")
-                }
-            }
             .sheet(isPresented: $showingNewNote) { NewNoteSheet().environmentObject(model) }
         }
     }

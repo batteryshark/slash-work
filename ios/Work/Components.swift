@@ -100,16 +100,34 @@ private struct WorkNavigationModifier: ViewModifier {
 
 /// The capture pill translated to a phone: a floating button that opens the
 /// one-line capture bar. Hidden on offline snapshots, which are read-only.
+/// A screen's own create action. When a screen has one, it takes the big
+/// button — the + on the Issues tab files an issue — and capture moves to the
+/// top bar, still one tap away on every screen.
+struct WorkPrimaryCreate {
+    let label: String
+    let systemImage: String
+    let action: () -> Void
+
+    init(label: String, systemImage: String = "plus", action: @escaping () -> Void) {
+        self.label = label
+        self.systemImage = systemImage
+        self.action = action
+    }
+}
+
 private struct CaptureButtonModifier: ViewModifier {
     @EnvironmentObject private var model: AppModel
     @State private var showingCapture = false
+    let primary: WorkPrimaryCreate?
 
     func body(content: Content) -> some View {
         content
             .overlay(alignment: .bottomTrailing) {
                 if !model.isShowingCachedData {
-                    Button { showingCapture = true } label: {
-                        Image(systemName: "plus")
+                    Button {
+                        if let primary { primary.action() } else { showingCapture = true }
+                    } label: {
+                        Image(systemName: primary?.systemImage ?? "plus")
                             .font(.title3.weight(.semibold))
                             .foregroundStyle(.white)
                             .frame(width: 48, height: 48)
@@ -118,7 +136,17 @@ private struct CaptureButtonModifier: ViewModifier {
                     }
                     .padding(.trailing, 18)
                     .padding(.bottom, 18)
-                    .accessibilityLabel("Capture")
+                    .disabled(primary != nil && model.isMutating)
+                    .accessibilityLabel(primary?.label ?? "Capture")
+                }
+            }
+            .toolbar {
+                if primary != nil {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button { showingCapture = true } label: { Image(systemName: "square.and.pencil") }
+                            .disabled(model.isShowingCachedData)
+                            .accessibilityLabel("Capture")
+                    }
                 }
             }
             .sheet(isPresented: $showingCapture) {
@@ -129,7 +157,7 @@ private struct CaptureButtonModifier: ViewModifier {
 
 extension View {
     func workNavigation() -> some View { modifier(WorkNavigationModifier()) }
-    func workCapture() -> some View { modifier(CaptureButtonModifier()) }
+    func workCapture(primary: WorkPrimaryCreate? = nil) -> some View { modifier(CaptureButtonModifier(primary: primary)) }
 }
 
 struct ConnectionBanner: View {

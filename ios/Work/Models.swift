@@ -126,6 +126,9 @@ struct WorkDecision: Codable, Identifiable, Hashable, Sendable {
     let projectPath: String?
     let options: [String]
     let recommendedOption: String?
+    /// Why the recommendation — or, with no recommendation, why no lean is
+    /// possible. Optional so records written before the reason rule decode.
+    let recommendationReason: String?
     let status: String
     let resolution: DecisionResolution?
     /// Ids of the Work items this question is about, such as "W-0001".
