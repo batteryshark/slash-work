@@ -345,7 +345,10 @@ separator is an em dash surrounded by spaces; the parser splits on the
 rightmost occurrence, so item text containing the separator round-trips.
 Declining through the API or `work check --decline` requires a non-empty
 one-line reason. Progress lines must be exactly `- <ISO timestamp> — <message>`
-using an em dash surrounded by spaces. Append a progress entry when creating,
+using an em dash surrounded by spaces. The parser tolerates content bullets:
+a line whose left side does not parse as a timestamp (a sub-bullet an agent
+appended, or a commit hash) is read as part of the surrounding message, not as
+a new timestamped entry. Append a progress entry when creating,
 editing, moving, checking, declining, or reopening a checklist item, or
 recording manual progress. Do not silently rewrite prior log entries.
 

@@ -395,6 +395,63 @@ test("CLI move and log advance the task file's updatedAt exactly as an API move 
   }
 });
 
+test("progress-log parser does not read content bullets as timestamps", async () => {
+  const { root } = await makeWorkspaceFixture();
+  const api = await startLocalApi({ root, port: 0 });
+  try {
+    // Agents append bullet lists inside a log message; those sub-bullets land
+    // as their own lines. The parser must only claim `at` when the left side
+    // parses as a timestamp — commit hashes and prose stay in the message,
+    // inheriting the timestamp of the surrounding entry (null when the log
+    // leads with content).
+    await writeFile(join(root, ".work", "tasks", "W-0100.md"), `---
+id: "W-0100"
+title: "Log parser content bullets"
+status: "in_progress"
+---
+
+## Description
+The log parser must only claim a timestamp when the left side parses as one.
+
+## Progress Log
+- ACP: Reasonix AND OpenCode both speak it — handshakes verified.
+- 2026-08-13T14:50:27.276Z — Resolved (wayfinder research).
+- 0x603a2824c0x60 — commit one
+- 0x60dde5e8f0x60 — commit two
+- Claude: ~/.claude.json key cachedUsageUtilization — percent used
+- merge commit: \`9ac7082bf7596f64c06af068ce4457c8a3d376d8\`
+- 2024-13-45 — a timestamp-shaped non-date stays content
+- 2026-08-13 — a bare ISO date is a valid timestamp
+- trailing content bullet inherits the date-only timestamp
+`);
+    const read = await apiRequest(api.origin, "/api/tasks/W-0100");
+    assert.equal(read.response.status, 200);
+    const { log } = read.payload;
+    assert.equal(log.length, 9);
+    assert.equal(log[0].at, null, "a content bullet leading the log gets no timestamp");
+    assert.equal(log[0].message, "ACP: Reasonix AND OpenCode both speak it — handshakes verified.", "the whole bullet is the message");
+    const entryAt = "2026-08-13T14:50:27.276Z";
+    assert.equal(log[1].at, entryAt);
+    assert.equal(log[1].message, "Resolved (wayfinder research).");
+    for (const entry of log.slice(2, 7)) {
+      assert.equal(entry.at, entryAt, "content bullets inherit the surrounding entry's timestamp");
+      assert.equal(Number.isNaN(new Date(entry.at).getTime()), false, "no consumer ever sees an Invalid Date at");
+    }
+    assert.equal(log[2].message, "0x603a2824c0x60 — commit one");
+    assert.equal(log[3].message, "0x60dde5e8f0x60 — commit two");
+    assert.equal(log[4].message, "Claude: ~/.claude.json key cachedUsageUtilization — percent used");
+    assert.equal(log[5].message, "merge commit: `9ac7082bf7596f64c06af068ce4457c8a3d376d8`");
+    assert.equal(log[6].at, entryAt, "a timestamp-shaped non-date (2024-13-45) is not claimed as at");
+    assert.equal(log[6].message, "2024-13-45 — a timestamp-shaped non-date stays content");
+    assert.equal(log[7].at, "2026-08-13", "a bare ISO date is a valid timestamp");
+    assert.equal(log[7].message, "a bare ISO date is a valid timestamp");
+    assert.equal(log[8].at, "2026-08-13", "content after a date-only entry inherits it");
+    assert.equal(log[8].message, "trailing content bullet inherits the date-only timestamp");
+  } finally {
+    await closeLocalApi(api.server);
+  }
+});
+
 test("blocked is gated like review: every criterion is ticked or declined with a reason", async () => {
   const root = await temporaryDirectory("work-decline-");
   const work = (...argv) => execFile(process.execPath, [launcherPath.pathname, ...argv], { cwd: root });

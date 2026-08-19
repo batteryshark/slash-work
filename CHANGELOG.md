@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- The progress-log parser no longer reads content bullets as timestamped
+  entries: a bullet whose left side is not an ISO date or the recorded
+  timestamp format (a commit hash, or prose an agent appended) is read whole
+  as the message, inheriting the timestamp of the entry it belongs to. Logs
+  no longer yield `at` values that render as Invalid Date in any consumer
+  that sorts or renders by `at`.
+
 ## 1.1.0 - 2026-08-15
 
 ### Changed

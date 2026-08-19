@@ -393,7 +393,9 @@ struct TaskSections: Codable, Hashable, Sendable {
 }
 
 struct TaskLogEntry: Codable, Hashable, Sendable {
-    let at: String
+    /// Timestamp of the entry; null when a content bullet (a sub-bullet an
+    /// agent appended) has no timestamp of its own and none is inherited.
+    let at: String?
     let message: String
 }
 
