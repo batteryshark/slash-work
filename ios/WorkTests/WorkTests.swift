@@ -63,6 +63,10 @@ struct WorkTests {
         #expect(snapshot.issues.first?.stateHistory.first?.from == nil)
         #expect(snapshot.issues.first?.body.contains("```swift") == true)
         #expect(snapshot.issues.first?.delegated == true)
+        #expect(snapshot.issues.first?.createdBy == nil)
+        // Payloads cached before createdBy existed fall back to the filing
+        // state transition, which the fixture records as a human.
+        #expect(snapshot.issues.first?.bodyAuthor.displayName == "You")
         #expect(snapshot.tasks.first?.checklistCompleted == 1)
         #expect(snapshot.tasks.first?.dueAt != nil)
         #expect(snapshot.tasks.first?.delegated == true)
@@ -70,6 +74,36 @@ struct WorkTests {
         #expect(snapshot.decisions.first?.references("W-0001") == true)
         #expect(snapshot.projects.first?.showsPlainList == true)
         #expect(snapshot.staleBuild == true)
+    }
+
+    /// An agent-filed issue carries createdBy so the conversation attributes
+    /// its opening message to the agent, not to "You".
+    @Test func issueBodyAuthorComesFromCreatedByWhenPresent() throws {
+        let data = #"""
+        {
+          "version":1,
+          "workspace":{"id":"ws-1","name":"Projects","root":"/srv/projects","dataDir":"/srv/projects/.work","startScopePath":".","statuses":[]},
+          "projects":[{"id":"project-1","projectId":"p-1","name":"Work","description":"","path":"work","depth":1,"markers":[".work"]}],
+          "captures":[],
+          "decisions":[],
+          "notes":[],
+          "issues":[{
+            "id":"I-0009","longId":"issue_mabc1234_ab12cd34ef56","title":"Agent-filed","body":"Found while profiling.","state":"queued","scopePath":"work","projectPath":"work","delegated":false,"claimedBy":null,"resolutionSummary":null,
+            "messages":[],
+            "stateHistory":[
+              {"from":null,"to":"queued","actor":{"kind":"agent","name":"maestro"},"at":"2026-07-19T12:00:00.000Z","reason":"Issue filed.","resolutionSummary":null}
+            ],
+            "createdBy":{"kind":"agent","name":"maestro"},
+            "createdAt":"2026-07-19T12:00:00.000Z","updatedAt":"2026-07-19T12:00:00.000Z"
+          }],
+          "tasks":[]
+        }
+        """#.data(using: .utf8)!
+
+        let snapshot = try JSONDecoder().decode(WorkspacePayload.self, from: data)
+        let issue = try #require(snapshot.issues.first)
+        #expect(issue.createdBy?.name == "maestro")
+        #expect(issue.bodyAuthor.displayName == "maestro")
     }
 
     /// Today's breakage: a non-optional Swift field vanished server-side and the

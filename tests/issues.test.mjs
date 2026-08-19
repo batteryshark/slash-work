@@ -54,6 +54,7 @@ test("lets agents file attributed issues while delegation stays human-only", asy
     assert.equal(filed.payload.claimedBy, null);
     assert.equal(filed.payload.delegated, false, "agent-filed issues must start not delegated");
     assert.deepEqual(filed.payload.stateHistory[0].actor, { kind: "agent", name: "orchestra/brisk_otter" });
+    assert.deepEqual(filed.payload.createdBy, { kind: "agent", name: "orchestra/brisk_otter" }, "agent-filed issues attribute the body to the agent");
 
     // An agent identity cannot flip the delegation flag.
     const agentDelegates = await requestJson(api.origin, `/api/issues/${filed.payload.id}`, {
@@ -81,6 +82,7 @@ test("lets agents file attributed issues while delegation stays human-only", asy
     const fresh = await requestJson(api.origin, "/api/issues?updatedSince=2000-01-01T00:00:00Z");
     assert.equal(fresh.payload.issues[0].id, filed.payload.id);
     assert.equal(fresh.payload.issues[0].delegated, true);
+    assert.deepEqual(fresh.payload.issues[0].createdBy, { kind: "agent", name: "orchestra/brisk_otter" }, "createdBy survives a re-read from the stored record");
     const agentStale = await requestJson(api.origin, `/api/agent/issues?updatedSince=${encodeURIComponent(delegated.payload.updatedAt)}`, {
       headers: { "x-work-agent": "orchestra/brisk_otter" },
     });
@@ -95,6 +97,7 @@ test("lets agents file attributed issues while delegation stays human-only", asy
     });
     assert.equal(humanFiled.response.status, 201);
     assert.equal(humanFiled.payload.delegated, true, "a human may create an issue already delegated");
+    assert.deepEqual(humanFiled.payload.createdBy, { kind: "human", name: null }, "human-filed issues attribute the body to the human");
   } finally {
     await closeLocalApi(api.server);
   }

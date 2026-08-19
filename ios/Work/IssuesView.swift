@@ -249,7 +249,7 @@ struct IssueDetailView: View {
                             MarkdownBody(source: issue.body)
                                 .font(.footnote)
                             Text(messageMetadata(
-                                author: WorkIssueAuthor(kind: "human", name: nil),
+                                author: issue.bodyAuthor,
                                 createdAt: issue.createdAt
                             ))
                             .font(.caption)

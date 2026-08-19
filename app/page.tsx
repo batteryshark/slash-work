@@ -84,6 +84,7 @@ type Issue = {
   scopePath: string;
   projectPath: string | null;
   delegated: boolean;
+  createdBy: { kind: "human" | "agent"; name: string | null };
   claimedBy: { kind: "agent"; name: string } | null;
   resolutionSummary: string | null;
   messages: IssueMessage[];
@@ -3329,6 +3330,11 @@ function IssuesView({
   onDelete: (issueId: string) => void;
 }) {
   const selectedIssue = issues.find((issue) => issue.id === selectedIssueId) ?? null;
+  // The issue's opening message is the filing body; attribute it to whoever
+  // filed the issue rather than assuming the human wrote it — agents file
+  // issues too. Fall back to the filing state transition for payloads that
+  // predate createdBy.
+  const bodyAuthor = selectedIssue?.createdBy ?? selectedIssue?.stateHistory[0]?.actor ?? { kind: "human", name: null };
   const stateNote = selectedIssue ? ISSUE_STATE_NOTES[selectedIssue.state] : undefined;
   const [title, setTitle] = useState("");
   const [draft, setDraft] = useState("");
@@ -3539,8 +3545,11 @@ function IssuesView({
               )}
 
               <ol className="issue-messages" aria-label="Issue conversation">
-                <li className="issue-message human">
-                  <header><strong>You</strong><time dateTime={selectedIssue.createdAt}>{new Date(selectedIssue.createdAt).toLocaleString()}</time></header>
+                <li className={`issue-message ${bodyAuthor.kind}`}>
+                  <header>
+                    <strong>{bodyAuthor.kind === "human" ? "You" : bodyAuthor.name || "Agent"}</strong>
+                    <time dateTime={selectedIssue.createdAt}>{new Date(selectedIssue.createdAt).toLocaleString()}</time>
+                  </header>
                   <Markdown>{selectedIssue.body}</Markdown>
                 </li>
                 {selectedIssue.messages.map((message) => (
