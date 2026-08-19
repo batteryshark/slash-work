@@ -10,7 +10,7 @@ import { promisify } from "node:util";
 
 import { closeLocalApi, startLocalApi } from "../server/local-api.mjs";
 import { decisionIsActive } from "../lib/decisions.mjs";
-import { createProject, createTask, discoverProjects, emptiedProjectPaths, getTask, initializeWorkspace, missingProjectPaths, updateTask, workspaceSnapshot } from "../lib/local-workspace.mjs";
+import { createProject, createTask, discoverProjects, emptiedProjectPaths, getTask, initializeWorkspace, missingProjectPaths, unmarkedProjectPaths, updateTask, workspaceSnapshot } from "../lib/local-workspace.mjs";
 import { chooseWorkspaceDirectory } from "../lib/native-folder-picker.mjs";
 import { registerWorkspace } from "../lib/workspace-registry.mjs";
 import { normalizeTags, tagHueAngle, tagHueIndex, workspaceTags } from "../lib/tags.mjs";
@@ -626,6 +626,55 @@ test("a workspace snapshot holds a listed project whose .work tree reads empty m
   assert.equal(after.tasks.length, 1);
   assert.equal(after.tasks[0].id, created.id);
   assert.equal(after.degraded, undefined);
+});
+
+test("a first read keeps the records a rewrite left without a marker", async () => {
+  const root = await temporaryDirectory("work-snapshot-first-read-marker-");
+  const workspace = await initializeWorkspace(root);
+  const project = await createProject(workspace, { name: "Maestro" });
+  const created = await createTask(workspace, { title: "Keep me", projectPath: project.path });
+
+  // No snapshot has been taken for this root: the hold has nothing behind it,
+  // exactly like a server process that boots during the rewrite. The rewrite
+  // has replaced project.json and not yet put it back; the records are still
+  // on disk, and the marker file is identity, not permission to read them.
+  await unlink(join(root, project.path, ".work", "project.json"));
+
+  const snapshot = await workspaceSnapshot(workspace);
+  assert.equal(snapshot.tasks.length, 1, "records on disk must not vanish with the marker");
+  assert.equal(snapshot.tasks[0].id, created.id);
+  assert.deepEqual(snapshot.projects.map((entry) => entry.path), [project.path]);
+  assert.equal(snapshot.degraded, true, "an unread marker is never authoritative");
+});
+
+test("a first read refuses to publish a mid-rewrite project store as complete", async () => {
+  const root = await temporaryDirectory("work-snapshot-first-read-empty-");
+  const workspace = await initializeWorkspace(root);
+  const project = await createProject(workspace, { name: "Maestro" });
+  await createTask(workspace, { title: "Keep me", projectPath: project.path });
+
+  // The evidence a first read has of its own: a .work store carrying no
+  // readable marker. A hand-marked folder with no .work store is not that.
+  assert.deepEqual(unmarkedProjectPaths([{ path: "maestro", projectId: null, markers: [".work"] }]), ["maestro"]);
+  assert.deepEqual(unmarkedProjectPaths([{ path: "maestro", projectId: "id", markers: [".work/project.json"] }]), []);
+  assert.deepEqual(unmarkedProjectPaths([{ path: "maestro", projectId: null, markers: [".project"] }]), []);
+
+  const dataPath = join(root, project.path, ".work");
+  const backup = join(root, ".maestro-work-backup");
+  await cp(dataPath, backup, { recursive: true });
+  await rm(dataPath, { recursive: true, force: true });
+  await mkdir(dataPath);
+
+  const mid = await workspaceSnapshot(workspace);
+  assert.deepEqual(mid.projects.map((entry) => entry.path), [project.path], "the project stays listed");
+  assert.equal(mid.degraded, true, "a short read must say it is short, not pass as the truth");
+
+  await rm(dataPath, { recursive: true, force: true });
+  await cp(backup, dataPath, { recursive: true });
+  const after = await workspaceSnapshot(workspace);
+  assert.equal(after.tasks.length, 1);
+  assert.equal(after.projects[0].name, "Maestro");
+  assert.equal(after.degraded, undefined, "a complete read is clean again");
 });
 
 test("resolves a marked current project for agents and local artifact creation", async () => {
