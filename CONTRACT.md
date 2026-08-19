@@ -44,8 +44,9 @@ with the run, it stays in Dromond.
   Work's capability catalog (`/api/agent/operations`). This contract adds no
   parallel schema.
 - Delegation signal: the item's `delegated` boolean (tasks and issues both
-  carry it; it replaced the earlier `agents` name list, which tolerant reads
-  still accept as `delegated: true`). A human ticks it to hand the item to
+  carry it; it replaced the earlier `agents` name list, which is history and
+  never reads as delegation — treating a legacy `agents` list as
+  `delegated: true` once offered 96 finished records to the runner). A human ticks it to hand the item to
   automation; Work rejects the flag from any agent identity. That is the only
   way an item enters Dromond's queue. Dromond never self-selects
   unassigned work.
