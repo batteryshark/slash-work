@@ -240,6 +240,10 @@ type WorkspacePayload = {
   // True when Work's files on disk changed after this process started, so the
   // running service is serving code it no longer matches.
   staleBuild?: boolean;
+  // True when a listed project read empty and the snapshot is holding the last
+  // complete records instead of presenting the hole as truth.
+  degraded?: boolean;
+  refreshedAt?: string;
 };
 
 type WorkspaceSummary = {
@@ -2006,6 +2010,11 @@ export default function Home() {
             <button type="button" className="wb-stale" disabled={restartingService} onClick={() => void restartLocalService()}>
               {restartingService ? "Restarting…" : "New build on disk — restart"}
             </button>
+          )}
+          {data.degraded && (
+            <span className="wb-stale" title={data.refreshedAt ? `Last complete read ${shortTime(data.refreshedAt)}` : undefined}>
+              Showing last complete read
+            </span>
           )}
           <span className={`wb-sync${loadError ? " off" : ""}`} title={lastSyncedAt ? `Synced ${shortTime(lastSyncedAt.toISOString())}` : "Connecting…"} />
         </div>
