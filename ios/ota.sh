@@ -17,11 +17,14 @@ TEAM="${WORK_TEAM:-$(security find-certificate -c "Apple Development" -p 2>/dev/
   | openssl x509 -noout -subject 2>/dev/null | grep -oE 'OU=[A-Z0-9]+' | cut -d= -f2)}"
 PORT="${WORK_OTA_PORT:-8792}"
 OUT="${TMPDIR:-/tmp}/work-ota"
+# Every app installs from one namespace, one app per leaf, so publishing one
+# never unmounts another and the tailnet has a single obvious place to look.
+WEBPATH="${WORK_OTA_PATH:-/ios-installer/work}"
 HOST="$(tailscale status --json 2>/dev/null \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')"
 
 if [ "${1:-}" = "--off" ]; then
-  tailscale serve --set-path /install off 2>/dev/null || true
+  tailscale serve --set-path "$WEBPATH" off 2>/dev/null || true
   pkill -f "http.server $PORT" 2>/dev/null || true
   echo "ota: stopped serving; the tailnet path is removed"
   exit 0
@@ -66,7 +69,7 @@ cat > "$OUT/serve/manifest.plist" <<PLIST
 <plist version="1.0"><dict><key>items</key><array><dict>
   <key>assets</key><array><dict>
     <key>kind</key><string>software-package</string>
-    <key>url</key><string>https://$HOST/install/Work.ipa</string>
+    <key>url</key><string>https://$HOST$WEBPATH/Work.ipa</string>
   </dict></array>
   <key>metadata</key><dict>
     <key>bundle-identifier</key><string>$BUNDLE</string>
@@ -89,7 +92,7 @@ p{color:#8b8b9c;font-size:14px;text-align:center;max-width:22rem;line-height:1.5
 <div style="display:grid;gap:22px;justify-items:center">
 <svg width="76" height="76" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="#8b7cf7"/>
 <path d="M300 118 L196 394" stroke="#fff" stroke-width="52" stroke-linecap="round"/></svg>
-<a href="itms-services://?action=download-manifest&url=https://$HOST/install/manifest.plist">Install Work $VER ($BUILD)</a>
+<a href="itms-services://?action=download-manifest&url=https://$HOST$WEBPATH/manifest.plist">Install Work $VER ($BUILD)</a>
 <p>Tap install, then find Work on the home screen. The phone has to be on the tailnet.</p>
 </div>
 HTML
@@ -98,9 +101,9 @@ pkill -f "http.server $PORT" 2>/dev/null || true
 ( cd "$OUT/serve" && nohup python3 -m http.server "$PORT" --bind 127.0.0.1 >/dev/null 2>&1 & )
 sleep 2
 # A PATH mapping, never the root: whatever is already served at / stays there.
-tailscale serve --bg --set-path /install "http://127.0.0.1:$PORT" >/dev/null
+tailscale serve --bg --set-path "$WEBPATH" "http://127.0.0.1:$PORT" >/dev/null
 
 echo
-echo "  Open this on the phone:  https://$HOST/install/"
+echo "  Open this on the phone:  https://$HOST$WEBPATH/"
 echo "  Work $VER ($BUILD) · $(du -h "$OUT/serve/Work.ipa" | cut -f1)"
 echo "  Stop serving with:       ./ios/ota.sh --off"
