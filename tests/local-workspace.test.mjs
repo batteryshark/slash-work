@@ -10,7 +10,7 @@ import { promisify } from "node:util";
 
 import { closeLocalApi, startLocalApi } from "../server/local-api.mjs";
 import { decisionIsActive } from "../lib/decisions.mjs";
-import { createProject, createTask, discoverProjects, emptiedProjectPaths, getTask, initializeWorkspace, missingProjectPaths, unmarkedProjectPaths, updateTask, workspaceSnapshot } from "../lib/local-workspace.mjs";
+import { createProject, createTask, discoverProjects, emptiedProjectPaths, getTask, initializeWorkspace, migrateProjectLocalStorage, missingProjectPaths, unmarkedProjectPaths, updateTask, workspaceSnapshot } from "../lib/local-workspace.mjs";
 import { chooseWorkspaceDirectory } from "../lib/native-folder-picker.mjs";
 import { registerWorkspace } from "../lib/workspace-registry.mjs";
 import { normalizeTags, tagHueAngle, tagHueIndex, workspaceTags } from "../lib/tags.mjs";
@@ -645,6 +645,33 @@ test("a first read keeps the records a rewrite left without a marker", async () 
   assert.equal(snapshot.tasks[0].id, created.id);
   assert.deepEqual(snapshot.projects.map((entry) => entry.path), [project.path]);
   assert.equal(snapshot.degraded, true, "an unread marker is never authoritative");
+});
+
+test("a boot during a rewrite never re-identifies a project", async () => {
+  const root = await temporaryDirectory("work-boot-identity-");
+  const workspace = await initializeWorkspace(root);
+  const project = await createProject(workspace, { name: "Maestro" });
+  const created = await createTask(workspace, { title: "Keep my id", projectPath: project.path });
+  const markerPath = join(root, project.path, ".work", "project.json");
+  const marker = JSON.parse(await readFile(markerPath, "utf8"));
+
+  // The rewrite has the marker out of the way. Boot migration used to mint a
+  // fresh random id here and then rewrite every record to match it, changing
+  // the durable key everything else joins on.
+  await unlink(markerPath);
+  await migrateProjectLocalStorage(workspace);
+
+  await assert.rejects(readFile(markerPath, "utf8"), { code: "ENOENT" },
+    "a mid-rewrite project must not be handed a new identity");
+  const taskFile = await readFile(join(root, project.path, ".work", "tasks", `${created.id}.md`), "utf8");
+  assert.match(taskFile, new RegExp(`projectId: "${marker.id}"`),
+    "the record still points at the original project id");
+
+  // When the marker comes back, the original identity is the one in force.
+  await writeFile(markerPath, `${JSON.stringify(marker, null, 2)}\n`);
+  const snapshot = await workspaceSnapshot(workspace);
+  assert.equal(snapshot.degraded, undefined);
+  assert.equal(snapshot.projects.find((entry) => entry.path === project.path)?.projectId, marker.id);
 });
 
 test("a first read refuses to publish a mid-rewrite project store as complete", async () => {

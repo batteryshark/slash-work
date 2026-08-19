@@ -627,7 +627,16 @@ const WORKSPACE_ROUTES = [
   route("GET", "/api/decisions", async (c) => [200, { decisions: await listDecisions(c.workspace) }]),
   route("POST", "/api/decisions", async (c) => [201, await createDecision(c.workspace, await c.body(), await c.projects(), { agentName: optionalAgentName(c.request) })]),
   route("POST", "/api/decisions/{id}/actions", async (c) => [200, await applyDecisionAction(c.workspace, c.id, await c.body(), await c.projects())]),
-  route("GET", "/api/tasks", async (c) => [200, { tasks: filterUpdatedSince((await workspaceSnapshot(c.workspace)).tasks, c.url) }]),
+  route("GET", "/api/tasks", async (c) => {
+    // Carry the degraded flag: this client reads tasks alone, and a short
+    // read during a rewrite is indistinguishable from "the work is gone"
+    // without it.
+    const snapshot = await workspaceSnapshot(c.workspace);
+    return [200, {
+      tasks: filterUpdatedSince(snapshot.tasks, c.url),
+      ...(snapshot.degraded ? { degraded: true } : {}),
+    }];
+  }),
   route("POST", "/api/tasks", async (c) => [201, await createTask(c.workspace, await c.body(), await c.projects(), { agentName: optionalAgentName(c.request) })]),
   route("GET", "/api/tasks/{id}", async (c) => [200, await getTask(c.workspace, c.id)]),
   route("PATCH", "/api/tasks/{id}", async (c) => [200, await updateTask(c.workspace, c.id, await c.body(), await c.projects(), { agentName: optionalAgentName(c.request) })]),
