@@ -39,6 +39,7 @@ import {
   updateProjectProfile,
   updateTask,
   validateProjectScopePath,
+  withResolvedAttachmentRefs,
   workspaceSnapshot,
 } from "../lib/local-workspace.mjs";
 import { listFiles, readFilePreview } from "../lib/file-browser.mjs";
@@ -587,7 +588,9 @@ const WORKSPACE_ROUTES = [
   }),
   route("GET", "/api/agent/issues", async (c) => {
     requiredAgentName(c.request);
-    return [200, { issues: filterUpdatedSince(await listIssues(c.workspace), c.url) }];
+    const issues = filterUpdatedSince(await listIssues(c.workspace), c.url);
+    for (const issue of issues) issue.body = withResolvedAttachmentRefs(issue);
+    return [200, { issues }];
   }),
   route("POST", "/api/agent/issues", async (c) => {
     const agentName = requiredAgentName(c.request);
@@ -607,7 +610,9 @@ const WORKSPACE_ROUTES = [
   }),
   route("GET", "/api/agent/issues/{id}", async (c) => {
     requiredAgentName(c.request);
-    return [200, await getIssue(c.workspace, c.id)];
+    const issue = await getIssue(c.workspace, c.id);
+    issue.body = withResolvedAttachmentRefs(issue);
+    return [200, issue];
   }),
   route("GET", "/api/issues/{id}", async (c) => [200, await getIssue(c.workspace, c.id)]),
   route("PATCH", "/api/issues/{id}", async (c) => [200, await updateIssue(c.workspace, c.id, await c.body(), { agentName: optionalAgentName(c.request) })]),

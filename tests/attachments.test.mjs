@@ -180,6 +180,66 @@ test("project records keep their attachments beside the record, and payloads res
   }
 });
 
+test("agent issue payloads rewrite ../attachments/ refs to absolute paths", async () => {
+  const root = await temporaryDirectory();
+  await initializeWorkspace(root);
+  const projectRoot = join(root, "project");
+  await mkdir(projectRoot);
+  await writeFile(join(projectRoot, ".project"), "");
+  const api = await startLocalApi({ root, port: 0 });
+
+  try {
+    const created = await requestJson(api.origin, "/api/issues", {
+      method: "POST",
+      body: { title: "Pasted screenshot", body: "", projectPath: "project", scopePath: "project", attachments: [
+        { name: "shot", contentType: "image/png", data: PNG_BASE64 },
+        { name: "second", contentType: "image/png", data: PNG_BASE64 },
+      ] },
+    });
+    assert.equal(created.response.status, 201);
+    const issueId = created.payload.id;
+    const shotPath = join(root, "project", ".work", "attachments", issueId, "shot.png");
+    const secondPath = join(root, "project", ".work", "attachments", issueId, "second.png");
+
+    // A reply can carry its own pasted image; the ref lives in the message body.
+    await requestJson(api.origin, `/api/issues/${issueId}/replies`, {
+      method: "POST",
+      body: { body: "close-up", attachments: [{ name: "closeup", contentType: "image/png", data: PNG_BASE64 }] },
+    });
+    const closeupPath = join(root, "project", ".work", "attachments", issueId, "closeup.png");
+
+    // Human payloads keep the portable relative refs for markdown viewers.
+    const human = await requestJson(api.origin, `/api/issues/${issueId}`);
+    assert.match(human.payload.body, new RegExp(`!\\[shot\\.png\\]\\(\\.\\./attachments/${issueId}/shot\\.png\\)`));
+    assert.match(human.payload.body, new RegExp(`!\\[second\\.png\\]\\(\\.\\./attachments/${issueId}/second\\.png\\)`));
+    assert.match(human.payload.messages.at(-1).body, new RegExp(`!\\[closeup\\.png\\]\\(\\.\\./attachments/${issueId}/closeup\\.png\\)`));
+
+    // Agent payloads resolve every ref to the absolute path on this machine,
+    // so a work item snapshot opens the image from the project directory.
+    const agentHeaders = { "x-work-agent": "test-agent" };
+    const detail = await requestJson(api.origin, `/api/agent/issues/${issueId}`, { headers: agentHeaders });
+    assert.equal(detail.response.status, 200);
+    assert.equal(detail.payload.body, `![shot.png](${shotPath})\n![second.png](${secondPath})`);
+    assert.equal(detail.payload.messages.at(-1).body, `close-up\n\n![closeup.png](${closeupPath})`);
+    assert.deepEqual(detail.payload.attachments, [
+      { name: "shot.png", path: shotPath },
+      { name: "second.png", path: secondPath },
+      { name: "closeup.png", path: closeupPath },
+    ]);
+    for (const path of [shotPath, secondPath, closeupPath]) {
+      assert.deepEqual(await readFile(path), PNG_BYTES);
+    }
+
+    // The list endpoint (what the sweeper renders into the snapshot) resolves
+    // the same way.
+    const list = await requestJson(api.origin, "/api/agent/issues", { headers: agentHeaders });
+    const listed = list.payload.issues.find((issue) => issue.id === issueId);
+    assert.equal(listed.body, `![shot.png](${shotPath})\n![second.png](${secondPath})`);
+  } finally {
+    await closeLocalApi(api.server);
+  }
+});
+
 test("rejects what it must: bad types, oversized files, traversal names", async () => {
   const root = await temporaryDirectory();
   await initializeWorkspace(root);
