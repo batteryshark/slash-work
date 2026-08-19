@@ -52,6 +52,15 @@ cd ~/projects
 work                        # serves the UI, prints the local URL
 ```
 
+The global CLI tracks the published release. If `work --help` still lists
+`--priority`/`--type`, or `work show <id>` never mentions `delegated`, the
+installed binary is an old release or a stale `npm link` target — refresh it:
+
+```bash
+npm install -g slash-work@latest   # re-downloads the release, replacing any stale link
+work --help                        # confirm the dropped flags are gone
+```
+
 The server binds to loopback. `work --tailscale` binds to your tailnet
 address instead. It never binds `0.0.0.0`.
 
