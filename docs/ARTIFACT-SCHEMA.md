@@ -158,7 +158,10 @@ Every reply is appended to `messages` as
 `stateHistory` as
 `{from,to,actor,at,reason,resolutionSummary}`. Never discard or rewrite prior
 messages or transitions. Human actors have `name: null`; agent actors carry the
-stable name supplied through `X-Work-Agent`.
+stable name supplied through `X-Work-Agent`. API payloads also expose
+`createdBy` — the actor of the first state transition, i.e. who filed the
+issue and authored its initial body — so clients can attribute the opening
+message instead of assuming it is human-authored; agents file issues too.
 
 The header is canonical. Mirror it as readable Markdown in the body: one
 `## Issue` section followed by the exact initial body, then an optional

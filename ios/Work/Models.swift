@@ -203,6 +203,15 @@ struct WorkIssue: Codable, Identifiable, Hashable, Sendable {
     let stateHistory: [WorkIssueStateChange]
     let createdAt: String
     let updatedAt: String
+    /// The actor who filed the issue (the author of the initial body).
+    /// Absent in payloads cached before this field existed; bodyAuthor falls
+    /// back to the filing state transition in that case.
+    let createdBy: WorkIssueAuthor?
+
+    var bodyAuthor: WorkIssueAuthor {
+        if let createdBy { return createdBy }
+        return stateHistory.first?.actor ?? WorkIssueAuthor(kind: "human", name: nil)
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -220,6 +229,7 @@ struct WorkIssue: Codable, Identifiable, Hashable, Sendable {
         stateHistory = try c.decode([WorkIssueStateChange].self, forKey: .stateHistory)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
+        createdBy = try c.decodeIfPresent(WorkIssueAuthor.self, forKey: .createdBy)
     }
 }
 
