@@ -3,14 +3,14 @@ import { execFile as execFileCallback, spawn } from "node:child_process";
 import { once } from "node:events";
 import { createServer } from "node:http";
 import { after, test } from "node:test";
-import { mkdtemp, mkdir, readFile, readdir, realpath, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, realpath, rename, rm, symlink, unlink, writeFile, cp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { closeLocalApi, startLocalApi } from "../server/local-api.mjs";
 import { decisionIsActive } from "../lib/decisions.mjs";
-import { createProject, createTask, discoverProjects, getTask, initializeWorkspace, missingProjectPaths, updateTask, workspaceSnapshot } from "../lib/local-workspace.mjs";
+import { createProject, createTask, discoverProjects, emptiedProjectPaths, getTask, initializeWorkspace, missingProjectPaths, updateTask, workspaceSnapshot } from "../lib/local-workspace.mjs";
 import { chooseWorkspaceDirectory } from "../lib/native-folder-picker.mjs";
 import { registerWorkspace } from "../lib/workspace-registry.mjs";
 import { normalizeTags, tagHueAngle, tagHueIndex, workspaceTags } from "../lib/tags.mjs";
@@ -524,6 +524,51 @@ test("a workspace snapshot never references a project it does not list", async (
     missingProjectPaths([{ path: "maestro" }], [[{ projectPath: "one-offs/interface-design" }, { projectPath: "maestro" }]]),
     ["one-offs/interface-design"]);
   assert.deepEqual(missingProjectPaths([{ path: "maestro" }], [[{ projectPath: null }]]), []);
+});
+
+test("a workspace snapshot holds a listed project whose .work tree reads empty mid-rewrite", async () => {
+  const root = await temporaryDirectory("work-snapshot-empty-project-");
+  const workspace = await initializeWorkspace(root);
+  const project = await createProject(workspace, { name: "Maestro" });
+  const created = await createTask(workspace, { title: "Keep me", projectPath: project.path });
+
+  const before = await workspaceSnapshot(workspace);
+  assert.equal(before.tasks.length, 1);
+  assert.equal(before.projects[0].name, "Maestro");
+  assert.equal(before.degraded, undefined);
+
+  // Inverse of missingProjectPaths: the project is listed (.work exists) but
+  // its records read empty — rclone recreates the tree before files land.
+  assert.deepEqual(
+    emptiedProjectPaths([{ path: "maestro" }], [[]], new Map([["maestro", 57]])),
+    ["maestro"]);
+  assert.deepEqual(
+    emptiedProjectPaths([{ path: "maestro" }], [[{ projectPath: "maestro" }]], new Map([["maestro", 57]])),
+    []);
+  assert.deepEqual(
+    emptiedProjectPaths([], [[]], new Map([["maestro", 57]])),
+    [],
+    "a deleted project is unlisted; do not hold its records");
+
+  const dataPath = join(root, project.path, ".work");
+  const backup = join(root, ".maestro-work-backup");
+  await cp(dataPath, backup, { recursive: true });
+  await rm(dataPath, { recursive: true, force: true });
+  await mkdir(dataPath);
+
+  const mid = await workspaceSnapshot(workspace);
+  assert.equal(mid.tasks.length, 1, "the last complete read must not vanish mid-rewrite");
+  assert.equal(mid.tasks[0].id, created.id);
+  assert.equal(mid.projects[0].name, "Maestro", "unread marker must not fall back to the folder name");
+  assert.equal(mid.degraded, true);
+  assert.equal(typeof mid.refreshedAt, "string");
+
+  await rm(dataPath, { recursive: true, force: true });
+  await cp(backup, dataPath, { recursive: true });
+  const after = await workspaceSnapshot(workspace);
+  assert.equal(after.tasks.length, 1);
+  assert.equal(after.tasks[0].id, created.id);
+  assert.equal(after.degraded, undefined);
 });
 
 test("resolves a marked current project for agents and local artifact creation", async () => {
