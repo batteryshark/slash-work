@@ -142,8 +142,8 @@ repository changes or other executable work.
 
 `delegated` is a boolean, human-only exactly as on tasks: it is the only way
 an issue enters an orchestrator's queue, agents cannot set it, and a legacy
-non-empty `agents` list reads as `delegated: true` and is dropped on the next
-write. `claimedBy` is null or an agent actor. An agent may append an attributed
+`agents` list is history, never delegation — it reads as `delegated: false`
+and is dropped on the next write. `claimedBy` is null or an agent actor. An agent may append an attributed
 observation to a queued, unclaimed issue without changing its state, claim, or
 delegation. An agent may also claim a queued issue, reply,
 move it to `needs_human` with a concrete question or blocker, and move it to
@@ -276,10 +276,11 @@ An automation must read `.work/workspace.json` and use its configured
 `delegated` is a boolean and is the CONTRACT §2 delegation signal: a human
 sets it to hand the item to automation, and Work rejects it from any agent
 identity. Legacy records carrying the removed `priority`, `task_type`/`type`,
-`assignee`, `estimate`, or `agents` keys still load — a non-empty `agents`
-list reads as `delegated: true` — and the removed keys are dropped on the
-next write. Pre-0.3 records with snake_case keys (`project_path`, `due_at`, …)
-load the same way; the canonical keys are the camelCase ones shown below.
+`assignee`, `estimate`, or `agents` keys still load — a legacy `agents` list
+is history, never delegation, and never reads as `delegated: true` — and the
+removed keys are dropped on the next write. Pre-0.3 records with snake_case
+keys (`project_path`, `due_at`, …) load the same way; the canonical keys are
+the camelCase ones shown below.
 Task relationships contain valid task IDs. A task cannot become `done` while a
 `dependsOn` ID is missing or not itself `done`. A task cannot enter `review`
 or `blocked` while any requirement or acceptance criterion is neither ticked
