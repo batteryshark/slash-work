@@ -204,7 +204,7 @@ type WorkTask = {
   };
   requirements: ChecklistItem[];
   acceptanceCriteria: ChecklistItem[];
-  log: Array<{ at: string; message: string }>;
+  log: Array<{ at: string | null; message: string }>;
 };
 
 type ScheduledItem = {
@@ -359,7 +359,8 @@ function cleanCommand(text: string) {
   return text.replace(/^\s*\/work\s*/i, "").trim();
 }
 
-function shortTime(iso: string) {
+function shortTime(iso: string | null) {
+  if (!iso) return "—";
   const date = new Date(iso);
   const today = new Date();
   const sameDay = date.toDateString() === today.toDateString();
@@ -2873,7 +2874,7 @@ function ProjectFocus({ project, captures, tasks, tagSuggestions, onOpenBoard, o
   const queued = tasks.filter((task) => ["ready", "backlog"].includes(task.status));
   const completed = tasks.filter((task) => task.status === "done");
   const currentTasks = (inFlight.length > 0 ? inFlight : queued).slice(0, 3);
-  const lastUpdate = tasks.flatMap((task) => task.log.map((entry) => ({ ...entry, task }))).sort((a, b) => b.at.localeCompare(a.at))[0];
+  const lastUpdate = tasks.flatMap((task) => task.log.map((entry) => ({ ...entry, task }))).sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""))[0];
   const latestCapture = updates[0] ?? captures[0];
   const progressText = lastUpdate?.message ?? latestCapture?.text ?? "No meaningful progress has been recorded for this project yet.";
   const progressSource = lastUpdate
@@ -4410,7 +4411,7 @@ function KanbanBoard({
 function ActivityView({ scopeLabel, tasks, projects, onOpenTask }: { scopeLabel: string; tasks: WorkTask[]; projects: Project[]; onOpenTask: (id: string) => void }) {
   const events = tasks
     .flatMap((task) => task.log.map((entry) => ({ ...entry, task })))
-    .sort((a, b) => b.at.localeCompare(a.at));
+    .sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""));
   return (
     <section className="activity-view" aria-labelledby="activity-heading">
       <div className="wb-viewbar">
@@ -4423,7 +4424,7 @@ function ActivityView({ scopeLabel, tasks, projects, onOpenTask }: { scopeLabel:
         <ol className="activity-list">
           {events.map((event, index) => (
             <li key={`${event.task.id}-${event.at}-${index}`}>
-              <time dateTime={event.at}>{new Date(event.at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>
+              <time dateTime={event.at ?? undefined}>{event.at ? new Date(event.at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</time>
               <button type="button" onClick={() => onOpenTask(event.task.id)}><strong>{event.task.id} · {event.task.title}</strong><span>{event.message}</span><small>{scopeLabelFor(projects, event.task.projectPath, "Unassigned")} · {statusLabel(event.task.status)}</small></button>
             </li>
           ))}
@@ -4768,7 +4769,7 @@ function TaskDetailPanel({ task, tasks, statuses, saving, error, openQuestions, 
       <form className="add-check" onSubmit={(event) => { event.preventDefault(); if (!newAcceptance.trim()) return; onPatch({ acceptanceCriteria: [...task.acceptanceCriteria, { checked: false, text: newAcceptance.trim() }] }); setNewAcceptance(""); }}><input value={newAcceptance} onChange={(event) => setNewAcceptance(event.target.value)} placeholder="Add criterion…" /><button type="submit">Add</button></form>
 
       {childTasks.length > 0 && <section className="task-subsection"><h3>Child work</h3><ul>{childTasks.map((child) => <li key={child.id}><strong>{child.id}</strong> {child.title} <span>{statusLabel(child.status)}</span></li>)}</ul></section>}
-      <section className="task-subsection"><h3>Log</h3>{task.log.length === 0 ? <p>No entries yet.</p> : <ol className="task-log">{[...task.log].reverse().map((entry, index) => <li key={`${entry.at}-${index}`}><time dateTime={entry.at} title={new Date(entry.at).toLocaleString()}>{new Date(entry.at).toLocaleDateString([], { month: "numeric", day: "numeric", year: "2-digit" })} {new Date(entry.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</time><span>{entry.message}</span></li>)}</ol>}</section>
+      <section className="task-subsection"><h3>Log</h3>{task.log.length === 0 ? <p>No entries yet.</p> : <ol className="task-log">{[...task.log].reverse().map((entry, index) => <li key={`${entry.at ?? ""}-${index}`}><time dateTime={entry.at ?? undefined} title={entry.at ? new Date(entry.at).toLocaleString() : undefined}>{entry.at ? `${new Date(entry.at).toLocaleDateString([], { month: "numeric", day: "numeric", year: "2-digit" })} ${new Date(entry.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "—"}</time><span>{entry.message}</span></li>)}</ol>}</section>
       <form className="add-log" onSubmit={(event) => { event.preventDefault(); if (!logMessage.trim()) return; void onLog(logMessage.trim()).then(() => setLogMessage("")); }}><label><span>Add progress</span><textarea value={logMessage} onChange={(event) => setLogMessage(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); if (logMessage.trim()) void onLog(logMessage.trim()).then(() => setLogMessage("")); } }} placeholder="Add progress… (Enter)" /></label><button type="submit" className="primary-action" disabled={!logMessage.trim()}>Append to log</button></form>
     </aside>
   );
