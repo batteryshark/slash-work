@@ -340,6 +340,61 @@ test("the CLI can tick a checklist item, so a delegated task can reach review", 
   assert.match(off.stdout, /0\s+\[ \]\s+does the thing/);
 });
 
+test("CLI move and log advance the task file's updatedAt exactly as an API move does", async () => {
+  const root = await temporaryDirectory("work-updatedat-");
+  const work = (...argv) => execFile(process.execPath, [launcherPath.pathname, ...argv], { cwd: root });
+  await work("init", root);
+  await work("task", "Sweeper-visible work");
+
+  // A task last touched by the CLI must be visible to an incremental sweeper,
+  // which keys off the file's updatedAt. Grep the file before and after each
+  // mutation, and check the frontmatter timestamp is the same `now` the
+  // mutation appended to the progress log — the invariant that makes the CLI
+  // and API paths indistinguishable.
+  const taskFile = () => readFile(join(root, ".work", "tasks", "W-0001.md"), "utf8");
+  const frontmatterUpdatedAt = (content) => {
+    const match = content.match(/^updatedAt: "([^"]+)"/m);
+    assert.ok(match, `file must carry updatedAt:\n${content}`);
+    return match[1];
+  };
+  const lastLogAt = (content) => {
+    const entries = [...content.matchAll(/^- (.+?) — /gm)];
+    assert.ok(entries.length > 0, `file must carry a progress log:\n${content}`);
+    return entries.at(-1)[1];
+  };
+  const before = frontmatterUpdatedAt(await taskFile());
+
+  await work("move", "W-0001", "in_progress");
+  let content = await taskFile();
+  const afterCliMove = frontmatterUpdatedAt(content);
+  assert.notEqual(afterCliMove, before, "work move must advance the file's updatedAt");
+  assert.equal(afterCliMove, lastLogAt(content));
+
+  await work("log", "W-0001", "Implementation started");
+  content = await taskFile();
+  const afterCliLog = frontmatterUpdatedAt(content);
+  assert.notEqual(afterCliLog, afterCliMove, "work log must advance the file's updatedAt");
+  assert.equal(afterCliLog, lastLogAt(content));
+
+  const launched = await launchApiFromCli(root);
+  try {
+    const apiMove = await apiRequest(launched.origin, "/api/tasks/W-0001/move", {
+      method: "POST",
+      body: { status: "review" },
+    });
+    assert.equal(apiMove.response.status, 200);
+    assert.equal(apiMove.payload.updatedAt, apiMove.payload.log.at(-1).at);
+    content = await taskFile();
+    const afterApiMove = frontmatterUpdatedAt(content);
+    assert.notEqual(afterApiMove, afterCliLog, "an API move must advance the file's updatedAt");
+    assert.equal(afterApiMove, apiMove.payload.updatedAt);
+    assert.equal(afterApiMove, lastLogAt(content));
+    assert.match(content, /^status: "review"/m);
+  } finally {
+    await stopChild(launched.child);
+  }
+});
+
 test("blocked is gated like review: every criterion is ticked or declined with a reason", async () => {
   const root = await temporaryDirectory("work-decline-");
   const work = (...argv) => execFile(process.execPath, [launcherPath.pathname, ...argv], { cwd: root });
