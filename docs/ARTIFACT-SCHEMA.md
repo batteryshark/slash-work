@@ -64,7 +64,7 @@ not emit YAML-only syntax, multiline header values, comments, or nested YAML.
 Preserve the canonical key spelling and order shown in the templates.
 
 Use ISO 8601 UTC timestamps such as `2026-07-13T14:30:00.000Z`. On creation,
-set `createdAt`/`created_at` and `updatedAt`/`updated_at` to the same instant.
+set `createdAt` and `updatedAt` to the same instant.
 On mutation, preserve the creation timestamp and advance the update timestamp.
 End the file with one newline.
 
@@ -278,31 +278,37 @@ sets it to hand the item to automation, and Work rejects it from any agent
 identity. Legacy records carrying the removed `priority`, `task_type`/`type`,
 `assignee`, `estimate`, or `agents` keys still load — a non-empty `agents`
 list reads as `delegated: true` — and the removed keys are dropped on the
-next write. Task relationships contain valid task IDs. A task cannot become `done` while a
-`depends_on` ID is missing or not itself `done`. A task cannot enter `review`
-while any requirement or acceptance criterion is unchecked; this invariant is
-enforced by the shared workspace API rather than by harness-specific hooks.
+next write. Pre-0.3 records with snake_case keys (`project_path`, `due_at`, …)
+load the same way; the canonical keys are the camelCase ones shown below.
+Task relationships contain valid task IDs. A task cannot become `done` while a
+`dependsOn` ID is missing or not itself `done`. A task cannot enter `review`
+or `blocked` while any requirement or acceptance criterion is neither ticked
+nor declined-with-a-reason (CONTRACT §3: handing work back means saying what
+was met and why the rest was not); these invariants are enforced by the shared
+workspace API rather than by harness-specific hooks, and apply to humans and
+agents alike.
 
 ```markdown
 ---
 id: "W-0001"
 title: "Build the operational board"
 status: "in_progress"
-project_path: "software/rekit"
+projectPath: "software/rekit"
 projectId: "550e8400-e29b-41d4-a716-446655440000"
 delegated: false
 tags: ["kanban","release"]
-depends_on: []
-blocked_by: []
-blocked_reason: null
-parent_id: null
-due_at: null
+refs: []
+dependsOn: []
+blockedBy: []
+blockedReason: null
+parentId: null
+dueAt: null
 source: null
-created_at: "2026-07-13T14:30:00.000Z"
-updated_at: "2026-07-13T14:35:00.000Z"
-started_at: "2026-07-13T14:35:00.000Z"
-completed_at: null
-cancelled_at: null
+createdAt: "2026-07-13T14:30:00.000Z"
+updatedAt: "2026-07-13T14:35:00.000Z"
+startedAt: "2026-07-13T14:35:00.000Z"
+completedAt: null
+cancelledAt: null
 ---
 
 ## Description
@@ -330,15 +336,20 @@ Supporting context.
 ## Completion Summary
 ```
 
-Emit all eight canonical `##` sections in that order, even when empty. Checklist
-lines must be exactly `- [ ] text` or `- [x] text`. Progress lines must be
-exactly `- <ISO timestamp> — <message>` using an em dash surrounded by spaces.
-Append a progress entry when creating, editing, moving, checking or reopening a
-checklist item, or recording manual progress. Do not silently rewrite prior log
-entries.
+Emit all eight canonical `##` sections in that order, even when empty. A
+checklist item has three states. Checklist lines must be exactly `- [ ] text`
+(open), `- [x] text` (verified), or `- [~] text — reason` (declined:
+verified-as-not-done, carrying the reason on the same line). The decline
+separator is an em dash surrounded by spaces; the parser splits on the
+rightmost occurrence, so item text containing the separator round-trips.
+Declining through the API or `work check --decline` requires a non-empty
+one-line reason. Progress lines must be exactly `- <ISO timestamp> — <message>`
+using an em dash surrounded by spaces. Append a progress entry when creating,
+editing, moving, checking, declining, or reopening a checklist item, or
+recording manual progress. Do not silently rewrite prior log entries.
 
-Set `started_at` the first time a task enters `in_progress`. Set `completed_at`
-when it enters `done`, and clear it if it leaves `done`. Set `cancelled_at` when
+Set `startedAt` the first time a task enters `in_progress`. Set `completedAt`
+when it enters `done`, and clear it if it leaves `done`. Set `cancelledAt` when
 it enters `cancelled`, and clear it if it leaves `cancelled`. Preserve
 unrecognized metadata and extra `##` sections when updating an existing task.
 
@@ -355,7 +366,7 @@ Before writing an artifact:
 5. Serialize header values as compact JSON and the body with the exact grammar
    above.
 6. Persist the project's immutable `projectId` and put the file in that
-   project's physical store; treat `projectPath`/`project_path` as its current
+   project's physical store; treat `projectPath` as its current
    location, not its identity.
 7. Preserve unknown fields and content on update, advance the update timestamp,
    and append required history.

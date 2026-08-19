@@ -22,15 +22,13 @@ actually pick up. It is a conversation, not a form-filling exercise.
 4. **Preserve what is there.** The human's words in the description are
    context you clarify, never text you replace.
 
-## The five parts, and what each is for
+## Section meaning
 
-| Section | Answers | Written when |
-|---|---|---|
-| **Description** | What is this, what is the situation? Background. | Can be written before anything is understood |
-| **Goal** | What do we want to do about it? One discrete outcome. | Needs a decision |
-| **Requirements** | What must be true of the solution? | After the goal is settled |
-| **Acceptance criteria** | How will we know it is done? Checkable. | After requirements |
-| **Plan** | What should someone know to accomplish it? | Optional; skip when the goal is obvious |
+One authority defines what each section holds: the goal standard, at
+[`goal-and-epic-craft/skills/craft-goal/STANDARD.md`](../../../goal-and-epic-craft/skills/craft-goal/STANDARD.md)
+(registered as `~/.claude/skills/craft-goal/STANDARD.md`). Read it before
+writing sections. In conversation they settle in order: description, then
+goal, then requirements, then acceptance criteria, then plan.
 
 If the goal is not decidable yet, say so and stop. An item whose goal reads
 "decide whether to do X" is a legitimate, well-defined piece of work.
