@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.1 - 2026-08-19
 
 ### Fixed
 
@@ -68,6 +68,7 @@
 - A duplicate project id degrades to a warning instead of killing boot.
 - Workspace snapshots never reference an unlisted project.
 
+[1.1.1]: https://github.com/batteryshark/slash-work/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/batteryshark/slash-work/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/batteryshark/slash-work/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/batteryshark/slash-work/compare/v0.2.22...v1.0.0

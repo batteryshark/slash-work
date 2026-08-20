@@ -1,6 +1,11 @@
 # Work ↔ Dromond Contract
 
-Version 0.5 — 2026-08-15 — draft for review. (0.5: §3 gains verb 5 — propose
+Version 0.6 — 2026-08-19 — sunset draft. (0.6: the owner approved merging the
+two products into one repo with hard internal modules
+(decision_mt0pu45p_8859446def2c); §6's "no merge" non-goal is struck, and this
+file's successor is the merged repo's INVARIANTS.md, where every rule names
+the test that enforces it. Until the cutover, everything else here remains in
+force. 0.5: §3 gains verb 5 — propose
 follow-on work; Work enforces it — an agent-created task must be the child of
 a delegated goal, never top-level. 0.4: the execution side is named
 **Dromond**; this file called it Orchestra. Same party, same verbs, same
@@ -123,7 +128,9 @@ stable.
 
 ## 6. Non-goals
 
-- No merge of the two projects.
+- ~~No merge of the two projects.~~ Struck 2026-08-19: the owner approved the
+  merge (one repo, one release train, hard internal modules). The remaining
+  non-goals below stay in force and carry into INVARIANTS.md.
 - Work never learns about backends, models, harnesses, or rosters.
 - Work embeds no model client. AI writing assistance reaches Work only as an
   MCP client (an agent editing fields on request). Existing built-in AI-assist
